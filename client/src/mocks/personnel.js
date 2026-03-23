@@ -1,0 +1,248 @@
+// Personnel roster — pilots, crew, and ground service
+// Training status: current | expiring | expired
+// Role: pilot_pic | pilot_sic | dispatcher | mechanic | ground | safety_officer | admin
+
+const today = new Date('2026-03-21')
+const daysFrom = (d) => new Date(today.getTime() + d * 86_400_000).toISOString().split('T')[0]
+const daysBefore = (d) => daysFrom(-d)
+
+export const mockPersonnel = [
+  // ─── Flight Crew ──────────────────────────────────────────────────────────
+  {
+    id: 'prs-001',
+    name: 'James Smith',
+    role: 'pilot_pic',
+    roleLabel: 'Pilot — PIC',
+    department: 'Flight Operations',
+    certificateNumber: 'ATP-4421190',
+    certType: 'ATP',
+    medicalClass: 1,
+    medicalExpiry: daysFrom(165),
+    lastFlightReview: daysBefore(280),
+    ifrCurrencyExpiry: daysFrom(28),       // expiring soon
+    nightCurrencyExpiry: daysFrom(55),
+    dutyHoursLast30d: 62,
+    flightHoursYtd: 214,
+    training: [
+      { course: 'Initial SMS Training',      completedOn: '2025-01-10', status: 'current', nextDue: '2027-01-10' },
+      { course: 'CRM — Crew Resource Mgmt', completedOn: '2025-06-15', status: 'current', nextDue: '2027-06-15' },
+      { course: 'HAZMAT Awareness',          completedOn: '2024-11-20', status: 'current', nextDue: '2026-11-20' },
+      { course: 'Emergency Procedures',      completedOn: '2025-03-01', status: 'current', nextDue: '2027-03-01' },
+    ],
+  },
+  {
+    id: 'prs-002',
+    name: 'Rachel Jones',
+    role: 'pilot_sic',
+    roleLabel: 'Pilot — SIC',
+    department: 'Flight Operations',
+    certificateNumber: 'CPL-8812044',
+    certType: 'Commercial',
+    medicalClass: 2,
+    medicalExpiry: daysFrom(90),
+    lastFlightReview: daysBefore(180),
+    ifrCurrencyExpiry: daysFrom(70),
+    nightCurrencyExpiry: daysFrom(-5),     // expired
+    dutyHoursLast30d: 45,
+    flightHoursYtd: 160,
+    training: [
+      { course: 'Initial SMS Training',      completedOn: '2025-02-01', status: 'current', nextDue: '2027-02-01' },
+      { course: 'CRM — Crew Resource Mgmt', completedOn: '2024-06-10', status: 'expiring', nextDue: daysFrom(20) },
+      { course: 'HAZMAT Awareness',          completedOn: '2024-11-01', status: 'current', nextDue: '2026-11-01' },
+      { course: 'Emergency Procedures',      completedOn: '2025-01-15', status: 'current', nextDue: '2027-01-15' },
+    ],
+  },
+  {
+    id: 'prs-003',
+    name: 'Marcus Davis',
+    role: 'pilot_pic',
+    roleLabel: 'Pilot — PIC',
+    department: 'Flight Operations',
+    certificateNumber: 'ATP-9930017',
+    certType: 'ATP',
+    medicalClass: 1,
+    medicalExpiry: daysFrom(210),
+    lastFlightReview: daysBefore(90),
+    ifrCurrencyExpiry: daysFrom(120),
+    nightCurrencyExpiry: daysFrom(100),
+    dutyHoursLast30d: 58,
+    flightHoursYtd: 198,
+    training: [
+      { course: 'Initial SMS Training',      completedOn: '2025-01-15', status: 'current', nextDue: '2027-01-15' },
+      { course: 'CRM — Crew Resource Mgmt', completedOn: '2025-07-20', status: 'current', nextDue: '2027-07-20' },
+      { course: 'HAZMAT Awareness',          completedOn: '2025-01-05', status: 'current', nextDue: '2027-01-05' },
+      { course: 'Emergency Procedures',      completedOn: '2025-02-10', status: 'current', nextDue: '2027-02-10' },
+    ],
+  },
+  {
+    id: 'prs-004',
+    name: 'Anika Patel',
+    role: 'pilot_sic',
+    roleLabel: 'Pilot — SIC',
+    department: 'Flight Operations',
+    certificateNumber: 'CPL-7701234',
+    certType: 'Commercial',
+    medicalClass: 2,
+    medicalExpiry: daysFrom(320),
+    lastFlightReview: daysBefore(60),
+    ifrCurrencyExpiry: daysFrom(180),
+    nightCurrencyExpiry: daysFrom(90),
+    dutyHoursLast30d: 40,
+    flightHoursYtd: 130,
+    training: [
+      { course: 'Initial SMS Training',      completedOn: '2025-03-01', status: 'current', nextDue: '2027-03-01' },
+      { course: 'CRM — Crew Resource Mgmt', completedOn: '2025-03-15', status: 'current', nextDue: '2027-03-15' },
+      { course: 'HAZMAT Awareness',          completedOn: '2025-02-01', status: 'current', nextDue: '2027-02-01' },
+      { course: 'Emergency Procedures',      completedOn: '2024-09-10', status: 'expiring', nextDue: daysFrom(30) },
+    ],
+  },
+  {
+    id: 'prs-005',
+    name: 'Carlos Rivera',
+    role: 'pilot_pic',
+    roleLabel: 'Pilot — PIC',
+    department: 'Flight Operations',
+    certificateNumber: 'ATP-5540088',
+    certType: 'ATP',
+    medicalClass: 1,
+    medicalExpiry: daysFrom(-10),          // expired
+    lastFlightReview: daysBefore(400),
+    ifrCurrencyExpiry: daysFrom(200),
+    nightCurrencyExpiry: daysFrom(150),
+    dutyHoursLast30d: 70,
+    flightHoursYtd: 241,
+    training: [
+      { course: 'Initial SMS Training',      completedOn: '2024-12-01', status: 'current', nextDue: '2026-12-01' },
+      { course: 'CRM — Crew Resource Mgmt', completedOn: '2024-05-01', status: 'current', nextDue: '2026-05-01' },
+      { course: 'HAZMAT Awareness',          completedOn: '2023-11-15', status: 'expired',  nextDue: '2025-11-15' },
+      { course: 'Emergency Procedures',      completedOn: '2024-08-01', status: 'current', nextDue: '2026-08-01' },
+    ],
+  },
+  // ─── Dispatchers ──────────────────────────────────────────────────────────
+  {
+    id: 'prs-006',
+    name: 'Alex Torres',
+    role: 'dispatcher',
+    roleLabel: 'Dispatcher',
+    department: 'Operations',
+    certificateNumber: 'ADD-220044',
+    certType: 'Aircraft Dispatcher',
+    medicalClass: null,
+    medicalExpiry: null,
+    lastFlightReview: null,
+    ifrCurrencyExpiry: null,
+    nightCurrencyExpiry: null,
+    dutyHoursLast30d: 88,
+    flightHoursYtd: 0,
+    training: [
+      { course: 'Initial SMS Training',      completedOn: '2025-01-20', status: 'current', nextDue: '2027-01-20' },
+      { course: 'Emergency Procedures',      completedOn: '2025-01-20', status: 'current', nextDue: '2027-01-20' },
+      { course: 'HAZMAT Awareness',          completedOn: '2025-01-20', status: 'current', nextDue: '2027-01-20' },
+    ],
+  },
+  // ─── Safety Officer ────────────────────────────────────────────────────────
+  {
+    id: 'prs-007',
+    name: 'Jordan Lee',
+    role: 'safety_officer',
+    roleLabel: 'Safety Manager',
+    department: 'Safety',
+    certificateNumber: null,
+    certType: null,
+    medicalClass: null,
+    medicalExpiry: null,
+    lastFlightReview: null,
+    ifrCurrencyExpiry: null,
+    nightCurrencyExpiry: null,
+    dutyHoursLast30d: 80,
+    flightHoursYtd: 0,
+    training: [
+      { course: 'Initial SMS Training',      completedOn: '2025-01-05', status: 'current', nextDue: '2027-01-05' },
+      { course: 'SMS Implementation (CAST)', completedOn: '2025-02-10', status: 'current', nextDue: '2028-02-10' },
+      { course: 'Root Cause Analysis',       completedOn: '2025-03-01', status: 'current', nextDue: '2028-03-01' },
+      { course: 'Emergency Procedures',      completedOn: '2025-01-05', status: 'current', nextDue: '2027-01-05' },
+    ],
+  },
+  // ─── Mechanics ────────────────────────────────────────────────────────────
+  {
+    id: 'prs-008',
+    name: 'Tyler Brooks',
+    role: 'mechanic',
+    roleLabel: 'A&P Mechanic',
+    department: 'Maintenance',
+    certificateNumber: 'AME-774412',
+    certType: 'A&P Certificate',
+    medicalClass: null,
+    medicalExpiry: null,
+    lastFlightReview: null,
+    ifrCurrencyExpiry: null,
+    nightCurrencyExpiry: null,
+    dutyHoursLast30d: 92,
+    flightHoursYtd: 0,
+    training: [
+      { course: 'Initial SMS Training',      completedOn: '2025-01-10', status: 'current', nextDue: '2027-01-10' },
+      { course: 'HAZMAT Handling',           completedOn: '2024-10-15', status: 'current', nextDue: '2026-10-15' },
+      { course: 'FOD Awareness',             completedOn: '2025-02-01', status: 'current', nextDue: '2027-02-01' },
+    ],
+  },
+  {
+    id: 'prs-009',
+    name: 'Diane Wu',
+    role: 'mechanic',
+    roleLabel: 'A&P / IA',
+    department: 'Maintenance',
+    certificateNumber: 'AME-881022',
+    certType: 'A&P / IA',
+    medicalClass: null,
+    medicalExpiry: null,
+    lastFlightReview: null,
+    ifrCurrencyExpiry: null,
+    nightCurrencyExpiry: null,
+    dutyHoursLast30d: 86,
+    flightHoursYtd: 0,
+    training: [
+      { course: 'Initial SMS Training',      completedOn: '2024-12-15', status: 'current', nextDue: '2026-12-15' },
+      { course: 'HAZMAT Handling',           completedOn: '2024-10-01', status: 'current', nextDue: '2026-10-01' },
+      { course: 'FOD Awareness',             completedOn: '2024-12-15', status: 'current', nextDue: '2026-12-15' },
+    ],
+  },
+  // ─── Ground Service ────────────────────────────────────────────────────────
+  {
+    id: 'prs-010',
+    name: 'Sam Nguyen',
+    role: 'ground',
+    roleLabel: 'Ground Handler',
+    department: 'Ground Operations',
+    certificateNumber: null,
+    certType: null,
+    medicalClass: null,
+    medicalExpiry: null,
+    lastFlightReview: null,
+    ifrCurrencyExpiry: null,
+    nightCurrencyExpiry: null,
+    dutyHoursLast30d: 76,
+    flightHoursYtd: 0,
+    training: [
+      { course: 'Initial SMS Training',      completedOn: '2025-01-10', status: 'current', nextDue: '2027-01-10' },
+      { course: 'FOD Awareness',             completedOn: '2025-01-10', status: 'current', nextDue: '2027-01-10' },
+      { course: 'Ramp Safety',               completedOn: '2024-09-01', status: 'expiring', nextDue: daysFrom(25) },
+    ],
+  },
+]
+
+// Training completion summary by department (for charts)
+export const mockTrainingSummary = [
+  { department: 'Flight Operations', total: 5, completed: 4, pct: 80 },
+  { department: 'Operations',        total: 1, completed: 1, pct: 100 },
+  { department: 'Safety',            total: 1, completed: 1, pct: 100 },
+  { department: 'Maintenance',       total: 2, completed: 2, pct: 100 },
+  { department: 'Ground Operations', total: 1, completed: 1, pct: 100 },
+]
+
+// Overall training completion (for KPI scorecard)
+export const mockTrainingKpi = {
+  totalPersonnel: 10,
+  smsTrainingCurrent: 9,         // 1 has expired HAZMAT
+  currencyIssues: 3,             // night currency expired (Jones), medical expired (Rivera), HAZMAT expired (Rivera)
+  overdueCourses: 2,
+}

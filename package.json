@@ -1,0 +1,8 @@
+{
+  "name": "flightsafe-dashboard",
+  "private": true,
+  "scripts": {
+    "dev": "cd client && npm run dev",
+    "test": "cd client && npm run test:run"
+  }
+}
