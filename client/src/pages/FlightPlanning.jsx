@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { mockAircraft, EQUIPMENT_FLAGS, RISK_PROFILE_FLAGS } from '../mocks/aircraft'
 import { TerrainProfile, CeilingRiskBar, computeMEA } from '../components/shared/TerrainProfile'
+import { PilotPanel, AvailabilityChip } from '../components/shared/PilotPanel'
+import { addFlight, extractRiskItems } from '../store/flights'
+import { estimateFlightDuration, estimateEta } from '../lib/flightCalc'
 
 // ─── Departure time picker ─────────────────────────────────────────────────────
 
@@ -145,6 +148,7 @@ function DepartureTimePicker({ value, onChange }) {
 const WEATHER     = '/weather-api'
 const AIRSAFE     = '/airsafe-api'
 const KNOWN_RISKS = '/known-risks'
+const PILOT_RISK  = '/pilot-risk'
 
 // ─── Flight category helpers ───────────────────────────────────────────────────
 
@@ -697,7 +701,12 @@ function EquipmentPanel({ equipment = {}, riskProfile = {} }) {
   )
 }
 
-function AircraftRiskCard({ aircraft, airSafeResult, loading, error, terrainMetrics, knownRiskAssessment, loadingKnown }) {
+function AircraftRiskCard({
+  aircraft, airSafeResult, loading, error, terrainMetrics,
+  knownRiskAssessment, loadingKnown,
+  pilotAssessments, loadingPilots,
+  flightConditions, onSchedule, onScheduleReturn, isScheduled, scheduledEta,
+}) {
   const [expanded, setExpanded] = useState(false)
   const { ratio, rate, label, color, mode } = riskFromAirSafe(
     airSafeResult?.results,
@@ -855,6 +864,26 @@ function AircraftRiskCard({ aircraft, airSafeResult, loading, error, terrainMetr
           })()}
         </div>
 
+        {/* Pilot availability chip */}
+        <div className="flex-shrink-0 hidden md:block" onClick={(e) => e.stopPropagation()}>
+          <AvailabilityChip assessments={pilotAssessments} />
+        </div>
+
+        {/* Schedule button */}
+        {isScheduled ? (
+          <span className="flex-shrink-0 text-xs px-2 py-1 rounded border border-green-500/30 text-green-400 bg-green-400/10">
+            ✓ Scheduled
+          </span>
+        ) : (
+          <button
+            className="flex-shrink-0 text-xs px-2 py-1 rounded border border-sky-500/40 text-sky-400 hover:bg-sky-500/10 transition-colors"
+            onClick={(e) => { e.stopPropagation(); setExpanded(true) }}
+            title="Schedule this flight"
+          >
+            Schedule
+          </button>
+        )}
+
         <span className="text-slate-500 text-xs flex-shrink-0">{expanded ? '▲' : '▼'}</span>
       </button>
 
@@ -956,6 +985,19 @@ function AircraftRiskCard({ aircraft, airSafeResult, loading, error, terrainMetr
           {/* Known-risk exposure assessment */}
           <KnownRiskPanel assessment={knownRiskAssessment} loading={loadingKnown} />
 
+          {/* Pilot availability + schedule */}
+          <PilotPanel
+            aircraft={aircraft}
+            pilotAssessments={pilotAssessments}
+            loading={loadingPilots}
+            flightConditions={flightConditions}
+            departureTime={flightConditions?.depTime?.date ?? null}
+            onSchedule={onSchedule}
+            onScheduleReturn={onScheduleReturn}
+            isScheduled={isScheduled}
+            scheduledEta={scheduledEta}
+          />
+
           {/* Equipment + risk profile */}
           <EquipmentPanel equipment={aircraft.equipment} riskProfile={aircraft.riskProfile} />
 
@@ -992,6 +1034,10 @@ export function FlightPlanning() {
   const [terrainMetrics, setTerrainMetrics] = useState(null)  // { mea, approachDA, cloudAglFt, deptElevFt }
   const [knownRisks,     setKnownRisks]     = useState(null)  // KnownRiskAssessment per aircraft
   const [loadingKnown,   setLoadingKnown]   = useState(false)
+  const [pilotRisks,     setPilotRisks]     = useState(null)  // { [tailNumber]: PilotAssessment[] }
+  const [loadingPilots,  setLoadingPilots]  = useState(false)
+  const [scheduledMap,   setScheduledMap]   = useState({})    // { [ac.id]: true }
+  const [scheduledEtas,  setScheduledEtas]  = useState({})    // { [ac.id]: Date }
 
   const [loadingDept,  setLoadingDept]  = useState(false)
   const [loadingRoute, setLoadingRoute] = useState(false)
@@ -1148,6 +1194,41 @@ export function FlightPlanning() {
     setLoadingKnown(false)
   }, [dept, arr])
 
+  // ── Query PilotRisk API for all eligible aircraft ─────────────────────────
+  const fetchPilotRisks = useCallback(async (eligibleAc, routeDat, deptWx, currentDepTime) => {
+    if (!dept || !arr || !eligibleAc.length) return
+
+    setLoadingPilots(true)
+
+    // Derive flight conditions
+    const deptMetar = deptWx?.metar?.[0] ?? null
+    const cat       = deptMetar?.flight_category ?? null
+    const isIFR     = cat === 'IFR' || cat === 'LIFR'
+    const h         = currentDepTime?.date ? currentDepTime.date.getUTCHours() : new Date().getUTCHours()
+    const isNight   = h >= 22 || h < 6
+
+    const aircraft = eligibleAc.map((ac) => ({ icaoType: ac.icaoType, tailNumber: ac.tailNumber }))
+
+    try {
+      const res = await fetch(`${PILOT_RISK}/api/assess-crew`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          aircraft,
+          conditions: { isIFR, isNight, hasPassengers: true },
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setPilotRisks(data.byTail ?? null)
+      }
+    } catch {
+      // PilotRisk unavailable — fail silently
+    } finally {
+      setLoadingPilots(false)
+    }
+  }, [dept, arr])
+
   // ── Query AirSafe for eligible aircraft → returns fresh results map ──────
   // Takes the eligible array directly so the caller controls filtering.
   // Updates state incrementally as results stream in AND returns the final map.
@@ -1194,6 +1275,8 @@ export function FlightPlanning() {
     setAircraftRisks({})
     setKnownRisks(null)
     setTerrainMetrics(null)
+    setPilotRisks(null)
+    setScheduledMap({})
   }, [dept, arr])
 
   useEffect(() => {
@@ -1208,10 +1291,135 @@ export function FlightPlanning() {
       const airSafeResults = await fetchAirSafeRisks(eligible, routeData, deptWeather)
       if (cancelled) return
       await fetchKnownRisks(eligible, airSafeResults, null, routeData, deptWeather)
+      if (cancelled) return
+      await fetchPilotRisks(eligible, routeData, deptWeather, depTime)
     })()
 
     return () => { cancelled = true }
-  }, [dept, arr, pax, routeData, deptWeather, fetchAirSafeRisks, fetchKnownRisks])
+  }, [dept, arr, pax, routeData, deptWeather, depTime, fetchAirSafeRisks, fetchKnownRisks, fetchPilotRisks])
+
+  // ── Schedule a flight from the plan page ─────────────────────────────────
+  function handleScheduleFlight(aircraft, picId, sicId, missionType) {
+    const crew = pilotRisks?.[aircraft.tailNumber] ?? []
+    const pic  = crew.find((a) => a.pilotId === picId)
+    const sic  = crew.find((a) => a.pilotId === sicId)
+
+    // Derive flight risk scores from existing assessments
+    const knownSummary  = knownRisks?.[aircraft.id]?.summary
+    const combinedRatio = knownSummary?.ratioToBaseline ?? 1.0
+    const riskScore     = Math.min(100, Math.round(combinedRatio * 25))
+
+    const picRiskP = pic ? Math.min(100, pic.riskScore) : 50
+    const riskA    = aircraft.inspectionStatus === 'current' ? 15
+                   : aircraft.inspectionStatus === 'due_soon' ? 50 : 85
+    const sigmets  = routeData?.sigmets?.route?.features ?? []
+    const airmets  = routeData?.airmets?.route?.features  ?? []
+    const riskV    = sigmets.length > 0 ? 75 : airmets.length > 0 ? 45 : 25
+    const riskE    = 30
+
+    // ── Build rich riskSnapshot ──────────────────────────────────────────────
+    const deptMetar = deptWeather?.metar?.[0] ?? null
+    const flightCategory = deptMetar?.flight_category ?? null
+    const windKts = deptMetar?.wind_speed_kt ?? 0
+    const visSm   = deptMetar?.visibility_statute_mi ?? 10
+
+    const weatherSummary = {
+      flightCategory,
+      sigmetCount: sigmets.length,
+      airmetCount: airmets.length,
+      windKts,
+      visibilitySm: visSm,
+    }
+
+    const picAssessment = pic ? { factors: pic.factors ?? [], disqualifiers: pic.disqualifiers ?? [] } : null
+    const riskItems = extractRiskItems(knownSummary, weatherSummary, picAssessment)
+
+    const terrainProfile = routeData?.elevation
+      ? { profile: routeData.elevation.profile ?? [], maxElevFt: routeData.elevation.maxElevFt }
+      : null
+
+    const now = new Date().toISOString()
+    const riskSnapshot = {
+      capturedAt:      now,
+      lastCheckedAt:   now,
+      ratioToBaseline: combinedRatio,
+      riskTrend:       'stable',
+      riskDelta:       0,
+      activeFactors:   knownSummary?.activeFactors ?? [],
+      weatherSummary,
+      terrainProfile,
+      riskItems,
+      // Stored for recalculation (the profile fields needed to re-query KnownRisks)
+      knownRiskProfile: knownRisks?.[aircraft.id]?.profile ?? null,
+    }
+
+    const newFlight = {
+      id:                  `flt-${Date.now()}`,
+      callsign:            aircraft.tailNumber,
+      tailNumber:          aircraft.tailNumber,
+      aircraftType:        aircraft.icaoType,
+      departure:           dept,
+      arrival:             arr,
+      waypoints:           [],
+      plannedDepartureUtc: depTime.date ? depTime.date.toISOString() : new Date(Date.now() + 3_600_000).toISOString(),
+      status:              'planned',
+      pic:                 pic ? `${pic.name.split(' ')[1]}, ${pic.name[0]}.` : picId,
+      picId,
+      sic:                 sic ? `${sic.name.split(' ')[1]}, ${sic.name[0]}.` : null,
+      sicId:               sicId ?? null,
+      passengers:          parseInt(pax) || 0,
+      missionType,
+      riskScore,
+      riskP: picRiskP,
+      riskA,
+      riskV,
+      riskE,
+      riskSnapshot,
+    }
+
+    addFlight(newFlight)
+    setScheduledMap((prev) => ({ ...prev, [aircraft.id]: true }))
+
+    // Compute and store ETA for return trip offer
+    const depDate = depTime.date ? depTime.date : new Date(Date.now() + 3_600_000)
+    const estDur  = estimateFlightDuration(dept, arr, aircraft.cruiseSpeedKts, 15)
+    const eta     = estimateEta(depDate, estDur?.totalHours)
+    if (eta) {
+      setScheduledEtas((prev) => ({ ...prev, [aircraft.id]: eta }))
+    }
+  }
+
+  function handleScheduleReturn(aircraft, { returnDep, returnArr, returnDepTime, missionType: retMission }) {
+    const newFlight = {
+      id:                  `flt-${Date.now()}`,
+      callsign:            aircraft.tailNumber,
+      tailNumber:          aircraft.tailNumber,
+      aircraftType:        aircraft.icaoType,
+      departure:           returnDep,
+      arrival:             returnArr,
+      waypoints:           [],
+      plannedDepartureUtc: returnDepTime.toISOString(),
+      status:              'planned',
+      pic:                 null,
+      picId:               null,
+      sic:                 null,
+      sicId:               null,
+      passengers:          0,
+      missionType:         retMission,
+      riskScore:           10,
+      riskSnapshot: {
+        capturedAt:      new Date().toISOString(),
+        lastCheckedAt:   new Date().toISOString(),
+        ratioToBaseline: 0.8,
+        riskTrend:       'stable',
+        riskDelta:       0,
+        weatherSummary:  null,
+        terrainProfile:  null,
+        riskItems:       [],
+      },
+    }
+    addFlight(newFlight)
+  }
 
   // ── Event handlers ──────────────────────────────────────────────────────
   function handleDeptCommit(icao) {
@@ -1407,6 +1615,13 @@ export function FlightPlanning() {
                   terrainMetrics={terrainMetrics}
                   knownRiskAssessment={knownRisks?.[ac.id] ?? null}
                   loadingKnown={loadingKnown}
+                  pilotAssessments={pilotRisks?.[ac.tailNumber] ?? null}
+                  loadingPilots={loadingPilots}
+                  flightConditions={{ dept, arr, depTime }}
+                  onSchedule={(picId, sicId, missionType) => handleScheduleFlight(ac, picId, sicId, missionType)}
+                  onScheduleReturn={(opts) => handleScheduleReturn(ac, opts)}
+                  isScheduled={scheduledMap[ac.id] ?? false}
+                  scheduledEta={scheduledEtas[ac.id] ?? null}
                 />
               ))}
             </div>

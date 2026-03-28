@@ -1,7 +1,6 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { SmsOverview } from './pages/SmsOverview'
-import { LiveOperations } from './pages/LiveOperations'
-import { FlightRiskList } from './pages/FlightRiskList'
+import { Flights } from './pages/Flights'
 import { ComplianceCenter } from './pages/ComplianceCenter'
 import { PilotReports } from './pages/PilotReports'
 import { Personnel } from './pages/Personnel'
@@ -13,9 +12,9 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/"            element={<SmsOverview />} />
-      <Route path="/live"        element={<LiveOperations />} />
+      <Route path="/flights"     element={<Flights />} />
+      <Route path="/live"        element={<Navigate to="/flights" replace />} />
       <Route path="/plan"        element={<FlightPlanning />} />
-      <Route path="/flights"     element={<FlightRiskList />} />
       <Route path="/personnel"   element={<Personnel />} />
       <Route path="/aircraft"    element={<AircraftRegistry />} />
       <Route path="/comms"       element={<SafetyComms />} />

@@ -17,6 +17,7 @@ export const mockAircraft = [
     icaoType: 'BE58',
     passengerCapacity: 5,
     opCostPerHour: 870,     // twin piston — fuel + mx
+    cruiseSpeedKts: 200,    // TAS at 8,000 ft, 65% power
     serviceCeiling: 20688,  // ft MSL
     singleEngineCeiling: 6500,
     year: 2018,
@@ -74,6 +75,7 @@ export const mockAircraft = [
     icaoType: 'C172',
     passengerCapacity: 3,
     opCostPerHour: 180,
+    cruiseSpeedKts: 122,    // TAS at 8,000 ft, 75% power
     serviceCeiling: 14000,
     year: 2020,
     serialNumber: '172S12344',
@@ -131,6 +133,7 @@ export const mockAircraft = [
     icaoType: 'PA28',
     passengerCapacity: 3,
     opCostPerHour: 155,
+    cruiseSpeedKts: 115,    // TAS at 6,500 ft
     serviceCeiling: 14100,
     year: 2015,
     serialNumber: '28-7890123',
@@ -189,6 +192,7 @@ export const mockAircraft = [
     icaoType: 'C208',
     passengerCapacity: 9,
     opCostPerHour: 680,
+    cruiseSpeedKts: 175,    // TAS at 10,000 ft (PT6A-114A at 65%)
     serviceCeiling: 25000,
     year: 2019,
     serialNumber: '20800451',
@@ -247,6 +251,7 @@ export const mockAircraft = [
     icaoType: 'C172',
     passengerCapacity: 3,
     opCostPerHour: 175,
+    cruiseSpeedKts: 120,    // TAS at 7,500 ft — older airframe, slightly slower
     serviceCeiling: 14000,
     year: 2008,
     serialNumber: '17273210',

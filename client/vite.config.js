@@ -18,6 +18,10 @@ export default defineConfig({
         target: 'http://localhost:5001',
         rewrite: (path) => path.replace(/^\/known-risks/, ''),
       },
+      '/pilot-risk': {
+        target: 'http://localhost:5002',
+        rewrite: (path) => path.replace(/^\/pilot-risk/, ''),
+      },
     },
   },
   test: {

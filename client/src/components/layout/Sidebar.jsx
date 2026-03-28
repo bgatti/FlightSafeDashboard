@@ -3,9 +3,8 @@ import { useUiStore } from '../../stores/uiStore'
 
 const NAV_ITEMS = [
   { to: '/',            label: 'SMS Overview',      icon: '🏠' },
-  { to: '/live',        label: 'Live Operations',   icon: '🗺️' },
   { to: '/plan',        label: 'Flight Planning',   icon: '🛫' },
-  { to: '/flights',     label: 'Flight Risk List',  icon: '📋' },
+  { to: '/flights',     label: 'Flights',           icon: '🗺️' },
   { divider: true },
   { to: '/personnel',   label: 'Personnel',         icon: '👥' },
   { to: '/aircraft',    label: 'Aircraft Registry', icon: '✈️' },

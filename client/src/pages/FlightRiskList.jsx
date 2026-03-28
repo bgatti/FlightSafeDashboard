@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { mockFlights } from '../mocks/flights'
+import { useState, useEffect } from 'react'
+import { getAllFlights, subscribe } from '../store/flights'
 import { RiskBadge } from '../components/shared/RiskBadge'
 import { PaveBadge } from '../components/shared/PaveBadge'
 import { useUiStore } from '../stores/uiStore'
@@ -186,16 +186,20 @@ export function FlightListToolbar({ sortBy, onSortChange }) {
 
 export function FlightRiskList() {
   const [sortBy, setSortBy] = useState('risk')
+  const [flights, setFlights] = useState(() => getAllFlights())
   const selectedId = useUiStore((s) => s.selectedFlightId)
   const setSelectedFlight = useUiStore((s) => s.setSelectedFlight)
 
-  const sorted = [...mockFlights].sort((a, b) => {
+  // Live-update when a flight is scheduled from /plan
+  useEffect(() => subscribe(setFlights), [])
+
+  const sorted = [...flights].sort((a, b) => {
     if (sortBy === 'risk') return b.riskScore - a.riskScore
     if (sortBy === 'departure') return new Date(a.plannedDepartureUtc) - new Date(b.plannedDepartureUtc)
     return a.callsign.localeCompare(b.callsign)
   })
 
-  const selectedFlight = mockFlights.find((f) => f.id === selectedId) ?? null
+  const selectedFlight = flights.find((f) => f.id === selectedId) ?? null
 
   return (
     <div className="flex gap-4 h-full" data-testid="page-flight-risk-list">
@@ -204,7 +208,7 @@ export function FlightRiskList() {
         <div className="mb-4">
           <h1 className="text-slate-100 font-bold text-lg">Flight Risk List</h1>
           <p className="text-slate-400 text-xs mt-0.5">
-            {mockFlights.length} flights · sorted by {sortBy}
+            {flights.length} flights · sorted by {sortBy}
           </p>
         </div>
 
