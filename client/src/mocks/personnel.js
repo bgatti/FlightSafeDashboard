@@ -17,6 +17,8 @@ export const mockPersonnel = [
     department: 'Flight Operations',
     certificateNumber: 'ATP-4421190',
     certType: 'ATP',
+    cfiCert: 'CFI-4421190',
+    cfiRatings: ['CFI', 'CFII', 'MEI'],
     medicalClass: 1,
     medicalExpiry: daysFrom(165),
     lastFlightReview: daysBefore(280),
@@ -39,6 +41,8 @@ export const mockPersonnel = [
     department: 'Flight Operations',
     certificateNumber: 'CPL-8812044',
     certType: 'Commercial',
+    cfiCert: 'CFI-8812044',
+    cfiRatings: ['CFI'],
     medicalClass: 2,
     medicalExpiry: daysFrom(90),
     lastFlightReview: daysBefore(180),
@@ -391,6 +395,58 @@ export const mockPersonnel = [
       { course: 'Aircraft Towing Procedures', completedOn: '2025-01-20', status: 'current', nextDue: '2027-01-20' },
     ],
   },
+  // ─── CFI / Flight Instructors ──────────────────────────────────────────────
+  // Linda Foster — full-time CFI/CFII. Not a Part 135 PIC/SIC; dedicated instructor role.
+  {
+    id: 'prs-017',
+    name: 'Linda Foster',
+    role: 'cfi',
+    roleLabel: 'Flight Instructor (CFI/CFII)',
+    department: 'Flight Operations',
+    certificateNumber: 'CPL-7790441',
+    certType: 'Commercial',
+    cfiCert: 'CFI-7790441',
+    cfiRatings: ['CFI', 'CFII'],
+    medicalClass: 2,
+    medicalExpiry: daysFrom(280),
+    lastFlightReview: daysBefore(60),
+    ifrCurrencyExpiry: daysFrom(90),
+    nightCurrencyExpiry: daysFrom(120),
+    dutyHoursLast30d: 72,
+    flightHoursYtd: 180,
+    training: [
+      { course: 'Initial SMS Training',      completedOn: '2025-01-10', status: 'current', nextDue: '2027-01-10' },
+      { course: 'CRM — Crew Resource Mgmt', completedOn: '2025-04-15', status: 'current', nextDue: '2027-04-15' },
+      { course: 'HAZMAT Awareness',          completedOn: '2025-02-20', status: 'current', nextDue: '2027-02-20' },
+      { course: 'Emergency Procedures',      completedOn: '2025-03-10', status: 'current', nextDue: '2027-03-10' },
+    ],
+  },
+  // Greg Yamamoto — CFI, also qualified as Part 135 SIC. Split duties between
+  // instructing and charter SIC flights. Combines CFI + Part 135 roles.
+  {
+    id: 'prs-018',
+    name: 'Greg Yamamoto',
+    role: 'pilot_sic',           // Part 135 SIC qualification
+    roleLabel: 'Pilot SIC / CFI',
+    department: 'Flight Operations',
+    certificateNumber: 'CPL-5512088',
+    certType: 'Commercial',
+    cfiCert: 'CFI-5512088',
+    cfiRatings: ['CFI'],
+    medicalClass: 2,
+    medicalExpiry: daysFrom(195),
+    lastFlightReview: daysBefore(120),
+    ifrCurrencyExpiry: daysFrom(45),
+    nightCurrencyExpiry: daysFrom(80),
+    dutyHoursLast30d: 55,
+    flightHoursYtd: 140,
+    training: [
+      { course: 'Initial SMS Training',      completedOn: '2025-01-15', status: 'current', nextDue: '2027-01-15' },
+      { course: 'CRM — Crew Resource Mgmt', completedOn: '2025-05-01', status: 'current', nextDue: '2027-05-01' },
+      { course: 'HAZMAT Awareness',          completedOn: '2025-03-01', status: 'current', nextDue: '2027-03-01' },
+      { course: 'Emergency Procedures',      completedOn: '2025-02-15', status: 'current', nextDue: '2027-02-15' },
+    ],
+  },
   // Rosa Mendez — FBO coordinator (desk / dispatch). 4yr experience.
   // Handles arrivals, scheduling, catering coordination, and fee management.
   {
@@ -482,8 +538,8 @@ export const mockTrainingSummary = [
 
 // Overall training completion (for KPI scorecard)
 export const mockTrainingKpi = {
-  totalPersonnel: 16,             // added Devon Park, Jordan Kim, Rosa Mendez
-  smsTrainingCurrent: 15,         // 1 has expired HAZMAT (Rivera)
+  totalPersonnel: 18,             // added Linda Foster (prs-017), Greg Yamamoto (prs-018)
+  smsTrainingCurrent: 17,         // 1 has expired HAZMAT (Rivera)
   currencyIssues: 3,              // night currency expired (Jones), medical expired (Rivera), HAZMAT expired (Rivera)
   overdueCourses: 2,
 }

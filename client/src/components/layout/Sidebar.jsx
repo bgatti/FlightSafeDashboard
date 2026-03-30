@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { to: '/pos',         label: 'Point of Sale',      icon: '🧾' },
   { to: '/business',    label: 'Business P&L',       icon: '📊' },
   { to: '/leases',      label: 'Leases',              icon: '📄' },
+  { to: '/training',   label: 'Pilot Training',      icon: '🎓' },
   { to: '/management',  label: 'Management',         icon: '📋' },
   { to: '/sim',         label: 'Simulation',         icon: '🎮' },
   { to: '/comms',       label: 'Safety Comms',       icon: '📡' },

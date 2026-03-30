@@ -14,6 +14,7 @@ import { POS } from './pos/POS'
 import { BusinessPnL } from './business/BusinessPnL'
 import { Management } from './management/Management'
 import { Leases } from './leases/Leases'
+import { Training } from './training/Training'
 
 export function AppRoutes() {
   return (
@@ -30,6 +31,7 @@ export function AppRoutes() {
       <Route path="/business"    element={<BusinessPnL />} />
       <Route path="/management"  element={<Management />} />
       <Route path="/leases"      element={<Leases />} />
+      <Route path="/training"    element={<Training />} />
       <Route path="/sim"         element={<Sim />} />
       <Route path="/comms"       element={<SafetyComms />} />
       <Route path="/compliance"  element={<ComplianceCenter />} />
