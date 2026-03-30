@@ -172,7 +172,14 @@ export const mockPersonnel = [
     roleLabel: 'A&P Mechanic',
     department: 'Maintenance',
     certificateNumber: 'AME-774412',
-    certType: 'A&P Certificate',
+    certType: 'A&P',
+    canReturnToService: false,    // A&P only — no IA authority
+    supervisorId: 'prs-011',      // reports to Sarah Cole
+    currentLocation: 'on_prem',
+    capacityHoursPerWeek: 40,
+    assignedHoursThisWeek: 12,    // on wo-003 (pitot heat), standing by for part arrival
+    specializations: ['piston', 'airframe', 'powerplant'],
+    yearsExperience: 8,
     medicalClass: null,
     medicalExpiry: null,
     lastFlightReview: null,
@@ -181,9 +188,9 @@ export const mockPersonnel = [
     dutyHoursLast30d: 92,
     flightHoursYtd: 0,
     training: [
-      { course: 'Initial SMS Training',      completedOn: '2025-01-10', status: 'current', nextDue: '2027-01-10' },
-      { course: 'HAZMAT Handling',           completedOn: '2024-10-15', status: 'current', nextDue: '2026-10-15' },
-      { course: 'FOD Awareness',             completedOn: '2025-02-01', status: 'current', nextDue: '2027-02-01' },
+      { course: 'Initial SMS Training',      completedOn: '2025-01-10', status: 'current',  nextDue: '2027-01-10' },
+      { course: 'HAZMAT Handling',           completedOn: '2024-10-15', status: 'current',  nextDue: '2026-10-15' },
+      { course: 'FOD Awareness',             completedOn: '2025-02-01', status: 'current',  nextDue: '2027-02-01' },
     ],
   },
   {
@@ -194,6 +201,13 @@ export const mockPersonnel = [
     department: 'Maintenance',
     certificateNumber: 'AME-881022',
     certType: 'A&P / IA',
+    canReturnToService: true,     // IA — can sign off annual/100hr return-to-service
+    supervisorId: null,           // senior inspector; no internal supervisor
+    currentLocation: 'on_prem',
+    capacityHoursPerWeek: 40,
+    assignedHoursThisWeek: 20,    // supervising multiple open WOs, airworthiness reviews
+    specializations: ['piston', 'turbine', 'avionics', 'airframe', 'powerplant'],
+    yearsExperience: 18,
     medicalClass: null,
     medicalExpiry: null,
     lastFlightReview: null,
@@ -202,9 +216,92 @@ export const mockPersonnel = [
     dutyHoursLast30d: 86,
     flightHoursYtd: 0,
     training: [
-      { course: 'Initial SMS Training',      completedOn: '2024-12-15', status: 'current', nextDue: '2026-12-15' },
-      { course: 'HAZMAT Handling',           completedOn: '2024-10-01', status: 'current', nextDue: '2026-10-01' },
-      { course: 'FOD Awareness',             completedOn: '2024-12-15', status: 'current', nextDue: '2026-12-15' },
+      { course: 'Initial SMS Training',      completedOn: '2024-12-15', status: 'current',  nextDue: '2026-12-15' },
+      { course: 'HAZMAT Handling',           completedOn: '2024-10-01', status: 'current',  nextDue: '2026-10-01' },
+      { course: 'FOD Awareness',             completedOn: '2024-12-15', status: 'current',  nextDue: '2026-12-15' },
+    ],
+  },
+  {
+    id: 'prs-011',
+    name: 'Sarah Cole',
+    role: 'mechanic',
+    roleLabel: 'A&P / IA — Chief Inspector',
+    department: 'Maintenance',
+    certificateNumber: 'AME-991055',
+    certType: 'A&P / IA',
+    canReturnToService: true,     // IA — primary signer for all RTS and annual sign-offs
+    supervisorId: null,           // chief inspector — reports to DOM
+    currentLocation: 'on_prem',
+    capacityHoursPerWeek: 40,
+    assignedHoursThisWeek: 36,    // lead on wo-001 (AOG), wo-005, wo-006 — heavily loaded
+    specializations: ['piston', 'turbine', 'airframe', 'powerplant', 'inspection'],
+    yearsExperience: 22,
+    medicalClass: null,
+    medicalExpiry: null,
+    lastFlightReview: null,
+    ifrCurrencyExpiry: null,
+    nightCurrencyExpiry: null,
+    dutyHoursLast30d: 96,
+    flightHoursYtd: 0,
+    training: [
+      { course: 'Initial SMS Training',      completedOn: '2025-01-08', status: 'current',  nextDue: '2027-01-08' },
+      { course: 'HAZMAT Handling',           completedOn: '2025-02-10', status: 'current',  nextDue: '2027-02-10' },
+      { course: 'FOD Awareness',             completedOn: '2025-01-08', status: 'current',  nextDue: '2027-01-08' },
+      { course: 'Human Factors in Mx',       completedOn: '2025-03-01', status: 'current',  nextDue: '2027-03-01' },
+    ],
+  },
+  {
+    id: 'prs-012',
+    name: 'Mike Ferris',
+    role: 'mechanic',
+    roleLabel: 'A&P Mechanic',
+    department: 'Maintenance',
+    certificateNumber: 'AME-662301',
+    certType: 'A&P',
+    canReturnToService: false,
+    supervisorId: 'prs-011',      // reports to Sarah Cole
+    currentLocation: 'on_prem',
+    capacityHoursPerWeek: 40,
+    assignedHoursThisWeek: 22,    // lead on wo-002 (brake repair), waiting on master cylinder
+    specializations: ['piston', 'airframe', 'landing_gear', 'hydraulics'],
+    yearsExperience: 12,
+    medicalClass: null,
+    medicalExpiry: null,
+    lastFlightReview: null,
+    ifrCurrencyExpiry: null,
+    nightCurrencyExpiry: null,
+    dutyHoursLast30d: 84,
+    flightHoursYtd: 0,
+    training: [
+      { course: 'Initial SMS Training',      completedOn: '2025-01-15', status: 'current',  nextDue: '2027-01-15' },
+      { course: 'HAZMAT Handling',           completedOn: '2024-11-20', status: 'current',  nextDue: '2026-11-20' },
+      { course: 'FOD Awareness',             completedOn: '2025-01-15', status: 'current',  nextDue: '2027-01-15' },
+    ],
+  },
+  {
+    id: 'prs-013',
+    name: 'T. Huang',
+    role: 'mechanic',
+    roleLabel: 'Avionics Technician (External)',
+    department: 'Maintenance',    // external contractor, attached to Maintenance
+    certificateNumber: 'AVN-330812',
+    certType: 'A&P',              // Garmin-certified avionics specialist
+    canReturnToService: false,
+    supervisorId: null,            // external contractor
+    currentLocation: 'off_site',   // scheduled on-site 2026-04-02
+    capacityHoursPerWeek: null,    // external — billed per engagement
+    assignedHoursThisWeek: 0,
+    specializations: ['avionics', 'garmin', 'autopilot'],
+    yearsExperience: 15,
+    medicalClass: null,
+    medicalExpiry: null,
+    lastFlightReview: null,
+    ifrCurrencyExpiry: null,
+    nightCurrencyExpiry: null,
+    dutyHoursLast30d: 0,
+    flightHoursYtd: 0,
+    training: [
+      { course: 'Garmin G1000 / GFC 700 Certification', completedOn: '2024-06-01', status: 'current', nextDue: '2026-06-01' },
     ],
   },
   // ─── Ground Service ────────────────────────────────────────────────────────
@@ -212,8 +309,13 @@ export const mockPersonnel = [
     id: 'prs-010',
     name: 'Sam Nguyen',
     role: 'ground',
-    roleLabel: 'Ground Handler',
+    roleLabel: 'Ground Handler / Line Tech',
+    fboRole: 'ground_handler',
     department: 'Ground Operations',
+    currentLocation: 'on_prem',
+    yearsExperience: 3,             // 3yr → experienceRisk = +2
+    capacityHoursPerWeek: 40,
+    assignedHoursThisWeek: 18,
     certificateNumber: null,
     certType: null,
     medicalClass: null,
@@ -227,23 +329,165 @@ export const mockPersonnel = [
       { course: 'Initial SMS Training',      completedOn: '2025-01-10', status: 'current', nextDue: '2027-01-10' },
       { course: 'FOD Awareness',             completedOn: '2025-01-10', status: 'current', nextDue: '2027-01-10' },
       { course: 'Ramp Safety',               completedOn: '2024-09-01', status: 'expiring', nextDue: daysFrom(25) },
+      { course: 'Fuel Handling & Type ID',   completedOn: '2024-06-15', status: 'current', nextDue: '2026-06-15' },
+    ],
+  },
+  // ─── FBO Line Service Staff ────────────────────────────────────────────────
+  // Devon Park — new hire (1 yr). RISK: low experience significantly raises
+  // fueling risk score — always requires supervisor co-sign for fueling tasks.
+  {
+    id: 'prs-014',
+    name: 'Devon Park',
+    role: 'ground',
+    roleLabel: 'Line Service Tech',
+    fboRole: 'line_service_tech',
+    department: 'Ground Operations',
+    currentLocation: 'on_prem',
+    yearsExperience: 1,             // 1yr → experienceRisk = +3 (1–3yr bracket)
+    capacityHoursPerWeek: 40,
+    assignedHoursThisWeek: 24,
+    certificateNumber: null,
+    certType: null,
+    medicalClass: null,
+    medicalExpiry: null,
+    lastFlightReview: null,
+    ifrCurrencyExpiry: null,
+    nightCurrencyExpiry: null,
+    dutyHoursLast30d: 68,
+    flightHoursYtd: 0,
+    training: [
+      { course: 'Initial SMS Training',      completedOn: '2025-09-10', status: 'current', nextDue: '2027-09-10' },
+      { course: 'FOD Awareness',             completedOn: '2025-09-10', status: 'current', nextDue: '2027-09-10' },
+      { course: 'Ramp Safety',               completedOn: '2025-09-15', status: 'current', nextDue: '2027-09-15' },
+      { course: 'Fuel Handling & Type ID',   completedOn: '2025-10-01', status: 'current', nextDue: '2027-10-01' },
+    ],
+  },
+  // Jordan Kim — 7yr senior line service. Low risk addend for fueling assignments.
+  {
+    id: 'prs-015',
+    name: 'Jordan Kim',
+    role: 'ground',
+    roleLabel: 'Senior Line Tech',
+    fboRole: 'line_service_senior',
+    department: 'Ground Operations',
+    currentLocation: 'on_prem',
+    yearsExperience: 7,             // 7yr → experienceRisk = +1 (7–15yr bracket)
+    capacityHoursPerWeek: 40,
+    assignedHoursThisWeek: 30,
+    certificateNumber: null,
+    certType: null,
+    medicalClass: null,
+    medicalExpiry: null,
+    lastFlightReview: null,
+    ifrCurrencyExpiry: null,
+    nightCurrencyExpiry: null,
+    dutyHoursLast30d: 82,
+    flightHoursYtd: 0,
+    training: [
+      { course: 'Initial SMS Training',      completedOn: '2025-01-10', status: 'current', nextDue: '2027-01-10' },
+      { course: 'FOD Awareness',             completedOn: '2025-01-10', status: 'current', nextDue: '2027-01-10' },
+      { course: 'Ramp Safety',               completedOn: '2025-03-01', status: 'current', nextDue: '2027-03-01' },
+      { course: 'Fuel Handling & Type ID',   completedOn: '2025-02-01', status: 'current', nextDue: '2027-02-01' },
+      { course: 'Aircraft Towing Procedures', completedOn: '2025-01-20', status: 'current', nextDue: '2027-01-20' },
+    ],
+  },
+  // Rosa Mendez — FBO coordinator (desk / dispatch). 4yr experience.
+  // Handles arrivals, scheduling, catering coordination, and fee management.
+  {
+    id: 'prs-016',
+    name: 'Rosa Mendez',
+    role: 'ground',
+    roleLabel: 'FBO Coordinator',
+    fboRole: 'fbo_coordinator',
+    department: 'Ground Operations',
+    currentLocation: 'on_prem',
+    yearsExperience: 4,             // 4yr → experienceRisk = +2 (3–7yr bracket)
+    capacityHoursPerWeek: 40,
+    assignedHoursThisWeek: 20,
+    certificateNumber: null,
+    certType: null,
+    medicalClass: null,
+    medicalExpiry: null,
+    lastFlightReview: null,
+    ifrCurrencyExpiry: null,
+    nightCurrencyExpiry: null,
+    dutyHoursLast30d: 74,
+    flightHoursYtd: 0,
+    training: [
+      { course: 'Initial SMS Training',      completedOn: '2025-01-10', status: 'current', nextDue: '2027-01-10' },
+      { course: 'Customer Service — FBO',    completedOn: '2025-02-01', status: 'current', nextDue: '2027-02-01' },
+      { course: 'HAZMAT Awareness',          completedOn: '2025-01-15', status: 'current', nextDue: '2027-01-15' },
+      { course: 'Fuel Handling & Type ID',   completedOn: '2025-01-20', status: 'current', nextDue: '2027-01-20' },
     ],
   },
 ]
 
+// =============================================================================
+// Mechanic Certificates
+// Per 14 CFR 43.9(a)(3): maintenance records must identify the specific
+// certificate type and number under which work was performed / approved.
+// Certificates are independent of the person — they may be acquired, suspended,
+// reinstated, or revoked at any time.  Work orders reference certificateId,
+// NOT just a personId.
+//
+// cert_type: A_and_P | IA | Repairman | Avionics
+// status:    active | suspended | revoked | expired | surrendered
+// =============================================================================
+export const mockCertificates = [
+  // Tyler Brooks — A&P only
+  { id: 'cert-001', personnelId: 'prs-008', certType: 'A_and_P', certificateNumber: 'AME-774412',
+    issuedDate: '2017-06-10', status: 'active', statusDate: '2017-06-10', statusNotes: null },
+
+  // Diane Wu — A&P + IA (two separate certificates)
+  { id: 'cert-002', personnelId: 'prs-009', certType: 'A_and_P', certificateNumber: 'AME-881022',
+    issuedDate: '2006-04-01', status: 'active', statusDate: '2006-04-01', statusNotes: null },
+  { id: 'cert-003', personnelId: 'prs-009', certType: 'IA',      certificateNumber: 'IA-881022',
+    issuedDate: '2011-09-15', status: 'active', statusDate: '2011-09-15', statusNotes: null },
+
+  // Sarah Cole — A&P + IA
+  { id: 'cert-004', personnelId: 'prs-011', certType: 'A_and_P', certificateNumber: 'AME-991055',
+    issuedDate: '2003-08-20', status: 'active', statusDate: '2003-08-20', statusNotes: null },
+  { id: 'cert-005', personnelId: 'prs-011', certType: 'IA',      certificateNumber: 'IA-991055',
+    issuedDate: '2008-03-05', status: 'active', statusDate: '2008-03-05', statusNotes: null },
+
+  // Mike Ferris — A&P only
+  { id: 'cert-006', personnelId: 'prs-012', certType: 'A_and_P', certificateNumber: 'AME-662301',
+    issuedDate: '2013-11-12', status: 'active', statusDate: '2013-11-12', statusNotes: null },
+
+  // T. Huang — Avionics (external)
+  { id: 'cert-007', personnelId: 'prs-013', certType: 'Avionics', certificateNumber: 'AVN-330812',
+    issuedDate: '2009-05-30', status: 'active', statusDate: '2009-05-30', statusNotes: null },
+]
+
+/** Look up all active certificates for a personnel ID. */
+export function activeCertsForPerson(personnelId) {
+  return mockCertificates.filter((c) => c.personnelId === personnelId && c.status === 'active')
+}
+
+/** True if the person currently holds an active IA certificate. */
+export function hasActiveIA(personnelId) {
+  return mockCertificates.some(
+    (c) => c.personnelId === personnelId && c.certType === 'IA' && c.status === 'active'
+  )
+}
+
 // Training completion summary by department (for charts)
 export const mockTrainingSummary = [
-  { department: 'Flight Operations', total: 5, completed: 4, pct: 80 },
-  { department: 'Operations',        total: 1, completed: 1, pct: 100 },
-  { department: 'Safety',            total: 1, completed: 1, pct: 100 },
-  { department: 'Maintenance',       total: 2, completed: 2, pct: 100 },
-  { department: 'Ground Operations', total: 1, completed: 1, pct: 100 },
+  { department: 'Flight Operations', total: 5,  completed: 4, pct: 80  },
+  { department: 'Operations',        total: 1,  completed: 1, pct: 100 },
+  { department: 'Safety',            total: 1,  completed: 1, pct: 100 },
+  { department: 'Maintenance',       total: 5,  completed: 5, pct: 100 },
+  { department: 'Ground Operations', total: 4,  completed: 4, pct: 100 },  // Sam + Devon + Jordan + Rosa
 ]
 
 // Overall training completion (for KPI scorecard)
 export const mockTrainingKpi = {
-  totalPersonnel: 10,
-  smsTrainingCurrent: 9,         // 1 has expired HAZMAT
-  currencyIssues: 3,             // night currency expired (Jones), medical expired (Rivera), HAZMAT expired (Rivera)
+  totalPersonnel: 16,             // added Devon Park, Jordan Kim, Rosa Mendez
+  smsTrainingCurrent: 15,         // 1 has expired HAZMAT (Rivera)
+  currencyIssues: 3,              // night currency expired (Jones), medical expired (Rivera), HAZMAT expired (Rivera)
   overdueCourses: 2,
 }
+
+// Maintenance team roster — mechanics and avionics staff only
+export const mockMaintenancePersonnel = (mockPersonnel) =>
+  mockPersonnel.filter((p) => p.department === 'Maintenance')

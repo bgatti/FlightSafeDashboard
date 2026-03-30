@@ -5,16 +5,21 @@
 
 import { mockFlights } from '../mocks/flights'
 
-const STORAGE_KEY = 'flightsafe_scheduled'
-const EVENT = 'flightsafe:scheduled'
+const STORAGE_KEY     = 'flightsafe_scheduled'
+const SIM_FLIGHTS_KEY = 'flightsafe_sim_flights'
+const EVENT           = 'flightsafe:scheduled'
 
 function getScheduled() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') } catch { return [] }
 }
 
-/** Returns all flights: user-scheduled (newest first) + mock seed. */
+function getSimFlights() {
+  try { return JSON.parse(localStorage.getItem(SIM_FLIGHTS_KEY) || '[]') } catch { return [] }
+}
+
+/** Returns all flights: user-scheduled (newest first) + sim-generated Part 135 + mock seed. */
 export function getAllFlights() {
-  return [...getScheduled(), ...mockFlights]
+  return [...getScheduled(), ...getSimFlights(), ...mockFlights]
 }
 
 /** Add a new scheduled flight (with optional riskSnapshot). */
@@ -43,8 +48,17 @@ export function updateRiskSnapshot(id, newSnapshot) {
 /** Subscribe to flight changes. Returns unsubscribe fn. */
 export function subscribe(fn) {
   const handler = () => fn(getAllFlights())
+  // Custom event — same tab (FlightPlanning adds flights, sim publishes flights)
   window.addEventListener(EVENT, handler)
-  return () => window.removeEventListener(EVENT, handler)
+  // Storage event — cross-tab (sim tab writes sim flights, Flights tab reads them)
+  const storageHandler = (e) => {
+    if (e.key === SIM_FLIGHTS_KEY) fn(getAllFlights())
+  }
+  window.addEventListener('storage', storageHandler)
+  return () => {
+    window.removeEventListener(EVENT, handler)
+    window.removeEventListener('storage', storageHandler)
+  }
 }
 
 // ─── Risk item extraction ─────────────────────────────────────────────────────

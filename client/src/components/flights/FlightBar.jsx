@@ -345,9 +345,20 @@ export function FlightBar({ flight, currentUser, recalculating, conflicts = [] }
         )}
 
         {/* Mission badge */}
-        <span className="flex-shrink-0 text-[10px] text-slate-600 capitalize hidden sm:block">
-          {flight.missionType}
-        </span>
+        {flight._flightType === 'deadhead'
+          ? <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600 text-slate-400 font-mono hidden sm:block">DH</span>
+          : <span className="flex-shrink-0 text-[10px] text-slate-600 capitalize hidden sm:block">{flight.missionType}</span>
+        }
+
+        {/* Maintenance required flag (sim-generated) */}
+        {flight._requiresMaintenance && (
+          <span
+            className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/30 text-red-400 font-mono"
+            title={flight._maintenanceSquawk ?? 'Post-flight maintenance required'}
+          >
+            MX REQ
+          </span>
+        )}
 
         <span className="flex-shrink-0 text-slate-500 text-xs">{expanded ? '▲' : '▼'}</span>
       </button>
@@ -355,6 +366,14 @@ export function FlightBar({ flight, currentUser, recalculating, conflicts = [] }
       {/* ── Expanded detail ── */}
       {expanded && (
         <div className="px-4 pb-4 border-t border-surface-border pt-4 flex flex-col gap-5">
+
+          {/* Maintenance squawk banner (sim-generated, 5% of flights) */}
+          {flight._requiresMaintenance && flight._maintenanceSquawk && (
+            <div className="px-3 py-2 rounded bg-red-950/40 border border-red-800/40 text-xs flex items-start gap-2">
+              <span className="text-red-400 font-mono font-bold flex-shrink-0">MX SQUAWK</span>
+              <span className="text-red-300">{flight._maintenanceSquawk}</span>
+            </div>
+          )}
 
           {/* Mission details + edit toggle */}
           <div className="flex items-start justify-between gap-4 flex-wrap">

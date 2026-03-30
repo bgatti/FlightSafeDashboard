@@ -36,7 +36,12 @@ export const mockAircraft = [
       { adNumber: 'AD 2024-02-12', description: 'Landing gear actuator lubrication',  status: 'complied', compliedDate: daysBefore(45) },
     ],
     lastFlightDate: daysBefore(1),
-    assignedBase: 'KDFW',
+    assignedBase: 'KBDU',
+    currentLocation: 'ramp',
+    locationUpdatedAt: '2026-03-27T16:45:00',
+    locationUpdatedBy: 'prs-001',  // James Smith — pilot who returned
+    fuelType: 'avgas_100ll',        // Twin Continental IO-550-C — Avgas 100LL
+    fboCategory: 'piston_twin',
 
     equipment: {
       ifrCertified:   true,   // Full IFR panel — dual Garmin G500 TXi, GFC 600 autopilot
@@ -94,7 +99,12 @@ export const mockAircraft = [
       { adNumber: 'AD 2022-08-01', description: 'Elevator control stop inspection', status: 'complied', compliedDate: daysBefore(180) },
     ],
     lastFlightDate: daysBefore(2),
-    assignedBase: 'KBOS',
+    assignedBase: 'KBDU',
+    currentLocation: 'ramp',
+    locationUpdatedAt: '2026-03-26T11:30:00',
+    locationUpdatedBy: 'prs-010',  // Sam Nguyen — ground handler
+    fuelType: 'avgas_100ll',        // Lycoming IO-360 — Avgas 100LL
+    fboCategory: 'piston_single',
 
     equipment: {
       ifrCertified:   true,   // Garmin G1000 NXi — full IFR
@@ -153,7 +163,12 @@ export const mockAircraft = [
       { adNumber: 'AD 2024-11-03', description: 'Fuel selector valve inspection',      status: 'open',    compliedDate: null },
     ],
     lastFlightDate: daysBefore(3),
-    assignedBase: 'KORD',
+    assignedBase: 'KBDU',
+    currentLocation: 'ramp',
+    locationUpdatedAt: '2026-03-25T13:45:00',
+    locationUpdatedBy: 'prs-010',  // Sam Nguyen — ground handler
+    fuelType: 'avgas_100ll',        // Lycoming O-360 — Avgas 100LL
+    fboCategory: 'piston_single',
 
     equipment: {
       ifrCertified:   true,   // Garmin GTN 650 + GI 275 ADAHRS — IFR capable
@@ -212,7 +227,12 @@ export const mockAircraft = [
       { adNumber: 'AD 2024-08-05', description: 'Propeller de-ice boot replacement',    status: 'complied', compliedDate: daysBefore(60) },
     ],
     lastFlightDate: daysBefore(1),
-    assignedBase: 'KDEN',
+    assignedBase: 'KBDU',
+    currentLocation: 'ramp',
+    locationUpdatedAt: '2026-03-28T08:00:00',
+    locationUpdatedBy: 'prs-010',  // Sam Nguyen — autopilot MEL cleared, back on ramp
+    fuelType: 'jet_a',              // PT6A-114A turboprop — Jet-A / JP-8
+    fboCategory: 'turboprop_single',
 
     equipment: {
       ifrCertified:   true,   // Garmin G1000 NXi — full IFR
@@ -271,7 +291,12 @@ export const mockAircraft = [
       { adNumber: 'AD 2022-08-01', description: 'Elevator control stop inspection', status: 'open', compliedDate: null },
     ],
     lastFlightDate: daysBefore(8),
-    assignedBase: 'KPHX',
+    assignedBase: 'KBDU',
+    currentLocation: 'maintenance_bay',
+    locationUpdatedAt: '2026-03-20T08:30:00',
+    locationUpdatedBy: 'prs-010',  // Sam Nguyen — towed AOG to maintenance bay
+    fuelType: 'avgas_100ll',        // Lycoming O-320 — Avgas 100LL
+    fboCategory: 'piston_single',
 
     equipment: {
       ifrCertified:   false,  // VFR panel only — no IFR GPS or approach capability
@@ -327,7 +352,12 @@ export const mockAircraft = [
       { adNumber: 'AD 2023-12-04', description: 'Fuel line inspection P/N 758-990', status: 'complied', compliedDate: daysBefore(90) },
     ],
     lastFlightDate: daysBefore(4),
-    assignedBase: 'KLAX',
+    assignedBase: 'KBDU',
+    currentLocation: 'ramp',
+    locationUpdatedAt: '2026-03-24T07:15:00',
+    locationUpdatedBy: 'prs-010',  // Sam Nguyen — preflighted for charter
+    fuelType: 'avgas_100ll',        // Twin Continental TSIO-360-RB — Avgas 100LL
+    fboCategory: 'piston_twin',
 
     equipment: {
       ifrCertified:   true,   // Dual Garmin GTN 750 + G500 TXi — full IFR
@@ -380,7 +410,12 @@ export const mockAircraft = [
     openSquawks: [],
     airworthinessDirectives: [],
     lastFlightDate: daysBefore(0),
-    assignedBase: 'KDFW',
+    assignedBase: 'KBDU',
+    currentLocation: 'ramp',
+    locationUpdatedAt: '2026-03-28T14:20:00',
+    locationUpdatedBy: 'prs-003',  // Marcus Davis — returned from charter
+    fuelType: 'jet_a',              // PT6A-114A turboprop — Jet-A / JP-8
+    fboCategory: 'turboprop_single',
 
     equipment: {
       ifrCertified:   true,   // Garmin G1000 NXi — full IFR

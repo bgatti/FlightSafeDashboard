@@ -46,7 +46,7 @@ export function Header() {
 
       {/* Org name */}
       <span className="text-slate-100 font-semibold text-sm truncate">
-        Alpha Flight Ops — KDFW
+        Alpha Flight Ops — KBDU
       </span>
 
       <div className="flex items-center gap-4 ml-auto flex-shrink-0">

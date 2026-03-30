@@ -21,8 +21,8 @@ describe('Sidebar', () => {
   test('renders all 5 main navigation links with text', () => {
     renderSidebar()
     expect(screen.getByText('SMS Overview')).toBeInTheDocument()
-    expect(screen.getByText('Live Operations')).toBeInTheDocument()
-    expect(screen.getByText('Flight Risk List')).toBeInTheDocument()
+    expect(screen.getByText('Flights')).toBeInTheDocument()
+    expect(screen.getByText('Maintenance')).toBeInTheDocument()
     expect(screen.getByText('Compliance Center')).toBeInTheDocument()
     expect(screen.getByText('Pilot Reports')).toBeInTheDocument()
   })
@@ -43,15 +43,15 @@ describe('Sidebar', () => {
     expect(link.className).toMatch(/sky-400/)
   })
 
-  test('active route "/live" highlights Live Operations', () => {
-    renderSidebar('/live')
-    const link = screen.getByText('Live Operations').closest('a')
+  test('active route "/flights" highlights Flights link', () => {
+    renderSidebar('/flights')
+    const link = screen.getByText('Flights').closest('a')
     expect(link.className).toMatch(/sky-400/)
   })
 
   test('inactive links do not have active highlight', () => {
     renderSidebar('/')
-    const inactiveLink = screen.getByText('Live Operations').closest('a')
+    const inactiveLink = screen.getByText('Flights').closest('a')
     expect(inactiveLink.className).not.toMatch(/sky-400/)
   })
 

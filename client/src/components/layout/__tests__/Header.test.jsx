@@ -21,7 +21,7 @@ function renderHeader() {
 describe('Header', () => {
   test('renders the org name', () => {
     renderHeader()
-    expect(screen.getByText(/Alpha Flight Ops/)).toBeInTheDocument()
+    expect(screen.getByText(/Alpha Flight Ops — KBDU/)).toBeInTheDocument()
   })
 
   test('renders a <time> element (ZuluClock)', () => {
