@@ -507,23 +507,34 @@ export const JB_TRAINING = [
 ]
 
 /* ──────────────── GALLERY ──────────────── */
+// Gallery images — real photos from journeysaviation.com
+const JB_IMG_BASE = 'https://www.journeysaviation.com/uploads/1/3/2/8/132898297'
 export const JB_GALLERY = [
-  { id: 1, alt: 'Cessna 172 on short final at KBDU with Flatirons in background', category: 'flights' },
-  { id: 2, alt: 'Student pilot in the left seat of the Pipistrel Alpha Trainer', category: 'training' },
-  { id: 3, alt: 'Diamond DA20 parked on the Journeys ramp at sunrise', category: 'fleet' },
-  { id: 4, alt: 'Cessna 182 departing runway 08 with the Rockies behind', category: 'flights' },
-  { id: 5, alt: 'Citabria 7ECA inverted over Boulder Reservoir', category: 'aerobatics' },
-  { id: 6, alt: 'Journeys FBO terminal building on a clear morning', category: 'fbo' },
-  { id: 7, alt: 'Flight planning room with sectionals and coffee', category: 'fbo' },
-  { id: 8, alt: 'New private pilot after checkride pass — big grin', category: 'training' },
-  { id: 9, alt: 'Garmin G3X cockpit in N3547L during IFR approach', category: 'fleet' },
-  { id: 10, alt: 'Longs Peak visible through the windscreen at 10,500 ft', category: 'scenery' },
-  { id: 11, alt: 'Virus SW and Alpha Trainer side by side on the ramp', category: 'fleet' },
-  { id: 12, alt: 'Young Eagles event — kids lining up for flights', category: 'community' },
-  { id: 13, alt: 'Sunset over the Continental Divide from pattern altitude', category: 'scenery' },
-  { id: 14, alt: 'Maintenance team working an annual in the heated hangar', category: 'fbo' },
-  { id: 15, alt: 'Boulder Municipal Airport from the air — runway 08/26', category: 'scenery' },
-  { id: 16, alt: 'Cessna 150 N6316S taxiing for departure', category: 'fleet' },
+  // Fleet
+  { id: 1, alt: 'Cessna 172S N3547L — TAA glass cockpit trainer', category: 'fleet', img: `${JB_IMG_BASE}/n3547l-orig_orig.jpg` },
+  { id: 2, alt: 'Pipistrel Alpha Trainer N12JA on the ramp', category: 'fleet', img: `${JB_IMG_BASE}/n12ja_orig.jpg` },
+  { id: 3, alt: 'Pipistrel Alpha Trainer — newest on the Front Range', category: 'fleet', img: `${JB_IMG_BASE}/published/n12ja.jpg?1733952054` },
+  { id: 4, alt: 'Cessna training fleet lined up on the ramp', category: 'fleet', img: `${JB_IMG_BASE}/img-9118_3.jpg` },
+  // Training
+  { id: 5, alt: 'Cockpit view during dual flight instruction', category: 'training', img: `${JB_IMG_BASE}/published/img-9118.jpg?1733952061` },
+  { id: 6, alt: 'Flight training at Journeys Aviation', category: 'training', img: `${JB_IMG_BASE}/editor/flight-training.jpeg?1769028309` },
+  { id: 7, alt: 'Accelerated program — student pre-flight', category: 'training', img: `${JB_IMG_BASE}/published/img-5850_1.jpeg` },
+  { id: 8, alt: 'Cessna 172 ready for a training flight', category: 'training', img: `${JB_IMG_BASE}/img-5856_1.jpeg` },
+  // FBO
+  { id: 9, alt: 'Journeys Aviation FBO at Boulder Municipal', category: 'fbo', img: `${JB_IMG_BASE}/new-photo-10-2024_orig.jpg` },
+  { id: 10, alt: 'Journeys Aviation ramp — Boulder Airport', category: 'fbo', img: `${JB_IMG_BASE}/img-2393_orig.jpeg` },
+  { id: 11, alt: 'AVFUEL — aviation fuel services', category: 'fbo', img: `${JB_IMG_BASE}/editor/avfuelbrandlogo.jpeg?1769054186` },
+  { id: 12, alt: 'ROTAX Independent Repair Centre', category: 'fbo', img: `${JB_IMG_BASE}/published/rotax-irc-logo.png?1769056482` },
+  // Operations
+  { id: 13, alt: 'Boulder Municipal Airport operations', category: 'flights', img: `${JB_IMG_BASE}/editor/img-2983.jpg?1768244155` },
+  { id: 14, alt: 'Airport overview — runway 08/26 at KBDU', category: 'flights', img: `${JB_IMG_BASE}/editor/screenshot-2025-02-24-at-6-15-52-pm.png?1740446190` },
+  { id: 15, alt: 'Glider operations at Boulder Airport', category: 'flights', img: `${JB_IMG_BASE}/71w_orig.png` },
+  // Team
+  { id: 16, alt: 'Andrew McKenna — President & CEO', category: 'team', img: `${JB_IMG_BASE}/published/amck-oic-2.jpg?1605481695` },
+  { id: 17, alt: 'Scott Griffith — Assistant Manager', category: 'team', img: `${JB_IMG_BASE}/published/scottgriffith_1.jpg` },
+  { id: 18, alt: 'Tess Kim — Accounting', category: 'team', img: `${JB_IMG_BASE}/published/tessk.jpg?1734230262` },
+  { id: 19, alt: 'Sean A. — Line Technician', category: 'team', img: `${JB_IMG_BASE}/published/seana.png?1734230719` },
+  { id: 20, alt: 'Alex S. — Customer Service', category: 'team', img: `${JB_IMG_BASE}/editor/alex-web-pic.jpeg?1766856605` },
 ]
 
 /* ──────────────── RESOURCES ──────────────── */

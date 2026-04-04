@@ -493,6 +493,129 @@ export const mockStudents = [
     clubMember:           true,
     dpe: { status: 'not_started', scheduledDate: null, dpeId: null, tasks: [] },
   },
+
+  // ── Maria Vasquez — PPL holder, working on Instrument Rating, Stage 1 ────────
+  {
+    id:              'std-007',
+    name:            'Maria Vasquez',
+    weightLbs:       145,
+    email:           'mvasquez@email.com',
+    phone:           '303-555-0388',
+    enrolledDate:    '2026-01-15',
+    program:         'instrument_rating',
+    currentStage:    1,
+    status:          'active',
+    assignedCfiId:   'prs-017',               // Linda Foster — CFI/CFII
+    assignedAircraftIds: ['ac-002'],           // C172S — IFR glass panel
+    preferences: {
+      preferredSlots: ['1000', '1100', '1400'],
+      preferredDays:  [1, 3, 5],              // Tue, Thu, Sat
+      weatherMin:     'any',                  // IFR training — any weather
+    },
+    docs: {
+      governmentId:    { type: 'drivers_license', expiry: '2029-02-20', uploaded: true, uploadDate: '2026-01-15' },
+      insurance:       { carrier: 'AVEMCO', policyNumber: 'AV-9901200', expiry: daysFrom(200), uploaded: true, uploadDate: '2026-01-15' },
+      medicalCert:     { class: 3, certNumber: 'MED-9901200', expiry: '2028-06-30', uploaded: true, uploadDate: '2026-01-16' },
+      pilotCert:       { certNumber: 'PPL-9901200', certType: 'Private ASEL', uploaded: true },
+      knowledgeTest:   { score: null, dateTaken: null, uploaded: false },
+    },
+    hours: {
+      total: 310, dual: 55, soloPIC: 255,
+      xc_dual: 12, xc_solo: 68, xc_pic: 72,
+      night_dual: 5, night_pic: 8,
+      instrument: 8, dual_cfii: 4,
+    },
+    blockHoursPurchased: 20,
+    blockHoursUsed:      4,
+    clubMember:          false,
+    dpe: { status: 'not_started', scheduledDate: null, dpeId: null, tasks: [] },
+  },
+
+  // ── Jake Rosen — PPL+IR holder, working on Commercial, Stage 2 ───────────────
+  {
+    id:              'std-008',
+    name:            'Jake Rosen',
+    weightLbs:       190,
+    email:           'jrosen@email.com',
+    phone:           '720-555-0499',
+    enrolledDate:    '2025-09-01',
+    program:         'commercial_pilot',
+    currentStage:    2,
+    status:          'active',
+    assignedCfiId:   'prs-001',               // James Smith — CFI/CFII/MEI
+    assignedAircraftIds: ['ac-001', 'ac-002'], // Baron (complex) + C172S
+    preferences: {
+      preferredSlots: ['0800', '0900', '1000'],
+      preferredDays:  [0, 2, 4],              // Mon, Wed, Fri
+      weatherMin:     'any',
+    },
+    docs: {
+      governmentId:    { type: 'drivers_license', expiry: '2028-11-01', uploaded: true, uploadDate: '2025-09-01' },
+      insurance:       { carrier: 'Southwest', policyNumber: 'SW-4410550', expiry: daysFrom(150), uploaded: true, uploadDate: '2025-09-01' },
+      medicalCert:     { class: 2, certNumber: 'MED-4410550', expiry: daysFrom(300), uploaded: true, uploadDate: '2025-09-02' },
+      pilotCert:       { certNumber: 'PPL-4410550', certType: 'Private ASEL, Instrument', uploaded: true },
+      irCert:          { certNumber: 'IR-4410550', uploaded: true },
+      knowledgeTest:   { score: 88, dateTaken: daysBefore(45), uploaded: true },
+    },
+    hours: {
+      total: 238.5, dual: 68, soloPIC: 170.5, pic: 170.5,
+      xc_dual: 18, xc_solo: 55, xc_pic: 62,
+      night_dual: 8, night_pic: 12,
+      instrument: 48, dual_cfii: 42,
+    },
+    blockHoursPurchased: 30,
+    blockHoursUsed:      22,
+    clubMember:          true,
+    dpe: { status: 'pending', scheduledDate: null, dpeId: null, tasks: [
+      { id: 'req-hours',     label: 'All FAR 61.129 hours met',               done: true  },
+      { id: 'req-maneuvers', label: 'Commercial maneuvers signed off',         done: true  },
+      { id: 'req-complex',   label: 'Complex endorsement complete',            done: true  },
+      { id: 'req-hp',        label: 'High-performance endorsement complete',   done: false },
+      { id: 'req-medical',   label: 'Current 2nd class medical on file',       done: true  },
+      { id: 'req-ktest',     label: 'Knowledge test passed',                   done: true  },
+      { id: 'req-8710',      label: 'CFI endorsements on 8710 form',           done: false },
+      { id: 'req-iacra',     label: 'IACRA application submitted',             done: false },
+      { id: 'req-dpe',       label: 'DPE selected & availability confirmed',   done: false },
+      { id: 'req-fee',       label: 'DPE fee arranged',                        done: false },
+    ] },
+  },
+
+  // ── Dave Kowalski — CPL+ME holder, doing tailwheel endorsement ───────────────
+  {
+    id:              'std-009',
+    name:            'Dave Kowalski',
+    weightLbs:       195,
+    email:           'dkowalski@email.com',
+    phone:           '303-555-0612',
+    enrolledDate:    '2026-03-15',
+    program:         'private_pilot',         // enrolled for endorsement work, using PPL program
+    currentStage:    5,                       // all PPL stages complete
+    status:          'active',
+    assignedCfiId:   'prs-018',               // Greg Yamamoto — CFI
+    assignedAircraftIds: ['ac-002'],
+    preferences: {
+      preferredSlots: ['0900', '1000', '1100'],
+      preferredDays:  [2, 4],                 // Wed, Fri
+      weatherMin:     'vmc',
+    },
+    docs: {
+      governmentId:    { type: 'drivers_license', expiry: '2027-08-10', uploaded: true, uploadDate: '2026-03-15' },
+      insurance:       { carrier: 'AVEMCO', policyNumber: 'AV-1212000', expiry: daysFrom(250), uploaded: true, uploadDate: '2026-03-15' },
+      medicalCert:     { class: 2, certNumber: 'MED-1212000', expiry: daysFrom(340), uploaded: true, uploadDate: '2026-03-16' },
+      pilotCert:       { certNumber: 'CPL-1212000', certType: 'Commercial ASEL AMEL, Instrument', uploaded: true },
+      irCert:          { certNumber: 'IR-1212000', uploaded: true },
+    },
+    hours: {
+      total: 1200, dual: 120, soloPIC: 1080, pic: 1080,
+      xc_dual: 25, xc_solo: 320, xc_pic: 340,
+      night_dual: 15, night_pic: 85,
+      instrument: 95, dual_cfii: 48,
+    },
+    blockHoursPurchased: 5,
+    blockHoursUsed:      2,
+    clubMember:          false,
+    dpe: { status: 'not_started', scheduledDate: null, dpeId: null, tasks: [] },
+  },
 ]
 
 // ── Weekly Schedule ───────────────────────────────────────────────────────────

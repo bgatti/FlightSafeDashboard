@@ -8,7 +8,7 @@ import { getAircraftByOperator } from '../mocks/aircraft'
 import { mockAircraft } from '../mocks/aircraft'
 import { mockPersonnel } from '../mocks/personnel'
 import { addSquawk, getSquawks, subscribeSquawks } from '../store/squawks'
-import { addServiceRequest } from '../store/serviceRequests'
+import { addServiceRequest, getServiceRequests } from '../store/serviceRequests'
 import { addFlight, updateFlight as updateStoreFlight, getAllFlights, subscribe } from '../store/flights'
 import { mockStudents, PROGRAMS, mockBookings, SCHEDULE_DAYS, SCHEDULE_SLOTS } from '../training/mockTraining'
 import {
@@ -16,7 +16,7 @@ import {
   recommendLessons, expiryStatus, expiryLabel, EXPIRY_COLOR, EXPIRY_BG,
   DPE_STATUS_LABEL, DPE_STATUS_COLOR, DPE_STATUS_BG,
   BOOKING_TYPE_COLORS, BOOKING_TYPE_LABELS, WEATHER_FIT_COLORS, WEATHER_FIT_LABELS,
-  calcTrainingWB, wbStatusLevel, WB_STATUS,
+  calcTrainingWB, wbStatusLevel, WB_STATUS, LESSON_TEMPLATES,
 } from '../training/trainingUtils'
 
 /* ═══════════════════════════════════════════════════════════
@@ -47,26 +47,37 @@ const WB_CALC_URL = 'https://www.journeysaviation.com/aircraft-fleet.html'
 
 /* ─── PERSONAS (login-as for testing) ─── */
 const PERSONAS = [
-  { id: 'student-1', name: 'Tyler Mason', role: 'student', label: 'Student Pilot', email: 'tyler@example.com',
-    aircraft: ['N52993', 'N12JA'], hours: 28, weightLbs: 175, preferredCfis: ['prs-018', 'prs-017'],
-    cert: 'student', ratings: [], endorsements: [],
+  // PPL student — beginner, Stage 1
+  { id: 'student-1', name: 'Tyler Mason', role: 'student', label: 'Student Pilot (PPL)', email: 'tyler@example.com',
+    aircraft: ['N52993', 'N12JA'], hours: 7.2, weightLbs: 178, preferredCfis: ['prs-018', 'prs-017'],
+    cert: 'student', ratings: [], endorsements: [], program: 'private_pilot',
   },
-  { id: 'renter-1', name: 'Maria Vasquez', role: 'renter', label: 'Private Pilot / Renter', email: 'maria@example.com',
-    aircraft: ['N733JM', 'N3547L', 'N401SS'], hours: 310, weightLbs: 145,
-    cert: 'private', ratings: ['asel'], endorsements: ['hp'],
+  // PPL holder — enrolled in Instrument Rating, Stage 1
+  { id: 'student-2', name: 'Maria Vasquez', role: 'student', label: 'PPL → Instrument Rating', email: 'maria@example.com',
+    aircraft: ['N733JM', 'N3547L', 'N6694E'], hours: 310, weightLbs: 145, preferredCfis: ['prs-017'],
+    cert: 'private', ratings: ['asel'], endorsements: ['hp'], program: 'instrument_rating',
   },
-  { id: 'renter-2', name: 'Jake Rosen', role: 'renter', label: 'Instrument-Rated Private', email: 'jake@example.com',
-    aircraft: ['N6694E', 'N3547L'], hours: 480, weightLbs: 190,
-    cert: 'private', ratings: ['asel', 'instrument'], endorsements: ['hp', 'complex'],
+  // PPL+IR holder — enrolled in Commercial, Stage 2
+  { id: 'student-3', name: 'Jake Rosen', role: 'student', label: 'PPL+IR → Commercial', email: 'jake@example.com',
+    aircraft: ['N6694E', 'N3547L', 'N401SS'], hours: 238.5, weightLbs: 190, preferredCfis: ['prs-001'],
+    cert: 'private', ratings: ['asel', 'instrument'], endorsements: ['hp', 'complex'], program: 'commercial_pilot',
   },
-  { id: 'mx-client-1', name: 'Dave Kowalski', role: 'mx_client', label: 'Maintenance Client / Owner', email: 'dave@example.com',
-    hours: 1200, weightLbs: 195,
-    cert: 'commercial', ratings: ['asel', 'amel', 'instrument'], endorsements: ['hp', 'complex', 'tailwheel'],
+  // CPL+ME holder — tailwheel endorsement + maintenance client
+  { id: 'mx-client-1', name: 'Dave Kowalski', role: 'mx_client', label: 'CPL/ME — Tailwheel + MX Client', email: 'dave@example.com',
+    hours: 1200, weightLbs: 195, preferredCfis: ['prs-018'],
+    cert: 'commercial', ratings: ['asel', 'amel', 'instrument'], endorsements: ['hp', 'complex'],
+    program: 'private_pilot', // using PPL program for endorsement scheduling
     ownedAircraft: [
       { tail: 'N789DK', type: 'Cessna 182Q Skylane', agents: ['Dave Kowalski', 'Lisa Kowalski'] },
       { tail: 'N421PB', type: 'Piper PA-28-180 Cherokee', agents: ['Dave Kowalski'] },
     ],
   },
+  // PPL student — nearly done, Stage 5 checkride prep
+  { id: 'student-5', name: 'Emily Carter', role: 'student', label: 'PPL Stage 5 (Checkride)', email: 'emily@example.com',
+    aircraft: ['N733JM', 'N52993'], hours: 42.8, weightLbs: 135, preferredCfis: ['prs-017'],
+    cert: 'student', ratings: [], endorsements: [], program: 'private_pilot',
+  },
+  // CFI
   { id: 'cfi-1', name: 'Linda Foster', role: 'cfi', label: 'CFI / CFII', email: 'linda@journeysaviation.com',
     aircraft: [], hours: 3200, weightLbs: 147, personnelId: 'prs-017',
     cert: 'commercial', ratings: ['asel', 'instrument', 'cfi', 'cfii'], endorsements: ['hp', 'complex', 'tailwheel'],
@@ -247,33 +258,55 @@ const GALLERY_GRADIENTS = [
   'from-cyan-400 to-blue-700',
 ]
 
-function MiniGalleryStrip({ category, shuffle = true }) {
+// Track which image IDs are currently shown across all strips to avoid dupes
+let _activeStripImages = new Set()
+
+function MiniGalleryStrip({ category }) {
+  // Seeded shuffle unique to this category so each strip shows different images
+  const seed = useRef(Math.floor(Math.random() * 100))
   const items = useMemo(() => {
     let pool = category ? JB_GALLERY.filter((g) => g.category === category) : [...JB_GALLERY]
-    if (pool.length < 3) pool = [...JB_GALLERY] // fallback to all
-    if (shuffle) pool.sort(() => Math.random() - 0.5)
+    if (pool.length < 3) pool = [...JB_GALLERY]
+    // Deterministic-ish shuffle based on seed so different strips diverge
+    pool.sort((a, b) => ((a.id * 7 + seed.current) % 13) - ((b.id * 7 + seed.current) % 13))
     return pool
-  }, [category, shuffle])
+  }, [category])
 
-  const [offset, setOffset] = useState(0)
+  const [offset, setOffset] = useState(() => seed.current % Math.max(items.length - 2, 1))
   useEffect(() => {
-    const id = setInterval(() => setOffset((o) => (o + 1) % Math.max(items.length - 2, 1)), 5000)
+    const id = setInterval(() => setOffset((o) => (o + 1) % Math.max(items.length - 2, 1)), 5000 + seed.current * 50) // stagger timing
     return () => clearInterval(id)
   }, [items.length])
 
-  const visible = [items[offset % items.length], items[(offset + 1) % items.length], items[(offset + 2) % items.length]]
+  // Pick 3 that aren't already shown in another strip
+  const candidates = []
+  for (let i = 0; candidates.length < 3 && i < items.length; i++) {
+    const img = items[(offset + i) % items.length]
+    if (!_activeStripImages.has(img.id) || candidates.length + (items.length - i) <= 3) candidates.push(img)
+  }
+  // Update active tracker
+  useEffect(() => {
+    const ids = candidates.map((c) => c.id)
+    ids.forEach((id) => _activeStripImages.add(id))
+    return () => ids.forEach((id) => _activeStripImages.delete(id))
+  })
+  const visible = candidates
 
   return (
     <div className="py-6 px-6">
       <div className="max-w-6xl mx-auto grid grid-cols-3 gap-3">
         {visible.map((img, i) => (
           <div key={`${img.id}-${offset}-${i}`} className="relative aspect-[16/7] rounded-xl overflow-hidden animate-[fadeIn_1s_ease-in-out]">
-            <div className={`absolute inset-0 bg-gradient-to-br ${GALLERY_GRADIENTS[(img.id - 1 + offset) % GALLERY_GRADIENTS.length]} transition-all duration-1000`}>
-              <div className="absolute inset-0 opacity-25">
-                <div className="absolute top-[25%] left-[15%] w-[50%] h-[2px] bg-white/40 rounded-full rotate-[-3deg]" />
-                <div className="absolute top-[45%] left-[25%] w-[35%] h-[1.5px] bg-white/25 rounded-full rotate-[1deg]" />
+            {img.img ? (
+              <img src={img.img} alt={img.alt} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
+            ) : (
+              <div className={`absolute inset-0 bg-gradient-to-br ${GALLERY_GRADIENTS[(img.id - 1 + offset) % GALLERY_GRADIENTS.length]} transition-all duration-1000`}>
+                <div className="absolute inset-0 opacity-25">
+                  <div className="absolute top-[25%] left-[15%] w-[50%] h-[2px] bg-white/40 rounded-full rotate-[-3deg]" />
+                  <div className="absolute top-[45%] left-[25%] w-[35%] h-[1.5px] bg-white/25 rounded-full rotate-[1deg]" />
+                </div>
               </div>
-            </div>
+            )}
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
             <div className="absolute bottom-0 left-0 right-0 p-3">
               <p className="text-white text-[10px] font-medium leading-tight">{img.alt}</p>
@@ -287,247 +320,32 @@ function MiniGalleryStrip({ category, shuffle = true }) {
 
 /* ─── MAINTENANCE SECTION (logged-in only) ─── */
 function MaintenanceSection({ user }) {
-  const fleet = getAircraftByOperator('journeys')
-  const [tab, setTab] = useState('squawk')
-  const [squawkForm, setSquawkForm] = useState({ tailNumber: '', severity: 'monitoring', description: '' })
-  const [annualForm, setAnnualForm] = useState({ tailNumber: '', preferredDate: '', notes: '' })
-  const [mxForm, setMxForm] = useState({ tailNumber: '', serviceType: 'annual', description: '', preferredDate: '' })
-  const [submitted, setSubmitted] = useState(null) // 'squawk' | 'annual' | 'mx'
+  // Logged-in users have squawk on fleet cards and status in My Fleet — just show brief info
+  if (user) return null
 
-  const ownedTails = (user.ownedAircraft || []).map((a) => a.tail)
-  const tailOptions = [...ownedTails, ...fleet.map((a) => a.tailNumber)]
-
-  const handleSquawk = (e) => {
-    e.preventDefault()
-    addSquawk({
-      id: `sqk-ja-${Date.now()}`,
-      tailNumber: squawkForm.tailNumber,
-      reportedBy: user.name,
-      reportedDate: new Date().toISOString().split('T')[0],
-      description: squawkForm.description,
-      severity: squawkForm.severity,
-      status: 'open',
-      melReference: null, melExpiryDate: null, airframeHours: null,
-      resolvedDate: null, resolvedBy: null, resolutionNotes: null, workOrderId: null,
-    })
-    setSubmitted('squawk')
-    setSquawkForm({ tailNumber: '', severity: 'monitoring', description: '' })
-  }
-
-  const handleAnnual = (e) => {
-    e.preventDefault()
-    addServiceRequest({
-      id: `sr-ja-${Date.now()}`,
-      type: 'annual_inspection',
-      tailNumber: annualForm.tailNumber,
-      requestedBy: user.name,
-      requestedDate: new Date().toISOString().split('T')[0],
-      preferredDate: annualForm.preferredDate,
-      notes: annualForm.notes,
-      status: 'requested',
-      operator: 'journeys',
-    })
-    setSubmitted('annual')
-    setAnnualForm({ tailNumber: '', preferredDate: '', notes: '' })
-  }
-
-  const handleMx = (e) => {
-    e.preventDefault()
-    addServiceRequest({
-      id: `sr-ja-${Date.now()}`,
-      type: mxForm.serviceType,
-      tailNumber: mxForm.tailNumber,
-      requestedBy: user.name,
-      requestedDate: new Date().toISOString().split('T')[0],
-      preferredDate: mxForm.preferredDate,
-      description: mxForm.description,
-      status: 'requested',
-      operator: 'journeys',
-    })
-    setSubmitted('mx')
-    setMxForm({ tailNumber: '', serviceType: 'annual', description: '', preferredDate: '' })
-  }
-
-  if (submitted) {
-    const msgs = {
-      squawk: 'Squawk submitted! Our maintenance team will review it within 24 hours.',
-      annual: 'Annual inspection request submitted! We\'ll confirm scheduling within 48 hours.',
-      mx: 'Maintenance request submitted! We\'ll contact you to confirm details.',
-    }
-    return (
-      <section id="sec-maintenance" className="py-20 px-6 bg-surface">
-        <div className="max-w-6xl mx-auto">
-          <div className="max-w-md mx-auto text-center py-12">
-            <div className="text-4xl mb-4">✅</div>
-            <h3 className="text-xl font-bold text-white mb-2">Request Received</h3>
-            <p className="text-slate-300 text-sm mb-6">{msgs[submitted]}</p>
-            <button onClick={() => setSubmitted(null)} className="bg-sky-500 hover:bg-sky-400 text-white px-6 py-2 rounded-xl text-sm transition-colors">Submit Another</button>
-          </div>
-        </div>
-      </section>
-    )
-  }
-
-  const tabs = [
-    { id: 'squawk', label: 'Report a Squawk', icon: '🔧' },
-    { id: 'annual', label: 'Schedule Annual', icon: '📋' },
-    { id: 'mx', label: 'Maintenance Request', icon: '🛠️' },
-  ]
-
+  // Non-logged-in: show services overview
   return (
     <section id="sec-maintenance" className="py-20 px-6 bg-gradient-to-b from-surface via-surface-card/30 to-surface">
       <div className="max-w-6xl mx-auto">
-        <div className="text-center mb-12">
+        <div className="text-center mb-8">
           <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">Aircraft Maintenance</h2>
-          <p className="text-slate-400">A&P, IA, and Rotax iRMT certified · Submit requests below</p>
+          <p className="text-slate-400">A&P, IA, and Rotax iRMT certified · ROTAX iRC</p>
         </div>
-
-        {/* Tab selector */}
-        <div className="flex gap-2 justify-center mb-8">
-          {tabs.map((t) => (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              className={`px-5 py-2.5 rounded-xl text-sm font-medium transition-all ${
-                tab === t.id ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/20' : 'bg-surface-card border border-surface-border text-slate-400 hover:text-white'
-              }`}>
-              {t.icon} {t.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="max-w-lg mx-auto">
-          {/* Squawk form */}
-          {tab === 'squawk' && (
-            <form onSubmit={handleSquawk} className="bg-surface-card border border-surface-border rounded-2xl p-6 space-y-4">
-              <div>
-                <h3 className="text-white font-bold text-lg mb-1">Report a Squawk</h3>
-                <p className="text-slate-400 text-xs">Report a mechanical issue, discrepancy, or concern</p>
-              </div>
-              <div>
-                <label className="text-slate-400 text-xs block mb-1.5">Aircraft</label>
-                <select required value={squawkForm.tailNumber} onChange={(e) => setSquawkForm((f) => ({ ...f, tailNumber: e.target.value }))}
-                  className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:border-sky-400 focus:outline-none">
-                  <option value="">Select aircraft</option>
-                  {tailOptions.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-slate-400 text-xs block mb-1.5">Severity</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { v: 'grounding', l: 'Grounding', c: 'border-red-400/40 text-red-400' },
-                    { v: 'ops_limiting', l: 'Ops Limiting', c: 'border-amber-400/40 text-amber-400' },
-                    { v: 'deferred', l: 'Deferred / MEL', c: 'border-yellow-400/40 text-yellow-400' },
-                    { v: 'monitoring', l: 'Monitoring', c: 'border-slate-400/40 text-slate-400' },
-                  ].map((s) => (
-                    <button type="button" key={s.v} onClick={() => setSquawkForm((f) => ({ ...f, severity: s.v }))}
-                      className={`px-3 py-2 rounded-xl text-xs font-medium transition-all border ${
-                        squawkForm.severity === s.v ? `bg-sky-500/20 border-sky-400 text-sky-400` : `bg-surface ${s.c} hover:bg-surface-card`
-                      }`}>
-                      {s.l}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="text-slate-400 text-xs block mb-1.5">Description</label>
-                <textarea required rows={3} placeholder="Describe the issue..." value={squawkForm.description}
-                  onChange={(e) => setSquawkForm((f) => ({ ...f, description: e.target.value }))}
-                  className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:border-sky-400 focus:outline-none resize-none" />
-              </div>
-              <div className="flex items-center justify-between pt-2">
-                <span className="text-slate-500 text-[10px]">Reporting as: {user.name}</span>
-                <button type="submit" className="bg-sky-500 hover:bg-sky-400 text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition-colors">Submit Squawk</button>
-              </div>
-            </form>
-          )}
-
-          {/* Schedule annual */}
-          {tab === 'annual' && (
-            <form onSubmit={handleAnnual} className="bg-surface-card border border-surface-border rounded-2xl p-6 space-y-4">
-              <div>
-                <h3 className="text-white font-bold text-lg mb-1">Schedule Annual Inspection</h3>
-                <p className="text-slate-400 text-xs">Annual, 100-hour, conditional, or pre-buy — we'll coordinate timing</p>
-              </div>
-              <div>
-                <label className="text-slate-400 text-xs block mb-1.5">Aircraft</label>
-                <select required value={annualForm.tailNumber} onChange={(e) => setAnnualForm((f) => ({ ...f, tailNumber: e.target.value }))}
-                  className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:border-sky-400 focus:outline-none">
-                  <option value="">Select aircraft</option>
-                  {tailOptions.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-slate-400 text-xs block mb-1.5">Preferred Date</label>
-                <input type="date" required value={annualForm.preferredDate} onChange={(e) => setAnnualForm((f) => ({ ...f, preferredDate: e.target.value }))}
-                  className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:border-sky-400 focus:outline-none" />
-              </div>
-              <div>
-                <label className="text-slate-400 text-xs block mb-1.5">Notes (optional)</label>
-                <textarea rows={2} placeholder="Any specific concerns, AD compliance, etc." value={annualForm.notes}
-                  onChange={(e) => setAnnualForm((f) => ({ ...f, notes: e.target.value }))}
-                  className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:border-sky-400 focus:outline-none resize-none" />
-              </div>
-              <div className="bg-surface border border-surface-border rounded-xl p-3 text-xs text-slate-400 space-y-1">
-                <div>📞 Maintenance: <span className="text-sky-400">{JB_INFO.maintenancePhone}</span></div>
-                <div>✓ A&P and IA on staff · Rotax iRMT certified</div>
-                <div>✓ ROTAX Independent Repair Centre (iRC)</div>
-              </div>
-              <div className="flex items-center justify-between pt-2">
-                <span className="text-slate-500 text-[10px]">Requesting as: {user.name}</span>
-                <button type="submit" className="bg-sky-500 hover:bg-sky-400 text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition-colors">Request Annual</button>
-              </div>
-            </form>
-          )}
-
-          {/* General maintenance request */}
-          {tab === 'mx' && (
-            <form onSubmit={handleMx} className="bg-surface-card border border-surface-border rounded-2xl p-6 space-y-4">
-              <div>
-                <h3 className="text-white font-bold text-lg mb-1">Submit Maintenance Request</h3>
-                <p className="text-slate-400 text-xs">Oil change, avionics install, pre-buy inspection, or any service</p>
-              </div>
-              <div>
-                <label className="text-slate-400 text-xs block mb-1.5">Aircraft</label>
-                <select required value={mxForm.tailNumber} onChange={(e) => setMxForm((f) => ({ ...f, tailNumber: e.target.value }))}
-                  className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:border-sky-400 focus:outline-none">
-                  <option value="">Select aircraft</option>
-                  {tailOptions.map((t) => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="text-slate-400 text-xs block mb-1.5">Service Type</label>
-                <select value={mxForm.serviceType} onChange={(e) => setMxForm((f) => ({ ...f, serviceType: e.target.value }))}
-                  className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:border-sky-400 focus:outline-none">
-                  <option value="annual">Annual Inspection</option>
-                  <option value="100hr">100-Hour Inspection</option>
-                  <option value="conditional">Conditional Inspection</option>
-                  <option value="prebuy">Pre-Buy Inspection</option>
-                  <option value="oil_change">Oil Change</option>
-                  <option value="avionics">Avionics Install / Repair</option>
-                  <option value="engine">Engine Work</option>
-                  <option value="airframe">Airframe Repair</option>
-                  <option value="rotax">Rotax Service</option>
-                  <option value="slsa">SLSA Maintenance</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-slate-400 text-xs block mb-1.5">Description</label>
-                <textarea required rows={3} placeholder="Describe the work needed..." value={mxForm.description}
-                  onChange={(e) => setMxForm((f) => ({ ...f, description: e.target.value }))}
-                  className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:border-sky-400 focus:outline-none resize-none" />
-              </div>
-              <div>
-                <label className="text-slate-400 text-xs block mb-1.5">Preferred Date (optional)</label>
-                <input type="date" value={mxForm.preferredDate} onChange={(e) => setMxForm((f) => ({ ...f, preferredDate: e.target.value }))}
-                  className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:border-sky-400 focus:outline-none" />
-              </div>
-              <div className="flex items-center justify-between pt-2">
-                <span className="text-slate-500 text-[10px]">Requesting as: {user.name}</span>
-                <button type="submit" className="bg-sky-500 hover:bg-sky-400 text-white font-semibold px-6 py-2.5 rounded-xl text-sm transition-colors">Submit Request</button>
-              </div>
-            </form>
-          )}
+        <div className="max-w-lg mx-auto bg-surface-card border border-surface-border rounded-2xl p-8 text-center">
+          <div className="text-4xl mb-4">🔧</div>
+          <h3 className="text-white font-bold text-lg mb-2">Full-Service Maintenance Shop</h3>
+          <p className="text-slate-400 text-sm mb-4">Annual, 100-hour, conditional & pre-buy inspections. Rotax Independent Repair Centre. SLSA maintenance and repair.</p>
+          <div className="grid grid-cols-2 gap-3 mb-6 text-xs">
+            <div className="bg-surface border border-surface-border rounded-xl p-3">
+              <div className="text-white font-semibold">Maintenance</div>
+              <div className="text-sky-400">{JB_INFO.maintenancePhone}</div>
+            </div>
+            <div className="bg-surface border border-surface-border rounded-xl p-3">
+              <div className="text-white font-semibold">FBO</div>
+              <div className="text-sky-400">{JB_INFO.phone}</div>
+            </div>
+          </div>
+          <p className="text-slate-500 text-xs">Sign in to report squawks, schedule inspections, and track maintenance status for your aircraft.</p>
         </div>
       </div>
     </section>
@@ -566,23 +384,34 @@ function slotOccupied(bookings, dayIdx, slot, field, id) {
   })
 }
 
-function ScheduleSection({ user, selectedAircraft, onClearAircraft }) {
+function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAircraft, proposedLessons = [] }) {
   const cfiList = mockPersonnel.filter((p) => p.cfiCert)
   const fleet = getAircraftByOperator('journeys')
   const preferredCfis = user.preferredCfis || []
-  const ownedAircraft = user.ownedAircraft || []
+  // Merge persona owned aircraft with any added via localStorage
+  const [extraOwned, setExtraOwned] = useState(() => { try { return JSON.parse(localStorage.getItem(`journeys_owned_${user.id}`) || '[]') } catch { return [] } })
+  const ownedAircraft = [...(user.ownedAircraft || []), ...extraOwned.filter((a) => !(user.ownedAircraft || []).some((o) => o.tail === a.tail))]
+  const [newOwnTail, setNewOwnTail] = useState('')
+  const [newOwnType, setNewOwnType] = useState('')
+  const [newOwnFuel, setNewOwnFuel] = useState('100LL')
+  const [newOwnServices, setNewOwnServices] = useState({})
 
   const BOOKINGS_KEY = `journeys_bookings_${user.id}`
   const loadBookings = () => { try { return JSON.parse(localStorage.getItem(BOOKINGS_KEY) || '[]') } catch { return [] } }
 
-  const [acMode, setAcMode] = useState(selectedAircraft ? 'fleet' : 'ground')
+  const [acMode, setAcMode] = useState(selectedAircraft ? 'fleet' : 'fleet')
   const [ownTail, setOwnTail] = useState(ownedAircraft[0]?.tail || '')
   const [sessionType, setSessionType] = useState('')
-  const [flightMode, setFlightMode] = useState('dual') // 'dual' | 'solo'
-  const [selectedCfi, setSelectedCfi] = useState('')
-  const [durationHalfHours, setDurationHalfHours] = useState(4) // default 2 hrs = 4 half-hours
+  const [flightMode, setFlightMode] = useState('dual') // 'dual' | 'solo' | 'ground'
+  // Default to first preferred CFI
+  // 'preferred' = any preferred CFI, '' = any CFI, or specific id
+  const [selectedCfi, setSelectedCfi] = useState(preferredCfis.length > 0 ? 'preferred' : '')
+  const [durationHalfHours, setDurationHalfHours] = useState(4)
+  const [weekOffset, setWeekOffset] = useState(0) // 0 = this week, 1 = next, -1 = prev
+  const [stars] = useAircraftStars(user?.id)
   const [bookings, setBookings] = useState(loadBookings)
   const [editingBooking, setEditingBooking] = useState(null)
+  const [skippedProposals, setSkippedProposals] = useState(new Set())
   const [toast, setToast] = useState(null)
   const [xcRoute, setXcRoute] = useState('KBDU')
   const [xcFuelGal, setXcFuelGal] = useState('')
@@ -594,6 +423,53 @@ function ScheduleSection({ user, selectedAircraft, onClearAircraft }) {
 
   const durationHrs = durationHalfHours / 2
   const session = CFI_SESSION_TYPES.find((s) => s.id === sessionType)
+
+  // Proposed lessons for students (breathing on calendar)
+  const studentData = useMemo(() => mockStudents.find((s) => s.name.toLowerCase().includes(user.name.split(' ')[0].toLowerCase())), [user.name])
+  // Compute proposed lessons — NOT memoized to avoid stale cache
+  const proposed = (() => {
+    if (!studentData || user.cert !== 'student') return []
+    const now = new Date()
+    const dow = now.getDay()
+    const todayIdx = dow === 0 ? 6 : dow - 1 // Mon=0..Sat=5, Sun=6
+    const nowHour = now.getHours()
+
+    // Block all past slots in the training module's search space
+    const pastSkips = new Set()
+    const SLOTS = ['0700','0800','0900','1000','1100','1200','1300','1400','1500','1600','1700']
+    for (let d = 0; d <= 12; d++) {
+      if (d === 6) continue
+      const mappedDay = d >= 7 ? d - 7 : d
+      if (d < 7 && mappedDay < todayIdx) { SLOTS.forEach((s) => pastSkips.add(`${d}:${s}`)); continue }
+      if (d < 7 && mappedDay === todayIdx) { SLOTS.filter((s) => parseInt(s.slice(0, 2), 10) <= nowHour).forEach((s) => pastSkips.add(`${d}:${s}`)) }
+    }
+
+    const recs = recommendLessons(studentData, mockPersonnel, mockAircraft, mockBookings, pastSkips)
+
+    // Hard filter: only future slots (belt + suspenders)
+    return recs.filter((r) => {
+      if (!r.slot) return false
+      const di = r.slot.dayIdx
+      const slotHour = parseInt((r.slot.slot || '0000').slice(0, 2), 10)
+      // Map training dayIdx to real date
+      const realDay = di >= 7 ? di - 7 : di
+      if (di < 7 && realDay < todayIdx) return false
+      if (di < 7 && realDay === todayIdx && slotHour <= nowHour) return false
+      // Night flights: must start no earlier than 1 hour before sunset
+      // Sunset approximation for Boulder (40°N) by day of year
+      const isNight = r.template.title?.toLowerCase().includes('night')
+      if (isNight) {
+        const jan1 = new Date(now.getFullYear(), 0, 1)
+        const dayOfYear = Math.floor((now - jan1) / 86400000)
+        // Simplified sunset hour for 40°N latitude (Boulder)
+        // Ranges from ~17:00 (Dec 21) to ~20:30 (Jun 21)
+        const sunsetHour = 17.0 + 3.5 * Math.sin(((dayOfYear - 80) / 365) * 2 * Math.PI)
+        const earliestNight = Math.floor(sunsetHour) - 1
+        if (slotHour < earliestNight) return false
+      }
+      return true
+    }).slice(0, 3)
+  })()
 
   // Gather ALL bookings for conflict detection:
   // 1. Training module mock bookings (instructor schedule)
@@ -665,11 +541,24 @@ function ScheduleSection({ user, selectedAircraft, onClearAircraft }) {
     }
 
     // Find CFIs free for at least 1 half-hour from this slot (up to acFreeSlots)
+    // Also check W&B: if a specific CFI + student exceeds aircraft max gross, exclude that CFI
     const maxDur = acFreeSlots
+    const studentW = user.weightLbs || 170
     if (acMode === 'ground' || acMode === 'own' || (acMode === 'fleet' && selectedAircraft)) {
-      const targets = selectedCfi ? cfiList.filter((c) => c.id === selectedCfi) : cfiList
+      const targets = (selectedCfi === 'preferred' ? cfiList.filter((c) => preferredCfis.includes(c.id))
+        : selectedCfi ? cfiList.filter((c) => c.id === selectedCfi)
+        : cfiList
+      ).filter((c) => cfiQualifiedForSession(c, activeSession)) // filter by lesson requirements (CFII/MEI/stage check)
       const available = []
       for (const cfi of targets) {
+        // W&B check per-CFI when aircraft is selected
+        if (activeAircraftId && selectedAircraft?.weightBalance && flightMode !== 'solo') {
+          const wb = selectedAircraft.weightBalance
+          const occupants = studentW + (cfi.weightLbs || 170)
+          const fuelLbs = Math.round(Math.min((durationHrs + 0.5) * (selectedAircraft.fuelBurnGalHr || 8), selectedAircraft.fuelCapacityGal || 50) * (wb.fuelWeightPerGal || 6))
+          const total = wb.emptyWeightLbs + occupants + fuelLbs
+          if (total > wb.maxGrossLbs) continue // this CFI is too heavy for this aircraft
+        }
         let cfiFree = 0
         for (let h = 0; h < maxDur; h++) {
           const si = si0 + h
@@ -690,12 +579,45 @@ function ScheduleSection({ user, selectedAircraft, onClearAircraft }) {
   const isSolo = flightMode === 'solo' || session?.solo
   const activeSession = CFI_SESSION_TYPES.find((s) => s.id === sessionType)
 
+  // Auto-pick cheapest green aircraft from student's preferred list, then fleet
+  const getAutoPick = useCallback(() => {
+    if (selectedAircraft || acMode === 'ground' || acMode === 'own') return null
+    const sw = user.weightLbs || 170
+    const weightPool = selectedCfi === 'preferred' && preferredCfis.length > 0
+      ? cfiList.filter((c) => preferredCfis.includes(c.id))
+      : selectedCfi && selectedCfi !== 'preferred'
+        ? cfiList.filter((c) => c.id === selectedCfi)
+        : cfiList
+    const cw = Math.min(...weightPool.map((c) => c.weightLbs || 170))
+    const prefTails = user.aircraft || []
+    const scored = fleet
+      .filter((ac) => ac.airworthy && ac.fboCategory !== 'sim')
+      .map((ac) => {
+        const wb = ac.weightBalance
+        if (!wb?.maxGrossLbs || !wb?.emptyWeightLbs) return { ac, ok: true, margin: 999, rate: ac.rentalRates?.member || 999 }
+        const occ = flightMode === 'solo' ? sw : sw + cw
+        const fuelLbs = Math.round(Math.min((durationHrs + 0.5) * (ac.fuelBurnGalHr || 8), ac.fuelCapacityGal || 50) * (wb.fuelWeightPerGal || 6))
+        const margin = wb.maxGrossLbs - wb.emptyWeightLbs - occ - fuelLbs
+        return { ac, ok: margin >= 0, margin, rate: ac.rentalRates?.member || 999 }
+      })
+      .filter((s) => s.ok)
+      .sort((a, b) => {
+        const aP = prefTails.includes(a.ac.tailNumber) ? 0 : 1
+        const bP = prefTails.includes(b.ac.tailNumber) ? 0 : 1
+        if (aP !== bP) return aP - bP
+        return a.rate - b.rate
+      })
+    return scored[0]?.ac || null
+  }, [selectedAircraft, acMode, fleet, cfiList, user, flightMode, durationHrs])
+
   const buildLabel = (cfiId) => {
     const cfi = cfiList.find((c) => c.id === cfiId)
     const parts = []
+    const autoAc = getAutoPick()
     if (selectedAircraft) parts.push(selectedAircraft.tailNumber)
     else if (acMode === 'own' && ownTail) parts.push(ownTail)
     else if (acMode === 'ground') parts.push('Ground')
+    else if (autoAc) parts.push(autoAc.tailNumber)
     if (session) parts.push(session.label)
     if (isSolo && !cfiId) parts.push('Solo')
     else if (!session && cfiId) parts.push('Dual')
@@ -708,13 +630,17 @@ function ScheduleSection({ user, selectedAircraft, onClearAircraft }) {
     // Use effective duration if available (shorter when blocked), else requested
     const actualHalfHours = effectiveDur || durationHalfHours
     const actualHrs = actualHalfHours / 2
+    // Auto-pick aircraft if none selected
+    const bookAircraft = selectedAircraft || (acMode === 'fleet' ? getAutoPick() : null)
+    const bookAircraftId = bookAircraft?.id || null
+    const bookAircraftLabel = bookAircraft?.tailNumber || (acMode === 'own' ? ownTail : acMode === 'ground' ? 'Ground' : null)
     const label = buildLabel(cfiId)
     const booking = {
       id: `bk-ja-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-      dayIdx, slot, duration: actualHrs,
+      dayIdx, slot, duration: actualHrs, weekOffset,
       cfiId: cfiId || null,
-      aircraftId: activeAircraftId,
-      aircraftLabel: selectedAircraft?.tailNumber || (acMode === 'own' ? ownTail : acMode === 'ground' ? 'Ground' : null),
+      aircraftId: bookAircraftId,
+      aircraftLabel: bookAircraftLabel,
       type: sessionType || (acMode === 'ground' ? 'ground' : (isSolo && !cfiId) ? 'solo' : 'dual_lesson'),
       flightMode: isSolo ? 'solo' : 'dual',
       title: label,
@@ -727,8 +653,8 @@ function ScheduleSection({ user, selectedAircraft, onClearAircraft }) {
     setBookings((prev) => [...prev, booking])
 
     // Publish to the shared flight store if this booking has an aircraft
-    const ac = selectedAircraft || (acMode === 'own' && ownTail ? { tailNumber: ownTail, makeModel: ownedAircraft.find((a) => a.tail === ownTail)?.type || ownTail } : null)
-    const tail = ac?.tailNumber || booking.aircraftLabel
+    const ac = bookAircraft || (acMode === 'own' && ownTail ? { tailNumber: ownTail, makeModel: ownedAircraft.find((a) => a.tail === ownTail)?.type || ownTail } : null)
+    const tail = ac?.tailNumber || bookAircraftLabel
     const hasFlight = tail && tail !== 'Ground' && tail !== 'GND'
     if (hasFlight) {
       const cfi = cfiId ? cfiList.find((c) => c.id === cfiId) : null
@@ -738,7 +664,7 @@ function ScheduleSection({ user, selectedAircraft, onClearAircraft }) {
       const todayDow = now.getDay() // 0=Sun..6=Sat
       const mondayOffset = todayDow === 0 ? -6 : 1 - todayDow
       const baseDate = new Date(now)
-      baseDate.setDate(now.getDate() + mondayOffset + dayIdx)
+      baseDate.setDate(now.getDate() + mondayOffset + weekOffset * 7 + dayIdx)
       const [hh, mm] = slot.split(':').map(Number)
       baseDate.setHours(hh, mm, 0, 0)
 
@@ -796,193 +722,327 @@ function ScheduleSection({ user, selectedAircraft, onClearAircraft }) {
 
         <div className="text-center mb-8 sm:mb-12">
           <h2 className="text-3xl sm:text-4xl font-bold text-white mb-3">Schedule</h2>
-          <p className="text-slate-400 text-base sm:text-lg">Book aircraft, CFI sessions, ground school, or fly your own</p>
+          <p className="text-slate-400 text-base sm:text-lg">Book lessons, check flights, currency, and ground school</p>
         </div>
 
-        {/* ── Mode cards ── */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
-          <button onClick={() => { setAcMode('fleet'); if (!selectedAircraft) onClearAircraft?.() }}
-            className={`p-4 sm:p-5 rounded-2xl text-left transition-all border ${acMode === 'fleet' ? 'bg-sky-500/15 border-sky-400 ring-1 ring-sky-400/30' : 'bg-surface-card border-surface-border hover:border-slate-500'}`}>
-            <div className="text-xl sm:text-2xl mb-1">✈️</div>
-            <div className={`text-sm sm:text-base font-bold ${acMode === 'fleet' ? 'text-sky-400' : 'text-white'}`}>Fleet Aircraft</div>
-            <div className="text-xs text-slate-400 mt-0.5">{selectedAircraft ? selectedAircraft.tailNumber : 'Select above ↑'}</div>
-          </button>
-          <button onClick={() => { setAcMode('ground'); onClearAircraft?.() }}
-            className={`p-4 sm:p-5 rounded-2xl text-left transition-all border ${acMode === 'ground' ? 'bg-amber-500/15 border-amber-400 ring-1 ring-amber-400/30' : 'bg-surface-card border-surface-border hover:border-slate-500'}`}>
-            <div className="text-xl sm:text-2xl mb-1">📚</div>
-            <div className={`text-sm sm:text-base font-bold ${acMode === 'ground' ? 'text-amber-400' : 'text-white'}`}>Ground Session</div>
-            <div className="text-xs text-slate-400 mt-0.5">No aircraft</div>
-          </button>
-          <button onClick={() => { setAcMode('own'); onClearAircraft?.() }}
-            className={`p-4 sm:p-5 rounded-2xl text-left transition-all border ${acMode === 'own' ? 'bg-purple-500/15 border-purple-400 ring-1 ring-purple-400/30' : 'bg-surface-card border-surface-border hover:border-slate-500'}`}>
-            <div className="text-xl sm:text-2xl mb-1">🛩️</div>
-            <div className={`text-sm sm:text-base font-bold ${acMode === 'own' ? 'text-purple-400' : 'text-white'}`}>Own Aircraft</div>
-            <div className="text-xs text-slate-400 mt-0.5">Bring your plane</div>
-          </button>
-          <div className="p-4 sm:p-5 rounded-2xl bg-surface-card border border-surface-border">
-            <div className="text-slate-400 text-xs uppercase tracking-wide mb-2">Duration</div>
-            <div className="flex items-center justify-center gap-3">
-              <button onClick={() => adjustDuration(-1)} className="w-9 h-9 rounded-full bg-surface border border-surface-border text-slate-300 hover:text-white hover:border-sky-400 text-lg font-bold transition-all">−</button>
-              <div className="text-center min-w-[60px]">
-                <div className="text-white text-2xl font-bold">{durationHrs}</div>
-                <div className="text-slate-500 text-[10px]">hours</div>
-              </div>
-              <button onClick={() => adjustDuration(1)} className="w-9 h-9 rounded-full bg-surface border border-surface-border text-slate-300 hover:text-white hover:border-sky-400 text-lg font-bold transition-all">+</button>
-            </div>
-          </div>
-        </div>
+        {/* ═══ CASCADING FUNNEL: Mode → CFI → Lesson → Aircraft → Calendar ═══ */}
 
-        {/* Airworthiness warnings */}
-        {acMode === 'fleet' && selectedAircraft && !acAirworthy && (
-          <div className="bg-red-400/10 border border-red-400/30 rounded-2xl p-4 mb-6 flex items-center gap-3">
-            <span className="text-2xl">⚠️</span>
-            <div>
-              <div className="text-red-400 font-bold text-sm">{selectedAircraft.tailNumber} is not airworthy</div>
-              <div className="text-red-400/70 text-xs">Bookings will be flagged as STANDBY pending return to service. Check maintenance status.</div>
-            </div>
-          </div>
-        )}
-        {acMode === 'fleet' && selectedAircraft && acAirworthy && acInspectionDue && (
-          <div className="bg-amber-400/10 border border-amber-400/30 rounded-2xl p-4 mb-6 flex items-center gap-3">
-            <span className="text-2xl">🔧</span>
-            <div>
-              <div className="text-amber-400 font-bold text-sm">{selectedAircraft.tailNumber} — inspection {selectedAircraft.inspectionStatus === 'overdue' ? 'overdue' : 'due soon'}</div>
-              <div className="text-amber-400/70 text-xs">Aircraft may become unavailable. Bookings are subject to change.</div>
-            </div>
-          </div>
-        )}
+        {/* ── Step 1: Dual / Solo / Ground ── */}
+        {(() => {
+          const studentData = mockStudents.find((s) => s.name.toLowerCase().includes(user.name.split(' ')[0].toLowerCase())) || mockStudents[1]
+          const canSolo = studentData?.hours?.soloPIC > 0
+          const programKey = user.program || (user.cert === 'student' ? 'private_pilot' : (user.ratings?.includes('instrument') ? 'instrument_rating' : 'private_pilot'))
+          const templates = LESSON_TEMPLATES[programKey] || {}
+          const allLessons = Object.entries(templates).flatMap(([stage, lessons]) => lessons.map((l) => ({ ...l, stage: Number(stage) })))
+          const dualLessons = allLessons.filter((l) => l.type === 'dual_lesson')
+          const soloLessons = allLessons.filter((l) => l.type === 'solo')
+          const groundLessons = allLessons.filter((l) => l.type === 'ground')
+          const currentStage = studentData?.currentStage || 1
 
-        {/* Own aircraft selector */}
-        {acMode === 'own' && (
-          <div className="mb-6">
-            {ownedAircraft.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {ownedAircraft.map((a) => (
-                  <button key={a.tail} onClick={() => setOwnTail(a.tail)}
-                    className={`px-4 py-2.5 rounded-xl text-sm font-medium transition-all border ${ownTail === a.tail ? 'bg-purple-500/20 border-purple-400 text-purple-400' : 'bg-surface border-surface-border text-slate-300 hover:border-slate-500'}`}>
-                    {a.tail} — {a.type}
+          // Selected CFI object
+          const selCfi = selectedCfi && selectedCfi !== 'preferred' ? cfiList.find((c) => c.id === selectedCfi) : null
+          const prefCfiList = cfiList.filter((c) => preferredCfis.includes(c.id))
+          // Weight: use specific CFI weight, or lightest from preferred list, or lightest from all
+          const cfiWeight = selCfi?.weightLbs
+            || (selectedCfi === 'preferred' && prefCfiList.length > 0 ? Math.min(...prefCfiList.map((c) => c.weightLbs || 170)) : null)
+            || Math.min(...cfiList.map((c) => c.weightLbs || 170))
+          const studentWeight = user.weightLbs || 170
+
+          // Lesson template for current selection
+          const lessonTemplate = sessionType ? allLessons.find((l) => l.id === sessionType) : null
+          const lessonDur = lessonTemplate?.durationHr || durationHrs
+          const isXc = lessonTemplate?.title?.includes('XC') || lessonTemplate?.title?.includes('Cross-Country')
+          const fuelHoursNeeded = lessonDur + (isXc ? 0.75 : 0.5)
+
+          // CFI capabilities affect which lessons are grayed
+          const cfiHasCfii = selCfi ? (selCfi.cfiRatings || []).includes('CFII') : true // if no CFI selected, don't gray
+          const cfiHasMei = selCfi ? (selCfi.cfiRatings || []).includes('MEI') : true
+
+          // Score aircraft
+          const statusOrder = { green: 0, yellow: 1, red: 2, unqualified: 3 }
+          const scoredAircraft = fleet.map((ac) => {
+            const wb = ac.weightBalance; const rates = ac.rentalRates || {}
+            if (!ac.airworthy) return { ac, status: 'red', reason: 'Not airworthy', rate: rates.member || 999, stars: stars[ac.tailNumber] || 0 }
+            if (ac.fboCategory === 'sim') return { ac, status: 'unqualified', reason: 'Sim', rate: rates.member || 999, stars: 0 }
+            // Capability gray-out based on selected lesson
+            if (lessonTemplate?.requiresIfrAircraft && !ac.equipment?.ifrCertified) return { ac, status: 'unqualified', reason: 'Not IFR', rate: rates.member || 999, stars: stars[ac.tailNumber] || 0 }
+            if (lessonTemplate?.requiresComplex && !ac.riskProfile?.complexAircraft) return { ac, status: 'unqualified', reason: 'Not complex', rate: rates.member || 999, stars: stars[ac.tailNumber] || 0 }
+            if (lessonTemplate?.requiresMulti && !ac.riskProfile?.multiEngine) return { ac, status: 'unqualified', reason: 'Not multi', rate: rates.member || 999, stars: stars[ac.tailNumber] || 0 }
+            if (!wb?.maxGrossLbs || !wb?.emptyWeightLbs) return { ac, status: 'yellow', reason: 'No W&B', rate: rates.member || 999, stars: stars[ac.tailNumber] || 0 }
+            const occ = flightMode === 'solo' ? studentWeight : studentWeight + cfiWeight
+            const fuelLbs = Math.round(Math.min(fuelHoursNeeded * (ac.fuelBurnGalHr || 8), ac.fuelCapacityGal || 50) * (wb.fuelWeightPerGal || 6))
+            const margin = wb.maxGrossLbs - wb.emptyWeightLbs - occ - fuelLbs
+            if (margin < 0) return { ac, status: 'red', reason: `Over ${Math.abs(margin)}`, rate: rates.member || 999, margin, stars: stars[ac.tailNumber] || 0 }
+            if (margin < 50) return { ac, status: 'yellow', reason: `${margin} lbs`, rate: rates.member || 999, margin, stars: stars[ac.tailNumber] || 0 }
+            return { ac, status: 'green', reason: `+${margin}`, rate: rates.member || 999, margin, stars: stars[ac.tailNumber] || 0 }
+          })
+          // Sort: starred first (3★ > 2★ > 1★), then green/yellow/red, then cheapest
+          const sorted = [...scoredAircraft].sort((a, b) => (b.stars - a.stars) || statusOrder[a.status] - statusOrder[b.status] || a.rate - b.rate)
+          const qualified = sorted.filter((s) => s.status !== 'unqualified')
+          const unqualified = sorted.filter((s) => s.status === 'unqualified')
+          const autoPick = qualified.find((s) => s.status === 'green') || qualified.find((s) => s.status === 'yellow')
+
+          // Checkride/currency tab shows special session types, not syllabus lessons
+          const checkrideSessions = [
+            { id: 'stage-check', title: 'Stage Check', type: 'dual_lesson', durationHr: 2, requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, requiresStageCheckAuth: true, stage: 0, desc: 'Progress evaluation by chief/senior CFI' },
+            { id: 'checkride-prep', title: 'Checkride Prep (Flight)', type: 'dual_lesson', durationHr: 2, requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, stage: 0, desc: 'Mock practical — maneuvers + procedures' },
+            { id: 'mock-oral', title: 'Mock Oral Exam', type: 'ground', durationHr: 2, requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, stage: 0, desc: 'Simulated oral with your CFI' },
+            { id: 'proficiency', title: 'Proficiency Flight', type: 'dual_lesson', durationHr: 1.5, requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, stage: 0, desc: 'Sharpen skills — maneuvers, landings, emergencies' },
+            { id: 'currency-day', title: 'Day Currency', type: 'dual_lesson', durationHr: 1, requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, stage: 0, desc: '3 T&Ls to stay current as PIC with passengers' },
+            { id: 'currency-night', title: 'Night Currency', type: 'dual_lesson', durationHr: 1.5, requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, stage: 0, desc: '3 night T&Ls to full stop — required every 90 days' },
+            { id: 'ipc-check', title: 'Instrument Proficiency Check', type: 'dual_lesson', durationHr: 2, requiresCfii: true, requiresIfrAircraft: true, requiresComplex: false, requiresMulti: false, stage: 0, desc: 'IPC — approaches, holds, partial panel with CFII' },
+            { id: 'bfr-check', title: 'Flight Review (BFR)', type: 'dual_lesson', durationHr: 2, requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, stage: 0, desc: '1 hr ground + 1 hr flight — required every 24 months' },
+          ]
+          const tabLessons = flightMode === 'solo' ? soloLessons : flightMode === 'ground' ? groundLessons : flightMode === 'checkride' ? checkrideSessions : dualLessons
+
+          return (
+            <>
+              {/* ── Step 1: Dual / Solo / Ground / Checkride ── */}
+              <div className="flex gap-1 mb-5 bg-surface-card border border-surface-border rounded-xl p-1">
+                {[
+                  { id: 'dual', label: '👨‍✈️ Dual', desc: 'With CFI' },
+                  { id: 'solo', label: '🧑‍✈️ Solo', desc: 'Endorsed' },
+                  { id: 'ground', label: '📚 Ground', desc: 'No aircraft' },
+                  { id: 'checkride', label: '✅ Check', desc: 'Eval / Currency' },
+                ].map((t) => (
+                  <button key={t.id} onClick={() => { setFlightMode(t.id); setSessionType(''); if (t.id === 'ground') setAcMode('ground'); else setAcMode('fleet') }}
+                    className={`flex-1 py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
+                      flightMode === t.id ? (t.id === 'solo' ? 'bg-amber-500/20 text-amber-400' : t.id === 'ground' ? 'bg-purple-500/20 text-purple-400' : t.id === 'checkride' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-sky-500/20 text-sky-400') : 'text-slate-500 hover:text-slate-300'
+                    }`}>
+                    {t.label}
+                    <div className="text-[10px] font-normal opacity-60">{t.desc}</div>
                   </button>
                 ))}
               </div>
-            ) : (
-              <input type="text" placeholder="Tail number e.g. N789DK" value={ownTail} onChange={(e) => setOwnTail(e.target.value)}
-                className="w-full sm:w-64 bg-surface border border-surface-border rounded-xl px-4 py-3 text-base text-slate-200 placeholder:text-slate-600 focus:border-sky-400 focus:outline-none" />
-            )}
-          </div>
-        )}
 
-        {/* ── Aircraft suitability message ── */}
-        {acMode === 'fleet' && selectedAircraft && (() => {
-          const suit = aircraftSuitabilityMessage(selectedAircraft)
-          if (!suit) return null
-          return (
-            <div className="bg-surface-card border border-surface-border rounded-2xl p-4 mb-6 text-sm">
-              <div className="text-slate-300">
-                <span className="text-white font-semibold">{selectedAircraft.tailNumber}</span> suitable for:{' '}
-                <span className="text-green-400">{suit.capabilities.join(', ')}</span>
-              </div>
-              {suit.limitations.length > 0 && (
-                <div className="text-amber-400/70 text-xs mt-1">
-                  Limitations: {suit.limitations.join(' · ')}
+              {flightMode === 'solo' && !canSolo && (
+                <div className="bg-amber-400/10 border border-amber-400/20 rounded-xl p-3 mb-4 text-amber-400 text-xs">⏳ Pre-solo — complete Stage 3 first.</div>
+              )}
+
+              {/* ── Step 2: CFI (grayed if solo, shown for dual + ground) ── */}
+              {(flightMode === 'dual' || flightMode === 'ground' || flightMode === 'checkride') && (
+                <div className="mb-5">
+                  <label className="text-slate-400 text-xs block mb-2">
+                    Instructor
+                    {selectedCfi === 'preferred' && <span className="text-sky-400 ml-1">— Preferred ({prefCfiList.length} · lightest {Math.min(...prefCfiList.map((c) => c.weightLbs || 170))} lbs)</span>}
+                    {selCfi && <span className="text-sky-400 ml-1">— {selCfi.name} ({selCfi.weightLbs} lbs)</span>}
+                  </label>
+                  <select value={selectedCfi} onChange={(e) => setSelectedCfi(e.target.value)}
+                    className="w-full bg-surface border border-surface-border rounded-xl px-4 py-3 text-sm text-slate-200 focus:border-sky-400 focus:outline-none">
+                    {preferredCfis.length > 0 && (
+                      <option value="preferred">★ Preferred CFIs ({prefCfiList.map((c) => c.name.split(' ')[0]).join(', ')})</option>
+                    )}
+                    <option value="">Any CFI</option>
+                    {preferredCfis.length > 0 && <optgroup label="Specific Preferred">
+                      {prefCfiList.map((c) => (
+                        <option key={c.id} value={c.id}>★ {c.name} — {c.weightLbs} lbs — {(c.cfiRatings || []).join(', ')}</option>
+                      ))}
+                    </optgroup>}
+                    <optgroup label="All Instructors">
+                      {cfiList.filter((c) => !preferredCfis.includes(c.id)).map((c) => (
+                        <option key={c.id} value={c.id}>{c.name} — {c.weightLbs} lbs — {(c.cfiRatings || []).join(', ')}</option>
+                      ))}
+                    </optgroup>
+                  </select>
                 </div>
               )}
-            </div>
-          )
-        })()}
 
-        {/* ── Dual / Solo toggle ── */}
-        {acMode !== 'ground' && (
-          <div className="mb-6">
-            <label className="text-slate-400 text-sm block mb-2">Flight Mode</label>
-            <div className="flex gap-2">
-              <button onClick={() => setFlightMode('dual')}
-                className={`flex-1 sm:flex-none px-6 py-3 rounded-xl text-sm font-semibold transition-all border ${
-                  flightMode === 'dual' ? 'bg-sky-500/20 border-sky-400 text-sky-400' : 'bg-surface border-surface-border text-slate-400 hover:border-slate-500'
-                }`}>
-                👨‍✈️ Dual (with CFI)
-              </button>
-              <button onClick={() => setFlightMode('solo')}
-                disabled={acMode !== 'fleet' || (activeSession && !activeSession.allowSolo)}
-                className={`flex-1 sm:flex-none px-6 py-3 rounded-xl text-sm font-semibold transition-all border ${
-                  flightMode === 'solo' ? 'bg-amber-500/20 border-amber-400 text-amber-400' : 'bg-surface border-surface-border text-slate-400 hover:border-slate-500'
-                } disabled:opacity-30 disabled:cursor-not-allowed`}>
-                🧑‍✈️ Solo
-              </button>
-            </div>
-            {flightMode === 'solo' && <p className="text-amber-400/70 text-xs mt-1">Solo requires CFI endorsement in logbook before flight.</p>}
-          </div>
-        )}
-
-        {/* ── Session type + CFI ── */}
-        {(() => {
-          const availSessions = getAvailableSessions(user, acMode === 'fleet' ? selectedAircraft : null)
-          const autoCfi = activeSession ? bestCfiForSession(activeSession, cfiList, preferredCfis) : null
-
-          return (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
-              <div>
-                <label className="text-slate-400 text-sm block mb-2">
-                  Flight Type
-                  <span className="text-slate-600 text-xs ml-2">({availSessions.length} for {user.cert === 'student' ? 'student' : user.cert} pilot)</span>
+              {/* ── Step 3: Lesson ── */}
+              <div className="mb-5">
+                <label className="text-slate-400 text-xs block mb-2">
+                  {flightMode === 'checkride' ? 'Evaluation / Currency' : 'Lesson'}
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  <button onClick={() => { setSessionType(''); setSelectedCfi('') }}
-                    className={`p-3 rounded-xl text-sm transition-all border ${!sessionType ? 'bg-sky-500/20 border-sky-400 text-sky-400' : 'bg-surface border-surface-border text-slate-400 hover:border-slate-500'}`}>
-                    <div className="font-semibold">Open</div>
-                  </button>
-                  {availSessions.map((s) => {
-                    const needsCfii = s.requiresCfii
-                    const needsSpecialAc = s.requiresHpAc || s.requiresTwAc || s.requiresComplexAc || s.requiresIfrAc
+                <div className="space-y-1">
+                  {tabLessons.map((lesson) => {
+                    const hasSyllabus = lesson.stage > 0
+                    const done = hasSyllabus && lesson.stage < currentStage
+                    const isCurrent = hasSyllabus && lesson.stage === currentStage
+                    const selected = sessionType === lesson.id
+                    const needsCfii = lesson.requiresCfii && !cfiHasCfii
+                    const needsMei = lesson.requiresMulti && !cfiHasMei
+                    const grayed = needsCfii || needsMei
+
                     return (
-                      <button key={s.id} onClick={() => {
-                          setSessionType(s.id)
-                          // Auto-select best qualified CFI for this session
-                          const best = bestCfiForSession(s, cfiList, preferredCfis)
-                          if (best) setSelectedCfi(best)
+                      <button key={lesson.id} disabled={grayed} onClick={() => {
+                          setSessionType(lesson.id)
+                          setDurationHalfHours(Math.round(lesson.durationHr * 2))
+                          if (flightMode !== 'solo') { const best = bestCfiForSession(lesson, cfiList, preferredCfis); if (best && (!selectedCfi || selectedCfi === 'preferred')) setSelectedCfi(best) }
+                          if (lesson.type === 'ground') setAcMode('ground')
+                          else if (acMode === 'ground') setAcMode('fleet')
                         }}
-                        className={`p-3 rounded-xl text-sm text-left transition-all border ${sessionType === s.id ? 'bg-sky-500/20 border-sky-400 text-sky-400' : 'bg-surface border-surface-border text-slate-300 hover:border-slate-500'}`}>
-                        <div className="font-semibold text-xs">{s.label}</div>
-                        {(needsCfii || needsSpecialAc) && (
-                          <div className="flex gap-1 mt-0.5">
-                            {needsCfii && <span className="text-[8px] bg-indigo-400/15 text-indigo-400 px-1 rounded">CFII</span>}
-                            {s.requiresHpAc && <span className="text-[8px] bg-amber-400/15 text-amber-400 px-1 rounded">HP</span>}
-                            {s.requiresTwAc && <span className="text-[8px] bg-amber-400/15 text-amber-400 px-1 rounded">TW</span>}
-                            {s.requiresIfrAc && <span className="text-[8px] bg-sky-400/15 text-sky-400 px-1 rounded">IFR</span>}
-                          </div>
+                        className={`w-full flex items-center gap-3 p-2.5 rounded-xl text-left transition-all border ${
+                          grayed ? 'opacity-30 cursor-not-allowed border-surface-border'
+                          : selected ? 'bg-sky-500/15 border-sky-400 ring-1 ring-sky-400/20'
+                          : done ? 'bg-green-400/5 border-green-400/15 opacity-60'
+                          : isCurrent ? 'bg-surface-card border-sky-400/20'
+                          : 'bg-surface border-surface-border hover:border-slate-500'
+                        }`}>
+                        {hasSyllabus ? (
+                          <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+                            done ? 'bg-green-400/20 text-green-400' : isCurrent ? 'bg-sky-400/20 text-sky-400' : 'bg-surface border border-surface-border text-slate-600'
+                          }`}>{done ? '✓' : lesson.stage}</span>
+                        ) : (
+                          <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0 ${
+                            selected ? 'bg-emerald-400/20 text-emerald-400' : 'bg-surface border border-surface-border text-slate-500'
+                          }`}>{lesson.type === 'ground' ? '📚' : '✅'}</span>
                         )}
+                        <div className="flex-1 min-w-0">
+                          <div className={`text-xs font-semibold truncate ${done ? 'text-green-400/80' : selected ? 'text-sky-400' : 'text-slate-200'}`}>{lesson.title}</div>
+                          <div className="text-[10px] text-slate-500">
+                            {lesson.durationHr} hr
+                            {lesson.requiresCfii ? ' · CFII' : ''}
+                            {lesson.requiresIfrAircraft ? ' · IFR ac' : ''}
+                            {lesson.requiresComplex ? ' · Complex' : ''}
+                            {lesson.requiresStageCheckAuth ? ' · Chief/Senior CFI' : ''}
+                            {lesson.desc ? ` — ${lesson.desc}` : ''}
+                          </div>
+                        </div>
+                        {done && <span className="text-green-400/60 text-[10px]">Done</span>}
+                        {grayed && <span className="text-red-400/60 text-[10px]">{needsCfii ? 'Needs CFII' : 'Needs MEI'}</span>}
                       </button>
                     )
                   })}
                 </div>
               </div>
-              <div>
-                {flightMode === 'dual' ? (
-                  <>
-                    <label className="text-slate-400 text-sm block mb-2">
-                      Instructor
-                      {activeSession?.requiresCfii && <span className="text-indigo-400 text-xs ml-1">(CFII required)</span>}
-                      {activeSession?.requiresMei && <span className="text-indigo-400 text-xs ml-1">(MEI required)</span>}
-                      {activeSession?.requiresStageCheckAuth && <span className="text-amber-400 text-xs ml-1">(Chief / Senior CFI)</span>}
-                      {activeSession && !activeSession.requiresCfii && !activeSession.requiresMei && !activeSession.requiresStageCheckAuth && (
-                        <span className="text-sky-400/60 text-xs ml-1">— {activeSession.label}</span>
-                      )}
-                    </label>
-                    <select value={selectedCfi || autoCfi || ''} onChange={(e) => setSelectedCfi(e.target.value)}
-                      className="w-full bg-surface border border-surface-border rounded-xl px-4 py-3 text-base text-slate-200 focus:border-sky-400 focus:outline-none">
-                      <option value="">Any qualified CFI</option>
-                      {cfiList.filter((c) => cfiQualifiedForSession(c, activeSession)).map((c) => (
-                        <option key={c.id} value={c.id}>{c.name} — {(c.cfiRatings || []).join(', ')}{preferredCfis.includes(c.id) ? ' ★' : ''}</option>
-                      ))}
-                    </select>
-                  </>
-                ) : (
-                  <div className="bg-amber-400/10 border border-amber-400/20 rounded-xl p-4 mt-7">
-                    <div className="text-amber-400 font-semibold text-sm">Solo Flight</div>
-                    <div className="text-amber-400/70 text-xs mt-1">No instructor — all open aircraft slots are bookable. CFI endorsement must be in your logbook.</div>
+
+              {/* ── Step 4: Aircraft (starred first, color-coded, grayed if incompatible) ── */}
+              {flightMode !== 'ground' && (
+                <div className="mb-5">
+                  <label className="text-slate-400 text-xs block mb-2">
+                    Aircraft <span className="text-slate-600 text-[10px]">({studentWeight}{flightMode !== 'solo' ? `+${cfiWeight}` : ''} lbs · {lessonDur}hr fuel)</span>
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {/* Own aircraft — show registered, or add new */}
+                    {ownedAircraft.map((a) => (
+                      <button key={a.tail} onClick={() => { setAcMode('own'); setOwnTail(a.tail); onClearAircraft?.() }}
+                        className={`px-3 py-2 rounded-xl text-xs transition-all border ${acMode === 'own' && ownTail === a.tail ? 'ring-2 ring-purple-400 bg-purple-500/20 border-purple-400 text-purple-300' : 'bg-surface border-surface-border text-slate-400 hover:border-purple-400/30'}`}>
+                        <div className="font-semibold">🛩️ {a.tail}</div>
+                        <div className="text-[10px] opacity-70">{a.type}</div>
+                      </button>
+                    ))}
+                    <button onClick={() => { setAcMode('own'); setOwnTail(''); onClearAircraft?.() }}
+                      className={`px-3 py-2 rounded-xl text-xs transition-all border ${acMode === 'own' && !ownTail ? 'ring-2 ring-purple-400 bg-purple-500/20 border-purple-400 text-purple-300' : 'bg-surface border-dashed border-purple-400/30 text-purple-400/60 hover:border-purple-400/50'}`}>
+                      <div className="font-semibold">+ Own Aircraft</div>
+                    </button>
+
+                    {/* Fleet aircraft */}
+                    {qualified.map(({ ac, status, reason, rate, stars: s }) => {
+                      const isSelected = selectedAircraft?.id === ac.id
+                      const colorMap = { green: 'bg-green-400/10 border-green-400/25 text-green-400', yellow: 'bg-amber-400/10 border-amber-400/25 text-amber-400', red: 'bg-red-400/10 border-red-400/25 text-red-400' }
+                      return (
+                        <button key={ac.id} onClick={() => { setAcMode('fleet'); onSelectAircraft?.(ac) }}
+                          className={`px-3 py-2 rounded-xl text-xs transition-all border ${isSelected ? 'ring-2 ring-sky-400 bg-sky-500/20 border-sky-400 text-sky-300' : colorMap[status]}`}>
+                          <div className="font-semibold flex items-center gap-1">
+                            {s > 0 && <span className="text-amber-400 text-[9px]">{'★'.repeat(s)}</span>}
+                            {ac.tailNumber}
+                          </div>
+                          <div className="text-[10px] opacity-70">${rate}/hr · {reason}</div>
+                        </button>
+                      )
+                    })}
+                    {/* Grayed unqualified */}
+                    {unqualified.map(({ ac, reason, rate, stars: s }) => (
+                      <div key={ac.id} className="px-3 py-2 rounded-xl text-xs border border-surface-border opacity-25 cursor-not-allowed">
+                        <div className="font-semibold text-slate-500">{s > 0 && <span className="text-amber-400/50 text-[9px]">{'★'.repeat(s)}</span>} {ac.tailNumber}</div>
+                        <div className="text-[10px] text-slate-600">{reason}</div>
+                      </div>
+                    ))}
                   </div>
-                )}
+
+                  {/* Own aircraft registration form */}
+                  {acMode === 'own' && !ownTail && (
+                    <div className="mt-3 bg-purple-400/5 border border-purple-400/20 rounded-xl p-4 space-y-3">
+                      <div className="text-purple-400 text-xs font-semibold">Register Aircraft</div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-purple-400/70 text-[10px]">Tail Number</label>
+                          <input type="text" placeholder="N12345" value={newOwnTail} onChange={(e) => setNewOwnTail(e.target.value.toUpperCase())}
+                            className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-700 focus:border-purple-400 focus:outline-none" />
+                        </div>
+                        <div>
+                          <label className="text-purple-400/70 text-[10px]">Type</label>
+                          <input type="text" placeholder="Cessna 172" value={newOwnType} onChange={(e) => setNewOwnType(e.target.value)}
+                            className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-700 focus:border-purple-400 focus:outline-none" />
+                        </div>
+                        <div>
+                          <label className="text-purple-400/70 text-[10px]">Fuel Type</label>
+                          <select value={newOwnFuel} onChange={(e) => setNewOwnFuel(e.target.value)}
+                            className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:border-purple-400 focus:outline-none">
+                            <option value="100LL">100LL</option>
+                            <option value="Jet-A">Jet-A</option>
+                            <option value="Jet-A+Prist">Jet-A + Prist</option>
+                            <option value="MoGas">MoGas</option>
+                            <option value="UL94">UL94</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-purple-400/70 text-[10px] block mb-1">Default Services (quick-order)</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {[
+                            { id: 'fuel', label: '⛽ Top-off fuel', default: true },
+                            { id: 'tiedown', label: '🔗 Tie-down' },
+                            { id: 'hangar', label: '🏠 Hangar' },
+                            { id: 'preheat', label: '🔥 Preheat' },
+                            { id: 'lavatory', label: '🚻 Lavatory' },
+                            { id: 'oxygen', label: '💨 O₂ service' },
+                            { id: 'deice', label: '❄️ De-ice' },
+                            { id: 'gpu', label: '🔌 GPU' },
+                            { id: 'cleaning', label: '🧽 Cleaning' },
+                            { id: 'catering', label: '🍽️ Catering' },
+                            { id: 'transport', label: '🚗 Transport' },
+                          ].map((svc) => (
+                            <button key={svc.id} type="button"
+                              onClick={() => setNewOwnServices((prev) => ({ ...prev, [svc.id]: !prev[svc.id] }))}
+                              className={`px-2 py-1 rounded text-[10px] transition-all border ${
+                                newOwnServices[svc.id] || svc.default ? 'bg-purple-400/20 border-purple-400/40 text-purple-300' : 'bg-surface border-surface-border text-slate-500 hover:border-slate-400'
+                              }`}>
+                              {svc.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <button disabled={!newOwnTail.trim()} onClick={() => {
+                          const tail = newOwnTail.trim()
+                          const type = newOwnType.trim() || tail
+                          const services = Object.keys(newOwnServices).filter((k) => newOwnServices[k])
+                          const key = `journeys_owned_${user.id}`
+                          const existing = JSON.parse(localStorage.getItem(key) || '[]')
+                          if (!existing.some((a) => a.tail === tail)) {
+                            existing.push({ tail, type, fuelType: newOwnFuel, defaultServices: services, agents: [user.name] })
+                            localStorage.setItem(key, JSON.stringify(existing))
+                            setExtraOwned(existing)
+                          }
+                          addServiceRequest({
+                            id: `sr-own-${Date.now()}`, type: 'client_aircraft_registration',
+                            tailNumber: tail, aircraftType: type,
+                            requestedBy: user.name, requestedDate: new Date().toISOString().split('T')[0],
+                            notes: `New: ${tail} (${type}). Fuel: ${newOwnFuel}. Services: ${services.join(', ') || 'none'}. Owner: ${user.name}.`,
+                            status: 'requested', operator: 'journeys',
+                          })
+                          setOwnTail(tail)
+                          setNewOwnTail(''); setNewOwnType(''); setNewOwnFuel('100LL'); setNewOwnServices({})
+                        }}
+                        className="w-full bg-purple-500 hover:bg-purple-400 disabled:bg-slate-700 text-white text-xs font-semibold py-2 rounded-lg transition-colors">
+                        Register Aircraft
+                      </button>
+                    </div>
+                  )}
+
+                  {!selectedAircraft && acMode !== 'own' && autoPick && (
+                    <p className="text-slate-600 text-[10px] mt-1">Auto: {autoPick.ac.tailNumber} ${autoPick.rate}/hr</p>
+                  )}
+                </div>
+              )}
+
+              {/* Duration adjuster */}
+              <div className="flex items-center gap-4 mb-5">
+                <span className="text-slate-500 text-xs">Duration:</span>
+                <button onClick={() => adjustDuration(-1)} className="w-7 h-7 rounded-full bg-surface border border-surface-border text-slate-300 hover:text-white text-sm font-bold transition-all">−</button>
+                <span className="text-white font-bold text-lg w-12 text-center">{durationHrs}<span className="text-slate-500 text-xs ml-0.5">hr</span></span>
+                <button onClick={() => adjustDuration(1)} className="w-7 h-7 rounded-full bg-surface border border-surface-border text-slate-300 hover:text-white text-sm font-bold transition-all">+</button>
               </div>
-            </div>
+            </>
           )
         })()}
 
@@ -1011,37 +1071,53 @@ function ScheduleSection({ user, selectedAircraft, onClearAircraft }) {
           </div>
         )}
 
-        {/* ── Half-hour grid — CSS-grid with absolutely-positioned booking blocks ── */}
+        {/* ── Step 5: Calendar with week navigation ── */}
         {(() => {
-          const ROW_H = 36 // px per half-hour row
-          const HEADER_H = 36
+          const ROW_H = 36
+          const HEADER_H = 44
           const totalRows = HALF_HOUR_SLOTS.length
           const gridH = totalRows * ROW_H
 
-          // Today highlight: map JS day (0=Sun..6=Sat) → schedule dayIdx (0=Mon..5=Sat)
-          const jsDay = new Date().getDay() // 0=Sun..6=Sat
-          const todayDayIdx = jsDay === 0 ? -1 : jsDay - 1 // Sun → -1 (not on grid), Mon=0..Sat=5
+          // Compute week days based on weekOffset
+          const now = new Date()
+          const todayDow = now.getDay()
+          const mondayOffset = todayDow === 0 ? -6 : 1 - todayDow
+          const weekMonday = new Date(now)
+          weekMonday.setDate(now.getDate() + mondayOffset + weekOffset * 7)
+          const weekDays = Array.from({ length: 6 }, (_, i) => {
+            const d = new Date(weekMonday)
+            d.setDate(weekMonday.getDate() + i)
+            return { date: d, label: d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' }) }
+          })
+          const todayDayIdx = weekOffset === 0 ? (todayDow === 0 ? -1 : todayDow - 1) : -1
 
-          // Current time → pixel position within the grid
-          const nowH = new Date().getHours()
-          const nowM = new Date().getMinutes()
+          // Current time line (only for current week)
+          const nowH = now.getHours()
+          const nowM = now.getMinutes()
           const nowMinutes = nowH * 60 + nowM
-          const gridStartMin = 7 * 60 // 07:00
-          const gridEndMin = 17.5 * 60 // 17:30
-          const nowPx = nowMinutes >= gridStartMin && nowMinutes <= gridEndMin
-            ? ((nowMinutes - gridStartMin) / 30) * ROW_H
-            : null
+          const gridStartMin = 7 * 60
+          const gridEndMin = 17.5 * 60
+          const nowPx = weekOffset === 0 && nowMinutes >= gridStartMin && nowMinutes <= gridEndMin
+            ? ((nowMinutes - gridStartMin) / 30) * ROW_H : null
 
           return (
             <div className="overflow-x-auto -mx-4 sm:mx-0 mb-6">
               <div className="min-w-[700px] px-4 sm:px-0">
-                {/* Day headers */}
+                {/* Week navigation + day headers */}
+                <div className="flex items-center justify-between mb-2">
+                  <button onClick={() => setWeekOffset((w) => w - 1)} className="text-slate-400 hover:text-white text-sm px-2 py-1 rounded transition-colors">← Prev</button>
+                  <div className="text-slate-300 text-xs font-semibold">
+                    {weekDays[0].date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — {weekDays[5].date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    {weekOffset === 0 && <span className="text-sky-400 ml-1">(This week)</span>}
+                  </div>
+                  <button onClick={() => setWeekOffset((w) => w + 1)} className="text-slate-400 hover:text-white text-sm px-2 py-1 rounded transition-colors">Next →</button>
+                </div>
                 <div className="grid gap-0.5" style={{ gridTemplateColumns: '60px repeat(6, 1fr)', height: HEADER_H }}>
                   <div />
-                  {SCHEDULE_DAYS.map((d, i) => (
+                  {weekDays.map((d, i) => (
                     <div key={i} className={`flex items-center justify-center text-xs sm:text-sm font-semibold rounded-lg ${
                       i === todayDayIdx ? 'bg-sky-500/20 text-sky-300' : 'text-slate-300'
-                    }`}>{d}{i === todayDayIdx ? ' ●' : ''}</div>
+                    }`}>{d.label}{i === todayDayIdx ? ' ●' : ''}</div>
                   ))}
                 </div>
 
@@ -1067,9 +1143,11 @@ function ScheduleSection({ user, selectedAircraft, onClearAircraft }) {
                   </div>
 
                   {/* Day columns — each is relative so booking blocks can be absolutely positioned */}
-                  {SCHEDULE_DAYS.map((_, dayIdx) => {
+                  {weekDays.map((_, dayIdx) => {
                     // Find bookings in this day column
-                    const dayBookings = bookings.filter((b) => b.dayIdx === dayIdx)
+                    const dayBookings = bookings.filter((b) => b.dayIdx === dayIdx && (b.weekOffset ?? 0) === weekOffset)
+                    // mockBookings are always weekOffset 0
+                    const mockDayBookings = weekOffset === 0 ? mockBookings.filter((b) => (b.dayIdx ?? b.day) === dayIdx) : []
                     const isToday = dayIdx === todayDayIdx
 
                     return (
@@ -1163,6 +1241,42 @@ function ScheduleSection({ user, selectedAircraft, onClearAircraft }) {
                             </button>
                           )
                         })}
+
+                        {/* Proposed lesson blocks — breathing with skip/accept */}
+                        {proposed.filter((rec) => {
+                          if (!rec.slot) return false
+                          if (skippedProposals.has(rec.template.id)) return false
+                          const recDayIdx = rec.slot.dayIdx
+                          const recWeek = recDayIdx >= 7 ? 1 : 0
+                          const recGridDay = recDayIdx >= 7 ? recDayIdx - 7 : recDayIdx
+                          if (recWeek !== weekOffset || recGridDay !== dayIdx) return false
+                          const recSlotN = rec.slot?.slot?.includes(':') ? rec.slot.slot : `${rec.slot?.slot?.slice(0,2)}:${rec.slot?.slot?.slice(2) || '00'}`
+                          return !dayBookings.some((b) => b.slot === recSlotN)
+                        }).map((rec, ri) => {
+                          const recSlot = rec.slot?.slot
+                          const recSlotNorm = recSlot?.includes(':') ? recSlot : `${recSlot?.slice(0,2)}:${recSlot?.slice(2) || '00'}`
+                          const rsi = HALF_HOUR_SLOTS.indexOf(recSlotNorm)
+                          if (rsi < 0) return null
+                          const spanH = Math.round((rec.template.durationHr || 1) * 2)
+                          const top = rsi * ROW_H
+                          const height = Math.max(spanH * ROW_H - 2, 60) // min height for buttons
+                          return (
+                            <div key={`prop-${ri}`}
+                              className="absolute left-0.5 right-0.5 rounded-lg bg-sky-400/8 border border-dashed border-sky-400/30 text-left px-2 py-1 z-[5] animate-breathe overflow-hidden flex flex-col justify-between"
+                              style={{ top, height }}>
+                              <div>
+                                <div className="text-sky-300/80 text-[10px] font-semibold truncate">{rec.template.title}</div>
+                                <div className="text-sky-400/40 text-[8px]">{rec.cfi?.name?.split(' ')[0] || 'CFI'} · {rec.aircraft?.tailNumber || ''} · {rec.template.durationHr}hr</div>
+                              </div>
+                              <div className="flex gap-1 mt-0.5">
+                                <button onClick={() => setSkippedProposals((s) => new Set([...s, rec.template.id]))}
+                                  className="text-[8px] text-slate-500 hover:text-white bg-surface/80 border border-surface-border px-1.5 py-0.5 rounded transition-colors">Skip</button>
+                                <button onClick={() => handleBook(dayIdx, recSlotNorm, rec.cfi?.id, spanH)}
+                                  className="text-[8px] text-sky-400 hover:text-white bg-sky-400/15 border border-sky-400/25 px-1.5 py-0.5 rounded transition-colors font-medium">Accept</button>
+                              </div>
+                            </div>
+                          )
+                        })}
                       </div>
                     )
                   })}
@@ -1181,71 +1295,111 @@ function ScheduleSection({ user, selectedAircraft, onClearAircraft }) {
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-green-500/25 border border-green-400/30" /> Yours</span>
         </div>
 
-        {/* ── Bookings list ── */}
-        {(bookings.length > 0 || userExisting.length > 0) && (
-          <div className="space-y-4">
-            <h3 className="text-white text-xl sm:text-2xl font-bold">Your Schedule</h3>
+        {/* ── Flight Log (IACRA categories) ── */}
+        {(() => {
+          // Gather all flights for this user from the store
+          const allFlights = getAllFlights()
+          const myFlights = allFlights.filter((f) =>
+            (f.picId === user.id || f.sicId === user.id || f._source === 'journeys_portal') &&
+            (f.operator === 'journeys' || f._source === 'journeys_portal')
+          ).sort((a, b) => new Date(b.plannedDepartureUtc) - new Date(a.plannedDepartureUtc))
 
-            {bookings.length > 0 && (
-              <div className="bg-green-400/8 border border-green-400/20 rounded-2xl p-4 sm:p-5">
-                <h4 className="text-green-400 text-xs font-bold uppercase tracking-wide mb-3">New Bookings</h4>
-                <div className="space-y-2">
-                  {bookings.map((b) => {
-                    const cfi = cfiList.find((c) => c.id === b.cfiId)
-                    return (
+          if (myFlights.length === 0 && bookings.length === 0) return null
+
+          // IACRA categories
+          const categories = [
+            { id: 'dual', label: 'Dual Received', filter: (f) => f.missionType === 'training_dual' || f.type === 'dual_lesson', icon: '👨‍✈️' },
+            { id: 'solo', label: 'Solo / PIC', filter: (f) => f.missionType === 'training_solo' || f.type === 'solo', icon: '🧑‍✈️' },
+            { id: 'xc', label: 'Cross-Country', filter: (f) => f.waypoints?.length > 1 || f._sessionLabel?.includes('XC') || f._sessionLabel?.includes('Cross'), icon: '🗺️' },
+            { id: 'night', label: 'Night', filter: (f) => f._sessionLabel?.toLowerCase()?.includes('night'), icon: '🌙' },
+            { id: 'instrument', label: 'Instrument', filter: (f) => f._sessionLabel?.toLowerCase()?.includes('instrument') || f._sessionLabel?.toLowerCase()?.includes('hood') || f._sessionLabel?.toLowerCase()?.includes('ifr'), icon: '☁️' },
+            { id: 'ground', label: 'Ground Training', filter: (f) => f.missionType === 'ground' || f.type === 'ground', icon: '📚' },
+          ]
+
+          // Also include pending bookings as "scheduled"
+          const pendingBookings = bookings.filter((b) => !myFlights.some((f) => f._bookingId === b.id))
+
+          return (
+            <div className="mt-8">
+              <h3 className="text-white text-xl sm:text-2xl font-bold mb-4">Flight Log</h3>
+
+              {/* Pending bookings (upcoming, not yet flown) */}
+              {pendingBookings.length > 0 && (
+                <div className="bg-sky-400/5 border border-sky-400/15 rounded-2xl p-4 mb-4">
+                  <h4 className="text-sky-400 text-[10px] font-bold uppercase tracking-wide mb-2">Scheduled ({pendingBookings.length})</h4>
+                  <div className="space-y-1">
+                    {pendingBookings.map((b) => (
                       <button key={b.id} onClick={() => setEditingBooking(b.id)}
-                        className={`w-full flex items-center justify-between bg-surface/50 border rounded-xl px-4 py-3 text-left transition-colors ${
-                          b.standby ? 'border-amber-400/30 hover:border-amber-400/50' : 'border-surface-border hover:border-green-400/40'
-                        }`}>
-                        <div className="flex items-center gap-3">
-                          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${b.standby ? 'bg-amber-400' : 'bg-green-400'}`} />
-                          <div>
-                            <div className="text-white text-sm font-medium">
-                              {b.standby && <span className="text-amber-400 text-[10px] font-bold uppercase mr-1">STANDBY</span>}
-                              {b.title}
-                            </div>
-                            <div className="text-slate-400 text-xs">
-                              {SCHEDULE_DAYS[b.dayIdx]} {slotLabel(b.slot)} · {b.duration} hr
-                              {b.xcRoute && <span className="text-sky-400/70"> · {b.xcRoute}</span>}
-                              {b.xcFuelGal && <span className="text-slate-500"> · {b.xcFuelGal} gal</span>}
-                              {b.notes && <span className="text-slate-500"> · "{b.notes}"</span>}
-                            </div>
-                          </div>
+                        className="w-full flex items-center justify-between text-left bg-surface/30 rounded-lg px-3 py-2 hover:bg-surface/50 transition-colors">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-sky-400" />
+                          <span className="text-slate-200 text-xs">{b.title}</span>
                         </div>
-                        <span className="text-sky-400 text-xs flex-shrink-0 ml-2">Edit</span>
+                        <span className="text-slate-500 text-[10px]">{b.duration}hr</span>
                       </button>
-                    )
-                  })}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {userExisting.length > 0 && (
-              <div className="bg-surface-card border border-surface-border rounded-2xl p-4 sm:p-5">
-                <h4 className="text-slate-400 text-xs font-bold uppercase tracking-wide mb-3">Existing Schedule</h4>
-                <div className="space-y-2">
-                  {userExisting.map((b) => {
-                    const cfi = cfiList.find((c) => c.id === b.cfiId)
-                    const ac = b.aircraftId ? (fleet.find((a) => a.id === b.aircraftId) || mockAircraft.find((a) => a.id === b.aircraftId)) : null
-                    return (
-                      <div key={b.id} className="flex items-center gap-3 bg-surface/50 border border-surface-border rounded-xl px-4 py-3">
-                        <span className="w-2.5 h-2.5 rounded-full bg-sky-400 flex-shrink-0" />
-                        <div>
-                          <div className="text-white text-sm font-medium">{b.title}</div>
-                          <div className="text-slate-400 text-xs">
-                            {SCHEDULE_DAYS[b.day ?? b.dayIdx]} {b.slot} · {b.duration} hr
-                            {ac ? ` · ${ac.tailNumber}` : ''}
-                            {cfi ? ` · ${cfi.name}` : ''}
-                          </div>
-                        </div>
+              {/* IACRA categories */}
+              {categories.map((cat) => {
+                const catFlights = myFlights.filter(cat.filter)
+                if (catFlights.length === 0) return null
+                const totalHrs = catFlights.reduce((sum, f) => sum + (f._duration || f._postFlight?.hobbsTime ? parseFloat(f._postFlight?.hobbsTime || f._duration || 0) : 0), 0)
+                return (
+                  <details key={cat.id} className="mb-2 group">
+                    <summary className="flex items-center justify-between bg-surface-card border border-surface-border rounded-xl px-4 py-3 cursor-pointer hover:border-slate-500 transition-colors list-none">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">{cat.icon}</span>
+                        <span className="text-white text-sm font-semibold">{cat.label}</span>
+                        <span className="text-slate-500 text-xs">({catFlights.length} flights)</span>
                       </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+                      <div className="flex items-center gap-3">
+                        <span className="text-sky-400 text-sm font-bold">{totalHrs.toFixed(1)} hr</span>
+                        <span className="text-slate-600 text-xs group-open:rotate-90 transition-transform">▸</span>
+                      </div>
+                    </summary>
+                    <div className="mt-1 ml-4 border-l-2 border-surface-border pl-3 space-y-1 pb-2">
+                      {catFlights.map((f) => {
+                        const dep = new Date(f.plannedDepartureUtc)
+                        const pf = f._postFlight
+                        const hrs = pf?.hobbsTime || f._duration || '—'
+                        const rating = pf?.rating ? '★'.repeat(pf.rating) + '☆'.repeat(5 - pf.rating) : null
+                        const acsCount = pf?.acsResults ? Object.values(pf.acsResults).filter(Boolean).length : 0
+                        return (
+                          <div key={f.id} className="bg-surface/30 rounded-lg px-3 py-2 text-xs">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className={`w-2 h-2 rounded-full ${f.status === 'closed' ? 'bg-green-400' : f.status === 'planned' ? 'bg-sky-400' : 'bg-slate-500'}`} />
+                                <span className="text-slate-200 font-medium">{f._sessionLabel || f.tailNumber}</span>
+                              </div>
+                              <span className="text-slate-500">{dep.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                            </div>
+                            <div className="flex items-center gap-3 mt-1 text-[10px] text-slate-500">
+                              <span>{f.tailNumber}</span>
+                              {f.pic && <span>PIC: {f.pic}</span>}
+                              <span className="text-sky-400 font-medium">{hrs} hr</span>
+                              {pf?.tachStart && pf?.tachEnd && <span>Tach: {pf.tachStart}→{pf.tachEnd}</span>}
+                              {acsCount > 0 && <span className="text-green-400">{acsCount} ACS ✓</span>}
+                              {rating && <span className="text-amber-400">{rating}</span>}
+                              {f.status === 'planned' && <span className="text-sky-400">Scheduled</span>}
+                            </div>
+                            {pf?.route && <div className="text-[10px] text-sky-400/60 mt-0.5">Route: {pf.route}</div>}
+                            {pf?.flightNotes && <div className="text-[10px] text-slate-500 mt-0.5 italic">"{pf.flightNotes}"</div>}
+                            {f.waypoints?.length > 1 && (
+                              <div className="text-[10px] text-sky-400/60 mt-0.5">{f.waypoints.join(' → ')}</div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </details>
+                )
+              })}
+            </div>
+          )
+        })()}
 
         {/* ── Edit/Modify booking popup ── */}
         {editingBooking && (() => {
@@ -1333,9 +1487,16 @@ function ScheduleSection({ user, selectedAircraft, onClearAircraft }) {
 
 /* ─── TOP NAV ─── */
 function TopNav({ onSection, user, onLoginClick, onLogout }) {
-  const navItems = user
-    ? ['fleet', 'schedule', 'training', 'maintenance', 'fbo', 'operations', 'gallery', 'about']
-    : ['fleet', 'training', 'fbo', 'operations', 'gallery', 'about']
+  const hasOwnAircraft = (user?.ownedAircraft?.length > 0) || (() => { try { return JSON.parse(localStorage.getItem(`journeys_owned_${user?.id}`) || '[]').length > 0 } catch { return false } })()
+  const navItems = !user
+    ? ['fleet', 'training', 'fbo', 'operations', 'gallery', 'about']
+    : user.role === 'student'
+      ? [...(hasOwnAircraft ? ['my-aircraft'] : []), 'schedule', 'fleet', 'operations']
+      : user.role === 'mx_client'
+        ? ['my-aircraft', 'fleet', 'fbo', 'operations', 'about']
+        : user.role === 'cfi'
+          ? ['schedule', 'fleet', 'operations']
+          : [...(hasOwnAircraft ? ['my-aircraft'] : []), 'schedule', 'fleet', 'fbo', 'operations', 'about']
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-black/30 backdrop-blur-md border-b border-white/10">
@@ -1343,9 +1504,12 @@ function TopNav({ onSection, user, onLoginClick, onLogout }) {
         <div className="flex items-center gap-6">
           <span className="text-white font-bold text-lg tracking-tight">Journeys Aviation</span>
           <div className="hidden md:flex items-center gap-4">
-            {navItems.map((s) => (
-              <button key={s} onClick={() => onSection(s)} className="text-white/70 hover:text-white text-xs uppercase tracking-wide transition-colors capitalize">{s}</button>
-            ))}
+            {navItems.map((s) => {
+              const labels = { 'my-aircraft': 'My Aircraft', fleet: 'Fleet', schedule: 'Schedule', training: 'Training', maintenance: 'Maintenance', fbo: 'FBO', operations: 'Ops', gallery: 'Gallery', about: 'About' }
+              return (
+                <button key={s} onClick={() => onSection(s)} className="text-white/70 hover:text-white text-xs uppercase tracking-wide transition-colors">{labels[s] || s}</button>
+              )
+            })}
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -1486,9 +1650,359 @@ const EVAL_STYLE = {
   unknown: { ring: '',                  bg: 'bg-surface-card', border: 'border-surface-border', badge: 'bg-slate-400/20 text-slate-400', label: '—' },
 }
 
-function FleetSection({ user, onBookAircraft }) {
+// Aircraft star preference (persisted per user)
+function useAircraftStars(userId) {
+  const key = `journeys_stars_${userId}`
+  const [stars, setStars] = useState(() => { try { return JSON.parse(localStorage.getItem(key) || '{}') } catch { return {} } })
+  const setStar = (tailNumber, rating) => {
+    const next = { ...stars, [tailNumber]: rating }
+    setStars(next)
+    localStorage.setItem(key, JSON.stringify(next))
+  }
+  return [stars, setStar]
+}
+
+/* ─── MY FLEET (for owners — shows above Journeys fleet) ─── */
+/* ─── SQUAWK PANEL (full-width, inline, mobile-friendly) ─── */
+function SquawkPanel({ tailNumber, user, onClose }) {
+  const [severity, setSeverity] = useState('monitoring')
+  const [description, setDescription] = useState('')
+  const [submitted, setSubmitted] = useState(false)
+  const allSquawks = getSquawks()
+  const recentSquawks = allSquawks.filter((s) => s.tailNumber === tailNumber).slice(0, 8)
+  const openSquawks = recentSquawks.filter((s) => s.status !== 'closed')
+  const closedSquawks = recentSquawks.filter((s) => s.status === 'closed').slice(0, 3)
+
+  const handleSubmit = () => {
+    if (!description.trim()) return
+    addSquawk({
+      id: `sqk-${Date.now()}`, tailNumber,
+      reportedBy: user.name,
+      reportedDate: new Date().toISOString().split('T')[0],
+      reportedAt: new Date().toISOString(),
+      description: description.trim(), severity, status: 'open',
+      melReference: null, melExpiryDate: null, airframeHours: null,
+      resolvedDate: null, resolvedBy: null, resolutionNotes: null, workOrderId: null,
+    })
+    setSubmitted(true)
+    setTimeout(() => { setSubmitted(false); setDescription(''); setSeverity('monitoring') }, 2000)
+  }
+
+  return (
+    <section id="sec-squawk" className="py-10 px-4 sm:px-6 bg-gradient-to-b from-amber-950/20 via-surface to-surface animate-[fadeIn_0.3s_ease]">
+      <div className="max-w-3xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-2xl font-bold text-white">🔧 Squawk — {tailNumber}</h2>
+            <p className="text-slate-400 text-sm">
+              {(getAircraftByOperator('journeys').find((a) => a.tailNumber === tailNumber) || mockAircraft.find((a) => a.tailNumber === tailNumber))?.makeModel || 'Aircraft'}
+              {' '}· Report an issue or review squawks
+            </p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl leading-none transition-colors">×</button>
+        </div>
+
+        {/* Recent squawks for this aircraft */}
+        {openSquawks.length > 0 && (
+          <div className="mb-6">
+            <h3 className="text-amber-400 text-xs font-bold uppercase tracking-wide mb-2">Open ({openSquawks.length})</h3>
+            <div className="space-y-1.5">
+              {openSquawks.map((s) => (
+                <div key={s.id} className={`flex items-start gap-3 text-sm rounded-xl px-4 py-3 border ${
+                  s.severity === 'grounding' ? 'bg-red-400/8 border-red-400/20' : s.severity === 'ops_limiting' ? 'bg-amber-400/8 border-amber-400/20' : 'bg-surface border-surface-border'
+                }`}>
+                  <span className={`w-2.5 h-2.5 rounded-full mt-1 flex-shrink-0 ${
+                    s.severity === 'grounding' ? 'bg-red-400' : s.severity === 'ops_limiting' ? 'bg-amber-400' : s.severity === 'deferred' ? 'bg-yellow-400' : 'bg-slate-400'
+                  }`} />
+                  <div className="flex-1">
+                    <div className="text-slate-200">{s.description}</div>
+                    <div className="text-slate-500 text-xs mt-0.5">{s.reportedDate} · {s.severity} · {s.reportedBy}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {closedSquawks.length > 0 && (
+          <details className="mb-6">
+            <summary className="text-green-400/60 text-xs cursor-pointer mb-1">Recent resolved ({closedSquawks.length})</summary>
+            {closedSquawks.map((s) => (
+              <div key={s.id} className="text-xs text-slate-600 px-4 py-1 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400/40" />
+                {s.description} — {s.resolvedDate || s.reportedDate}
+              </div>
+            ))}
+          </details>
+        )}
+
+        {/* Submit form */}
+        {submitted ? (
+          <div className="bg-green-400/10 border border-green-400/20 rounded-2xl p-6 text-center animate-[fadeIn_0.3s_ease]">
+            <div className="text-2xl mb-2">✅</div>
+            <div className="text-green-400 font-semibold">Squawk submitted for {tailNumber}</div>
+            <div className="text-slate-500 text-xs mt-1">Maintenance will review within 24 hours</div>
+          </div>
+        ) : (
+          <div className="bg-surface-card border border-surface-border rounded-2xl p-5 space-y-4">
+            <h3 className="text-white font-bold text-base">New Squawk</h3>
+
+            {/* Severity */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {[
+                { v: 'grounding', l: 'Grounding', color: 'red' },
+                { v: 'ops_limiting', l: 'Ops Limiting', color: 'amber' },
+                { v: 'deferred', l: 'Deferred / MEL', color: 'yellow' },
+                { v: 'monitoring', l: 'Monitoring', color: 'slate' },
+              ].map((s) => (
+                <button key={s.v} onClick={() => setSeverity(s.v)}
+                  className={`py-3 rounded-xl text-sm font-medium transition-all border ${
+                    severity === s.v
+                      ? `bg-${s.color}-400/20 border-${s.color}-400/40 text-${s.color}-400`
+                      : 'bg-surface border-surface-border text-slate-400 hover:border-slate-500'
+                  }`}>
+                  {s.l}
+                </button>
+              ))}
+            </div>
+
+            {/* Description */}
+            <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)}
+              placeholder="Describe the issue — what did you observe? When? During what phase of flight?"
+              className="w-full bg-surface border border-surface-border rounded-xl px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 focus:border-amber-400 focus:outline-none resize-none" />
+
+            {/* Submit */}
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500 text-xs">Reporting as {user.name}</span>
+              <div className="flex gap-2">
+                <button onClick={onClose} className="text-slate-400 hover:text-white text-sm px-4 py-2.5 rounded-xl border border-surface-border transition-colors">Cancel</button>
+                <button onClick={handleSubmit} disabled={!description.trim()}
+                  className="bg-amber-500 hover:bg-amber-400 disabled:bg-slate-700 text-white font-semibold text-sm px-6 py-2.5 rounded-xl transition-colors">
+                  Submit Squawk
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function MyFleetSection({ user, onSquawk }) {
+  const extraOwned = (() => { try { return JSON.parse(localStorage.getItem(`journeys_owned_${user?.id}`) || '[]') } catch { return [] } })()
+  const owned = [...(user?.ownedAircraft || []), ...extraOwned.filter((a) => !(user?.ownedAircraft || []).some((o) => o.tail === a.tail))]
+  if (owned.length === 0) return null
+  const allSquawks = getSquawks()
+  const allServiceReqs = getServiceRequests()
+
+  return (
+    <section id="sec-my-aircraft" className="py-12 px-6 bg-gradient-to-b from-purple-950/20 to-surface">
+      <div className="max-w-6xl mx-auto">
+        <div className="text-center mb-8">
+          <h2 className="text-2xl md:text-3xl font-bold text-white mb-2">My Aircraft</h2>
+          <p className="text-slate-400 text-sm">{owned.length} registered · Maintenance: {JB_INFO.maintenancePhone}</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {owned.map((ac) => {
+            const openSquawks = allSquawks.filter((s) => s.tailNumber === ac.tail && s.status !== 'closed')
+            const closedSquawks = allSquawks.filter((s) => s.tailNumber === ac.tail && s.status === 'closed')
+            const reqs = allServiceReqs.filter((r) => r.tailNumber === ac.tail)
+            const scheduled = reqs.filter((r) => r.status === 'requested' || r.status === 'scheduled')
+            const inProgress = reqs.filter((r) => ['in_progress', 'parts_on_order', 'diagnosis', 'awaiting_parts'].includes(r.status))
+            const completed = reqs.filter((r) => r.status === 'completed')
+            const hasGrounding = openSquawks.some((s) => s.severity === 'grounding')
+            const totalItems = openSquawks.length + scheduled.length + inProgress.length
+
+            return (
+              <div key={ac.tail} className={`bg-surface-card border rounded-2xl p-5 ${hasGrounding ? 'border-red-400/30' : 'border-purple-400/20'}`}>
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <div className="text-white text-lg font-bold">🛩️ {ac.tail}</div>
+                    <div className="text-slate-400 text-xs">{ac.type}</div>
+                    {ac.agents && <div className="text-slate-500 text-[10px] mt-0.5">{ac.agents.join(', ')}</div>}
+                  </div>
+                  <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                    hasGrounding ? 'bg-red-400/20 text-red-400' : openSquawks.length > 0 ? 'bg-amber-400/20 text-amber-400' : 'bg-green-400/20 text-green-400'
+                  }`}>
+                    {hasGrounding ? 'GROUNDED' : openSquawks.length > 0 ? `${openSquawks.length} squawk${openSquawks.length > 1 ? 's' : ''}` : 'Clean'}
+                  </span>
+                </div>
+
+                {/* Open squawks */}
+                {openSquawks.map((s) => (
+                  <details key={s.id} className={`rounded-lg mb-1 border ${s.severity === 'grounding' ? 'bg-red-400/8 border-red-400/20' : 'bg-amber-400/5 border-amber-400/15'}`}>
+                    <summary className="flex items-start gap-2 text-xs px-3 py-2 cursor-pointer">
+                      <span className={`w-2 h-2 rounded-full mt-1 flex-shrink-0 ${s.severity === 'grounding' ? 'bg-red-400' : 'bg-amber-400'}`} />
+                      <span className="text-slate-200 flex-1">{s.description}</span>
+                      <span className={`text-[10px] font-medium ${s.severity === 'grounding' ? 'text-red-400' : 'text-amber-400'}`}>{s.severity}</span>
+                    </summary>
+                    <div className="px-3 pb-2 text-[10px] text-slate-500 space-y-0.5 ml-4">
+                      <div>Reported: {s.reportedDate} by {s.reportedBy}</div>
+                      {s.melReference && <div>MEL: {s.melReference} · Expires: {s.melExpiryDate || 'N/A'}</div>}
+                      {s.workOrderId && <div>Work Order: {s.workOrderId}</div>}
+                      {s.airframeHours && <div>Airframe hours: {s.airframeHours}</div>}
+                    </div>
+                  </details>
+                ))}
+
+                {/* Scheduled */}
+                {scheduled.map((r) => (
+                  <details key={r.id} className="rounded-lg mb-1 border bg-sky-400/5 border-sky-400/15">
+                    <summary className="flex items-center gap-2 text-xs px-3 py-2 cursor-pointer">
+                      <span className="w-2 h-2 rounded-full bg-sky-400" />
+                      <span className="text-slate-200 flex-1 capitalize">{r.type?.replace(/_/g, ' ')}</span>
+                      <span className="text-sky-400 text-[10px]">{r.preferredDate || 'Requested'}</span>
+                    </summary>
+                    <div className="px-3 pb-2 text-[10px] text-slate-500 space-y-0.5 ml-4">
+                      <div>Requested: {r.requestedDate} by {r.requestedBy}</div>
+                      {r.description && <div>Details: {r.description}</div>}
+                      {r.notes && <div>Notes: {r.notes}</div>}
+                    </div>
+                  </details>
+                ))}
+
+                {/* In-progress */}
+                {inProgress.map((r) => (
+                  <details key={r.id} className="rounded-lg mb-1 border bg-amber-400/5 border-amber-400/15">
+                    <summary className="flex items-center justify-between text-xs px-3 py-2 cursor-pointer">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                        <span className="text-slate-200 capitalize">{r.type?.replace(/_/g, ' ')}</span>
+                      </div>
+                      <span className="text-amber-400 text-[10px] font-medium capitalize">{r.status?.replace(/_/g, ' ')}</span>
+                    </summary>
+                    <div className="px-3 pb-2 text-[10px] text-slate-500 space-y-0.5 ml-4">
+                      <div>Requested: {r.requestedDate} by {r.requestedBy}</div>
+                      {r.description && <div>Details: {r.description}</div>}
+                      {r.notes && <div>Notes: {r.notes}</div>}
+                      <div>Status: <span className="text-amber-400 capitalize">{r.status?.replace(/_/g, ' ')}</span></div>
+                    </div>
+                  </details>
+                ))}
+
+                {/* Closed squawks */}
+                {closedSquawks.length > 0 && (
+                  <details className="mt-2">
+                    <summary className="text-green-400/60 text-[10px] cursor-pointer">Resolved squawks ({closedSquawks.length})</summary>
+                    <div className="mt-1 space-y-0.5">
+                      {closedSquawks.map((s) => (
+                        <details key={s.id} className="rounded-lg border border-green-400/10 bg-green-400/[0.03]">
+                          <summary className="flex items-center gap-2 text-[10px] text-slate-500 px-3 py-1.5 cursor-pointer">
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-400/40" />
+                            <span className="flex-1">{s.description}</span>
+                            <span className="text-green-400/50">{s.resolvedDate || s.reportedDate}</span>
+                          </summary>
+                          <div className="px-3 pb-1.5 text-[10px] text-slate-600 space-y-0.5 ml-4">
+                            <div>Reported: {s.reportedDate} by {s.reportedBy}</div>
+                            {s.resolvedBy && <div>Resolved: {s.resolvedDate} by {s.resolvedBy}</div>}
+                            {s.resolutionNotes && <div>Resolution: {s.resolutionNotes}</div>}
+                            {s.workOrderId && <div>Work Order: {s.workOrderId}</div>}
+                          </div>
+                        </details>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
+                {/* Completed service requests */}
+                {completed.length > 0 && (
+                  <details className="mt-1">
+                    <summary className="text-green-400/60 text-[10px] cursor-pointer">Completed maintenance ({completed.length})</summary>
+                    <div className="mt-1 space-y-0.5">
+                      {completed.map((r) => (
+                        <details key={r.id} className="rounded-lg border border-green-400/10 bg-green-400/[0.03]">
+                          <summary className="flex items-center gap-2 text-[10px] text-slate-500 px-3 py-1.5 cursor-pointer">
+                            <span className="w-1.5 h-1.5 rounded-full bg-green-400/40" />
+                            <span className="flex-1 capitalize">{r.type?.replace(/_/g, ' ')}</span>
+                            <span className="text-green-400/50">{r.requestedDate}</span>
+                          </summary>
+                          <div className="px-3 pb-1.5 text-[10px] text-slate-600 space-y-0.5 ml-4">
+                            <div>Requested: {r.requestedDate} by {r.requestedBy}</div>
+                            {r.description && <div>Details: {r.description}</div>}
+                            {r.notes && <div>Notes: {r.notes}</div>}
+                          </div>
+                        </details>
+                      ))}
+                    </div>
+                  </details>
+                )}
+
+                {totalItems === 0 && closedSquawks.length === 0 && completed.length === 0 && (
+                  <p className="text-slate-600 text-[10px]">No maintenance history</p>
+                )}
+
+                {/* Action buttons + quick services */}
+                <div className="mt-3 space-y-2">
+                  <div className="flex gap-2">
+                    <button onClick={() => { onSquawk?.(ac.tail); setTimeout(() => document.getElementById('sec-squawk')?.scrollIntoView({ behavior: 'smooth' }), 100) }}
+                      className="flex-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 py-2 rounded-xl text-[10px] font-medium transition-all border border-amber-500/20">
+                      🔧 Squawk
+                    </button>
+                    <button onClick={() => {
+                        addServiceRequest({ id: `sr-mx-${Date.now()}`, type: 'annual_inspection', tailNumber: ac.tail, requestedBy: user.name, requestedDate: new Date().toISOString().split('T')[0], status: 'requested', operator: 'journeys', notes: `Annual inspection for ${ac.tail} (${ac.type})` })
+                        alert('Annual inspection requested for ' + ac.tail)
+                      }}
+                      className="flex-1 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 py-2 rounded-xl text-[10px] font-medium transition-all border border-sky-500/20">
+                      📋 Annual
+                    </button>
+                    <button onClick={() => {
+                        addServiceRequest({ id: `sr-mx-${Date.now()}`, type: '100hr_inspection', tailNumber: ac.tail, requestedBy: user.name, requestedDate: new Date().toISOString().split('T')[0], status: 'requested', operator: 'journeys', notes: `100-hour inspection for ${ac.tail} (${ac.type})` })
+                        alert('100-hr inspection requested for ' + ac.tail)
+                      }}
+                      className="flex-1 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 py-2 rounded-xl text-[10px] font-medium transition-all border border-sky-500/20">
+                      📋 100hr
+                    </button>
+                  </div>
+                  {/* Quick FBO services */}
+                  <details>
+                    <summary className="text-slate-400 text-[10px] cursor-pointer hover:text-slate-200">⛽ Quick Service Order {ac.fuelType ? `(${ac.fuelType})` : ''}</summary>
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      {[
+                        { id: 'fuel', label: `⛽ ${ac.fuelType || '100LL'} top-off` },
+                        { id: 'tiedown', label: '🔗 Tie-down' },
+                        { id: 'hangar', label: '🏠 Hangar' },
+                        { id: 'preheat', label: '🔥 Preheat' },
+                        { id: 'lavatory', label: '🚻 Lav' },
+                        { id: 'oxygen', label: '💨 O₂' },
+                        { id: 'deice', label: '❄️ De-ice' },
+                        { id: 'gpu', label: '🔌 GPU' },
+                        { id: 'cleaning', label: '🧽 Clean' },
+                      ].map((svc) => {
+                        const isDefault = (ac.defaultServices || []).includes(svc.id)
+                        return (
+                          <button key={svc.id} onClick={() => {
+                              addServiceRequest({ id: `sr-svc-${Date.now()}-${svc.id}`, type: svc.id, tailNumber: ac.tail, requestedBy: user.name, requestedDate: new Date().toISOString().split('T')[0], status: 'requested', operator: 'journeys', notes: `${svc.label} for ${ac.tail}` })
+                            }}
+                            className={`px-2 py-1 rounded text-[10px] transition-all border ${isDefault ? 'bg-purple-400/15 border-purple-400/30 text-purple-300' : 'bg-surface border-surface-border text-slate-500 hover:border-slate-400 hover:text-slate-200'}`}>
+                            {svc.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </details>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function FleetSection({ user, onBookAircraft, onSquawk, squawkVersion }) {
   const fleet = getAircraftByOperator('journeys')
   const [expanded, setExpanded] = useState(null)
+  const [stars, setStar] = useAircraftStars(user?.id)
+  // Live squawk data for each aircraft
+  const allSquawks = getSquawks()
+  const squawksByTail = useMemo(() => {
+    const map = {}
+    fleet.forEach((ac) => {
+      map[ac.tailNumber] = allSquawks.filter((s) => s.tailNumber === ac.tailNumber && s.status !== 'closed')
+    })
+    return map
+  }, [fleet, allSquawks, squawkVersion])
   const [frontSeats, setFrontSeats] = useState('')
   const [aftSeats, setAftSeats] = useState('')
   const [fuelMode, setFuelMode] = useState('hours')  // 'hours' | 'miles'
@@ -1581,9 +2095,15 @@ function FleetSection({ user, onBookAircraft }) {
             const stationEntries = wb.stations ? Object.entries(wb.stations) : []
             const open = expanded === ac.id
 
+            // Live grounding check from squawks
+            const acSquawks = squawksByTail[ac.tailNumber] || []
+            const hasGroundingSquawk = acSquawks.some((s) => s.severity === 'grounding')
+            const isGrounded = !ac.airworthy || hasGroundingSquawk
+            const openSquawkCount = acSquawks.length
+
             // Use evaluation-based styling when user has input, otherwise default airworthy style
-            const cardBg = hasInput && evaluation ? es.bg : (ac.airworthy ? 'bg-surface-card' : 'bg-red-400/8')
-            const cardBorder = hasInput && evaluation ? es.border : (ac.airworthy ? 'border-surface-border' : 'border-red-400/30')
+            const cardBg = hasInput && evaluation ? es.bg : (isGrounded ? 'bg-red-400/8' : 'bg-surface-card')
+            const cardBorder = hasInput && evaluation ? es.border : (isGrounded ? 'border-red-400/30' : 'border-surface-border')
             const cardRing = hasInput && evaluation ? `ring-1 ${es.ring}` : ''
 
             return (
@@ -1597,16 +2117,26 @@ function FleetSection({ user, onBookAircraft }) {
                     <div className="text-slate-400 text-xs">{ac.tailNumber} · {ac.passengerCapacity + 1} seats{ac.year ? ` · ${ac.year}` : ''}</div>
                   </div>
                   <div className="text-right flex-shrink-0 ml-3">
+                    {/* Star preference rating */}
+                    {user && (
+                      <div className="flex gap-0 mb-1 justify-end" onClick={(e) => e.stopPropagation()}>
+                        {[1, 2, 3].map((s) => (
+                          <button key={s} onClick={() => setStar(ac.tailNumber, (stars[ac.tailNumber] || 0) === s ? 0 : s)}
+                            className={`text-sm leading-none transition-all hover:scale-125 ${s <= (stars[ac.tailNumber] || 0) ? 'text-amber-400' : 'text-slate-700 hover:text-slate-500'}`}>★</button>
+                        ))}
+                      </div>
+                    )}
                     {rates.member != null && (
                       <div className="text-green-400 font-bold text-lg">${rates.member}</div>
                     )}
-                    {/* W&B status badge or airworthy dot */}
                     {hasInput && evaluation ? (
                       <span className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${es.badge}`}>{es.label}</span>
                     ) : (
                       <div className="flex items-center gap-1.5 justify-end">
-                        <span className={`w-2 h-2 rounded-full ${ac.airworthy ? 'bg-green-400' : 'bg-red-400'}`} />
-                        <span className={`text-[10px] font-medium ${ac.airworthy ? 'text-green-400' : 'text-red-400'}`}>{ac.airworthy ? 'Airworthy' : 'Grounded'}</span>
+                        <span className={`w-2 h-2 rounded-full ${isGrounded ? 'bg-red-400' : openSquawkCount > 0 ? 'bg-amber-400' : 'bg-green-400'}`} />
+                        <span className={`text-[10px] font-medium ${isGrounded ? 'text-red-400' : openSquawkCount > 0 ? 'text-amber-400' : 'text-green-400'}`}>
+                          {isGrounded ? 'GROUNDED' : openSquawkCount > 0 ? `${openSquawkCount} squawk${openSquawkCount > 1 ? 's' : ''}` : 'Airworthy'}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -1662,6 +2192,19 @@ function FleetSection({ user, onBookAircraft }) {
                 {/* Expanded detail */}
                 {open && wb.maxGrossLbs && (
                   <div className="mt-4 pt-4 border-t border-white/10 space-y-3" onClick={(e) => e.stopPropagation()}>
+                    {/* Open squawks */}
+                    {acSquawks.length > 0 && (
+                      <div className="mb-3">
+                        <h4 className={`text-[10px] uppercase tracking-wide mb-1 ${hasGroundingSquawk ? 'text-red-400 font-bold' : 'text-amber-400'}`}>
+                          {hasGroundingSquawk ? '⚠ GROUNDED' : 'Open Squawks'} ({acSquawks.length})
+                        </h4>
+                        {acSquawks.map((s) => (
+                          <div key={s.id} className={`text-[10px] px-2 py-1 rounded mb-0.5 border ${s.severity === 'grounding' ? 'bg-red-400/10 border-red-400/20 text-red-300' : 'bg-amber-400/5 border-amber-400/15 text-slate-300'}`}>
+                            {s.description} <span className="text-slate-500">· {s.severity} · {s.reportedDate}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <h4 className="text-slate-400 text-[10px] uppercase tracking-wide">Full Weight & Balance</h4>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div><span className="text-slate-500">Empty wt:</span> <span className="text-slate-200">{wb.emptyWeightLbs?.toLocaleString()} lbs</span></div>
@@ -1684,11 +2227,18 @@ function FleetSection({ user, onBookAircraft }) {
                       </div>
                     )}
                     {wb.cgLimits && <div className="text-[10px] text-slate-500">CG range: {wb.cgLimits.forwardIn}" – {wb.cgLimits.aftIn}"</div>}
+                    {/* Squawk button inside expanded view */}
+                    {user && (
+                      <button onClick={(e) => { e.stopPropagation(); onSquawk?.(ac.tailNumber); setTimeout(() => document.getElementById('sec-squawk')?.scrollIntoView({ behavior: 'smooth' }), 100) }}
+                        className="mt-2 w-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 py-2 rounded-xl text-xs transition-all border border-amber-500/20">
+                        🔧 Report Squawk — {ac.tailNumber}
+                      </button>
+                    )}
                   </div>
                 )}
 
-                {/* Select for scheduling */}
-                {user && ac.airworthy && ac.fboCategory !== 'sim' && (
+                {/* Book button */}
+                {user && !isGrounded && ac.fboCategory !== 'sim' && (
                   <button onClick={(e) => {
                       e.stopPropagation()
                       onBookAircraft?.(ac)
@@ -1919,7 +2469,12 @@ function GallerySection() {
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
           {filtered.map((img) => (
             <div key={img.id} className="group relative aspect-[4/3] rounded-2xl overflow-hidden cursor-pointer">
-              <div className={`absolute inset-0 bg-gradient-to-br ${gradients[(img.id - 1) % gradients.length]} transition-transform group-hover:scale-110 duration-500`} />
+              {img.img ? (
+                <img src={img.img} alt={img.alt} loading="lazy"
+                  className="absolute inset-0 w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
+              ) : (
+                <div className={`absolute inset-0 bg-gradient-to-br ${gradients[(img.id - 1) % gradients.length]} transition-transform group-hover:scale-110 duration-500`} />
+              )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
               <div className="absolute bottom-0 left-0 right-0 p-4">
                 <p className="text-white text-xs font-medium">{img.alt}</p>
@@ -2016,6 +2571,7 @@ function RecentFlightBox({ user }) {
 
   return (
     <div className="space-y-3">
+      <h2 className="text-2xl sm:text-3xl font-bold text-white">Recent & Upcoming Reservations</h2>
       {myFlights.map((f) => (
         <RecentFlightCard key={f.id} flight={f} user={user} squawks={squawks} />
       ))}
@@ -2234,8 +2790,237 @@ function RecentFlightCard({ flight, user, squawks }) {
   )
 }
 
+/* ─── PPL ACS task areas (FAA-S-ACS-6B) ─── */
+const PPL_ACS = {
+  dual: [
+    { id: 'acs-preflight', area: 'I', label: 'Preflight Preparation', tasks: ['Pilot Qualifications', 'Airworthiness Requirements', 'Weather Information', 'Cross-Country Flight Planning', 'National Airspace System', 'Performance & Limitations', 'Operation of Systems', 'Human Factors', 'Aeronautical Decision Making'] },
+    { id: 'acs-preflight-proc', area: 'II', label: 'Preflight Procedures', tasks: ['Preflight Assessment', 'Flight Deck Management', 'Engine Starting', 'Taxiing', 'Before Takeoff Check'] },
+    { id: 'acs-airport-ops', area: 'III', label: 'Airport & Seaplane Base Operations', tasks: ['Communications', 'Traffic Patterns', 'Runway Incursion Avoidance'] },
+    { id: 'acs-takeoffs', area: 'IV', label: 'Takeoffs, Landings & Go-Arounds', tasks: ['Normal T&L', 'Short-Field Takeoff & Climb', 'Short-Field Approach & Landing', 'Soft-Field Takeoff & Climb', 'Soft-Field Approach & Landing', 'Forward Slip to Landing', 'Go-Around / Rejected Landing'] },
+    { id: 'acs-performance', area: 'V', label: 'Performance & Ground Reference Maneuvers', tasks: ['Steep Turns', 'Ground Reference Maneuvers'] },
+    { id: 'acs-nav', area: 'VI', label: 'Navigation', tasks: ['Pilotage & Dead Reckoning', 'Navigation Systems & Radar Services', 'Diversion', 'Lost Procedures'] },
+    { id: 'acs-slow', area: 'VII', label: 'Slow Flight & Stalls', tasks: ['Maneuvering During Slow Flight', 'Power-Off Stalls', 'Power-On Stalls', 'Spin Awareness'] },
+    { id: 'acs-instrument', area: 'VIII', label: 'Basic Instrument Maneuvers', tasks: ['Straight-and-Level Flight', 'Constant Airspeed Climbs', 'Constant Airspeed Descents', 'Turns to Headings', 'Recovery from Unusual Attitudes', 'Radio Communications / Navigation'] },
+    { id: 'acs-emergency', area: 'IX', label: 'Emergency Operations', tasks: ['Emergency Descent', 'Emergency Approach & Landing', 'Systems & Equipment Malfunctions', 'Emergency Equipment & Survival Gear'] },
+    { id: 'acs-night', area: 'X', label: 'Night Operations', tasks: ['Night Preparation', 'Night Flight'] },
+    { id: 'acs-postflight', area: 'XI', label: 'Postflight Procedures', tasks: ['After Landing', 'Parking & Securing'] },
+  ],
+  solo: [
+    { id: 'solo-pattern', label: 'Pattern Solo', tasks: ['3 T&Ls at home airport', 'Normal landings', 'Go-around demonstrated'], minFlights: 1 },
+    { id: 'solo-practice', label: 'Practice Area Solo', tasks: ['Maneuvers in practice area', 'Emergency procedures review before flight'], minFlights: 2 },
+    { id: 'solo-xc-short', label: 'Solo XC (short)', tasks: ['XC flight ≥50nm from departure', 'Full stop landing at 2+ airports'], minFlights: 1 },
+    { id: 'solo-xc-long', label: 'Solo XC (long)', tasks: ['Total distance ≥150nm', '≥3 points with full-stop landings', 'One leg ≥50nm straight-line'], minFlights: 1 },
+    { id: 'solo-night', label: 'Night Solo', tasks: ['10 night T&Ls at towered airport', '3 to full stop', '100nm night XC'], minFlights: 1 },
+  ],
+  ground: [
+    { id: 'oral-regs', label: 'Regulations (14 CFR)', tasks: ['Part 61 — Pilot Certificates', 'Part 91 — General Operating Rules', 'NTSB 830 — Accident Reporting', 'AIM — Aeronautical Information Manual'] },
+    { id: 'oral-weather', label: 'Weather', tasks: ['Weather theory & hazards', 'METAR/TAF interpretation', 'Graphical forecasts', 'PIREPs & SIGMETs/AIRMETs', 'Weather decision making'] },
+    { id: 'oral-performance', label: 'Performance & Limitations', tasks: ['Weight & balance calculations', 'Density altitude effects', 'Takeoff/landing distance charts', 'Climb/cruise performance'] },
+    { id: 'oral-systems', label: 'Aircraft Systems', tasks: ['Powerplant', 'Electrical system', 'Vacuum/pressure system', 'Pitot-static system', 'Fuel system', 'Flight instruments'] },
+    { id: 'oral-airspace', label: 'Airspace & Navigation', tasks: ['Airspace classification', 'VFR cloud clearance & visibility', 'Chart reading', 'Navigation systems (VOR, GPS)', 'Flight plan filing'] },
+    { id: 'oral-adm', label: 'ADM & Human Factors', tasks: ['Aeronautical decision making', 'Risk management (PAVE, IMSAFE)', 'CRM / Single-pilot CRM', 'Spatial disorientation', 'Hypoxia & hyperventilation'] },
+    { id: 'oral-xc', label: 'Cross-Country Planning', tasks: ['Route selection', 'Fuel planning & reserves', 'Diversion procedures', 'Lost procedures', 'VFR flight plan'] },
+  ],
+}
+
+// Map lesson template titles → relevant ACS tasks for the close-lesson checklist
+const LESSON_ACS_MAP = {
+  'Intro & Basic Airmanship':          ['Preflight Assessment', 'Flight Deck Management', 'Engine Starting', 'Taxiing', 'Straight-and-Level Flight'],
+  'Traffic Pattern & T&Ls':            ['Traffic Patterns', 'Normal T&L', 'Go-Around / Rejected Landing', 'Communications'],
+  'Emergency Procedures — Forced Ldg': ['Emergency Descent', 'Emergency Approach & Landing', 'Systems & Equipment Malfunctions'],
+  'Pre-Solo Ground Review':            ['Pilot Qualifications', 'Airworthiness Requirements', 'Operation of Systems', 'Aeronautical Decision Making'],
+  'Slow Flight & Power-Off Stalls':    ['Maneuvering During Slow Flight', 'Power-Off Stalls', 'Spin Awareness'],
+  'Steep Turns & S-Turns / Pylons':    ['Steep Turns', 'Ground Reference Maneuvers'],
+  'Short / Soft Field T&Ls':           ['Short-Field Takeoff & Climb', 'Short-Field Approach & Landing', 'Soft-Field Takeoff & Climb', 'Soft-Field Approach & Landing'],
+  'Pre-Solo Dual Check':               ['Normal T&L', 'Go-Around / Rejected Landing', 'Emergency Approach & Landing', 'Maneuvering During Slow Flight'],
+  'First Solo — Pattern T&Ls':         ['Normal T&L', 'Traffic Patterns', 'Communications'],
+  'Solo Cross-Country Preparation':    ['Cross-Country Flight Planning', 'Pilotage & Dead Reckoning', 'Navigation Systems & Radar Services', 'Diversion'],
+  'Dual Night — Patterns & XC':        ['Night Preparation', 'Night Flight', 'Normal T&L'],
+  'Hood Work — Instrument Fundamentals': ['Straight-and-Level Flight', 'Constant Airspeed Climbs', 'Constant Airspeed Descents', 'Turns to Headings', 'Recovery from Unusual Attitudes'],
+  'Mock Oral Exam':                    ['Pilot Qualifications', 'Weather Information', 'Performance & Limitations', 'National Airspace System', 'Aeronautical Decision Making'],
+  'Mock Practical — Full Maneuvers':   ['Steep Turns', 'Power-Off Stalls', 'Power-On Stalls', 'Short-Field Approach & Landing', 'Soft-Field Takeoff & Climb', 'Forward Slip to Landing'],
+}
+// Fallback: generic items for any lesson not in the map
+const GENERIC_ACS = ['Preflight Assessment', 'Normal T&L', 'Communications', 'After Landing', 'Parking & Securing']
+
+function LessonClosePanel({ flight, user, onClose }) {
+  const [tachStart, setTachStart] = useState('')
+  const [tachEnd, setTachEnd] = useState('')
+  const [hobbsStart, setHobbsStart] = useState('')
+  const [hobbsEnd, setHobbsEnd] = useState('')
+  const [rating, setRating] = useState(0)
+  const [acsChecks, setAcsChecks] = useState({})
+  const [noSquawks, setNoSquawks] = useState(false)
+  const [showSquawkForm, setShowSquawkForm] = useState(false)
+  const [squawkDesc, setSquawkDesc] = useState('')
+  const [squawkSeverity, setSquawkSeverity] = useState('monitoring')
+  const [route, setRoute] = useState(flight.waypoints?.join(' → ') || '')
+  const [flightNotes, setFlightNotes] = useState('')
+  const [closed, setClosed] = useState(false)
+
+  // Find ACS items for this lesson
+  const lessonTitle = flight._sessionLabel?.split('—')[1]?.trim() || flight._sessionLabel || ''
+  const acsItems = LESSON_ACS_MAP[lessonTitle] || LESSON_ACS_MAP[Object.keys(LESSON_ACS_MAP).find((k) => lessonTitle.includes(k))] || GENERIC_ACS
+
+  const allChecked = acsItems.every((item) => acsChecks[item])
+
+  const handleSquawkSubmit = () => {
+    if (!squawkDesc.trim()) return
+    addSquawk({
+      id: `sqk-cl-${Date.now()}`, tailNumber: flight.tailNumber,
+      reportedBy: user.name, reportedDate: new Date().toISOString().split('T')[0],
+      reportedAt: new Date().toISOString(), description: squawkDesc.trim(),
+      severity: squawkSeverity, status: 'open',
+      melReference: null, melExpiryDate: null, airframeHours: null,
+      resolvedDate: null, resolvedBy: null, resolutionNotes: null, workOrderId: null,
+      _flightId: flight.id,
+    })
+    setSquawkDesc('')
+    setShowSquawkForm(false)
+    setNoSquawks(false)
+  }
+
+  const handleClose = () => {
+    updateStoreFlight(flight.id, {
+      status: 'closed',
+      _postFlight: {
+        tachStart: tachStart || null, tachEnd: tachEnd || null,
+        hobbsStart: hobbsStart || null, hobbsEnd: hobbsEnd || null,
+        hobbsTime: hobbsStart && hobbsEnd ? (parseFloat(hobbsEnd) - parseFloat(hobbsStart)).toFixed(1) : null,
+        rating, noSquawks,
+        acsResults: acsChecks,
+        acsAllMet: allChecked,
+        route: route || null,
+        flightNotes: flightNotes || null,
+        closedBy: user.name, closedAt: new Date().toISOString(),
+      },
+    })
+    setClosed(true)
+    setTimeout(() => onClose?.(), 2000)
+  }
+
+  if (closed) {
+    return (
+      <div className="bg-green-400/10 border border-green-400/20 rounded-xl p-4 text-center animate-[fadeIn_0.3s_ease]">
+        <span className="text-green-400 font-semibold text-sm">✓ Lesson closed{hobbsStart && hobbsEnd ? ` — ${(parseFloat(hobbsEnd) - parseFloat(hobbsStart)).toFixed(1)} Hobbs` : ''}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-surface-card border border-surface-border rounded-xl p-4 space-y-4 animate-[fadeIn_0.3s_ease]">
+      <h4 className="text-white font-bold text-sm">Close Lesson — {flight._sessionLabel || flight.tailNumber}</h4>
+
+      {/* Tach & Hobbs */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {[
+          { label: 'Tach Start', val: tachStart, set: setTachStart },
+          { label: 'Tach End', val: tachEnd, set: setTachEnd },
+          { label: 'Hobbs Start', val: hobbsStart, set: setHobbsStart },
+          { label: 'Hobbs End', val: hobbsEnd, set: setHobbsEnd },
+        ].map((f) => (
+          <div key={f.label}>
+            <label className="text-slate-600 text-[10px]">{f.label}</label>
+            <input type="number" step="0.1" placeholder="0.0" value={f.val} onChange={(e) => f.set(e.target.value)}
+              className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-700 focus:border-sky-400 focus:outline-none" />
+          </div>
+        ))}
+      </div>
+      {hobbsStart && hobbsEnd && parseFloat(hobbsEnd) > parseFloat(hobbsStart) && (
+        <div className="text-sky-400 text-xs">Hobbs: {(parseFloat(hobbsEnd) - parseFloat(hobbsStart)).toFixed(1)} hrs</div>
+      )}
+
+      {/* Route & Notes */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="text-slate-500 text-[10px]">Route</label>
+          <input type="text" value={route} onChange={(e) => setRoute(e.target.value)}
+            onBlur={(e) => setRoute(normalizeRoute(e.target.value))}
+            placeholder="KBDU local" className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-700 focus:border-sky-400 focus:outline-none" />
+        </div>
+        <div>
+          <label className="text-slate-500 text-[10px]">Notes / Debrief</label>
+          <input type="text" value={flightNotes} onChange={(e) => setFlightNotes(e.target.value)}
+            placeholder="What we worked on..." className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-700 focus:border-sky-400 focus:outline-none" />
+        </div>
+      </div>
+
+      {/* ACS Standards checklist */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-slate-400 text-xs font-semibold">ACS Standards — Meets Standards?</label>
+          <button onClick={() => {
+              const all = {}; acsItems.forEach((i) => { all[i] = !allChecked }); setAcsChecks(all)
+            }} className="text-[10px] text-sky-400 hover:text-sky-300 transition-colors">
+            {allChecked ? 'Uncheck all' : 'Check all'}
+          </button>
+        </div>
+        <div className="space-y-1">
+          {acsItems.map((item) => (
+            <label key={item} className="flex items-center gap-2 cursor-pointer group">
+              <input type="checkbox" checked={!!acsChecks[item]}
+                onChange={(e) => setAcsChecks((prev) => ({ ...prev, [item]: e.target.checked }))}
+                className="w-3.5 h-3.5 rounded border-slate-600 bg-surface text-sky-500 focus:ring-sky-400/30" />
+              <span className={`text-xs ${acsChecks[item] ? 'text-green-400' : 'text-slate-400 group-hover:text-slate-200'}`}>{item}</span>
+            </label>
+          ))}
+        </div>
+        {acsItems.length > 0 && (
+          <div className={`text-[10px] mt-1 ${allChecked ? 'text-green-400' : 'text-slate-600'}`}>
+            {Object.values(acsChecks).filter(Boolean).length}/{acsItems.length} standards met
+          </div>
+        )}
+      </div>
+
+      {/* Rating */}
+      <div>
+        <label className="text-slate-400 text-xs block mb-1">Rate this lesson</label>
+        <div className="flex gap-0.5">
+          {[1, 2, 3, 4, 5].map((s) => (
+            <button key={s} onClick={() => setRating(s)} className={`text-xl transition-all hover:scale-110 ${s <= rating ? 'text-amber-400' : 'text-slate-700'}`}>★</button>
+          ))}
+          {rating > 0 && <span className="text-slate-500 text-[10px] ml-1 self-center">{['', 'Poor', 'Fair', 'Good', 'Great', 'Excellent'][rating]}</span>}
+        </div>
+      </div>
+
+      {/* Squawk */}
+      <div>
+        <div className="flex gap-2">
+          <button onClick={() => { setNoSquawks(true); setShowSquawkForm(false) }}
+            className={`flex-1 py-2 rounded-lg text-xs font-medium border transition-all ${noSquawks ? 'bg-green-400/15 border-green-400/30 text-green-400' : 'border-surface-border text-slate-500 hover:border-green-400/30'}`}>
+            ✓ No squawks
+          </button>
+          <button onClick={() => { setShowSquawkForm(true); setNoSquawks(false) }}
+            className={`flex-1 py-2 rounded-lg text-xs font-medium border transition-all ${showSquawkForm ? 'bg-amber-400/15 border-amber-400/30 text-amber-400' : 'border-surface-border text-slate-500 hover:border-amber-400/30'}`}>
+            ⚠ Report squawk
+          </button>
+        </div>
+        {showSquawkForm && (
+          <div className="mt-2 p-3 rounded-lg border border-amber-400/30 bg-amber-500/5 space-y-2">
+            <div className="grid grid-cols-4 gap-1">
+              {[{ v: 'grounding', l: 'Ground' }, { v: 'ops_limiting', l: 'Ops Lim' }, { v: 'deferred', l: 'Defer' }, { v: 'monitoring', l: 'Monitor' }].map((s) => (
+                <button key={s.v} onClick={() => setSquawkSeverity(s.v)}
+                  className={`py-1 rounded text-[10px] font-medium border transition-all ${squawkSeverity === s.v ? 'bg-sky-500/20 border-sky-400 text-sky-400' : 'border-surface-border text-slate-500'}`}>{s.l}</button>
+              ))}
+            </div>
+            <textarea rows={2} placeholder="Describe issue..." value={squawkDesc} onChange={(e) => setSquawkDesc(e.target.value)}
+              className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:border-sky-400 focus:outline-none resize-none" />
+            <button onClick={handleSquawkSubmit} disabled={!squawkDesc.trim()}
+              className="w-full bg-amber-500 hover:bg-amber-400 disabled:bg-slate-700 text-white text-xs font-semibold py-1.5 rounded-lg transition-colors">Submit Squawk</button>
+          </div>
+        )}
+      </div>
+
+      {/* Close button */}
+      <button onClick={handleClose}
+        className="w-full bg-green-500 hover:bg-green-400 text-white font-semibold py-2.5 rounded-xl text-sm transition-colors">
+        Close Lesson{hobbsStart && hobbsEnd ? ` — ${(parseFloat(hobbsEnd) - parseFloat(hobbsStart)).toFixed(1)} Hobbs` : ''}
+      </button>
+    </div>
+  )
+}
+
 function StudentDashboard({ user }) {
-  // Map logged-in persona to a mock student (or default to Tyler Mason — the beginner)
   const student = useMemo(() => {
     const byName = mockStudents.find((s) => s.name.toLowerCase().includes(user.name.split(' ')[0].toLowerCase()))
     return byName || mockStudents.find((s) => s.id === 'std-002') || mockStudents[0]
@@ -2246,22 +3031,59 @@ function StudentDashboard({ user }) {
   const reqs = requirementProgress(student, student.program)
   const metCount = metRequirementCount(student, student.program)
   const progress = stageProgress(student, student.program)
-  const checkrideReady = isCheckrideReady(student)
+  const [acsTab, setAcsTab] = useState('dual')
+  const [closingFlightId, setClosingFlightId] = useState(null)
+  const [toast, setToast] = useState(null)
 
   // Lesson recommendations
   const [skippedSlots, setSkippedSlots] = useState(new Set())
   const [acceptedBookings, setAcceptedBookings] = useState([])
   const [acceptedIds, setAcceptedIds] = useState(new Set())
-  const [toast, setToast] = useState(null)
 
   const allBookings = [...mockBookings, ...acceptedBookings]
-  const recommendations = recommendLessons(student, mockPersonnel, mockAircraft, allBookings, skippedSlots)
-    .filter((r) => !acceptedIds.has(r.template.id))
+  // Keep all recommendations visible (accepted ones show as "Scheduled")
+  const allRecommendations = recommendLessons(student, mockPersonnel, mockAircraft, allBookings, skippedSlots)
 
-  const handleSkip = (rec) => {
-    if (!rec.slot) return
-    setSkippedSlots((prev) => new Set([...prev, `${rec.slot.dayIdx}:${rec.slot.slot}`]))
-  }
+  // Active / upcoming lessons from all flights
+  const [flights, setFlights] = useState(() => getAllFlights())
+  useEffect(() => { const u = subscribe((f) => setFlights(f)); return u }, [])
+
+  // Collect ACS "meets standards" from all closed flights for this user
+  const acsMet = useMemo(() => {
+    const met = new Set()
+    flights.forEach((f) => {
+      if (f.status !== 'closed') return
+      const isMine = f.picId === user.id || f.sicId === user.id || f._bookingId
+      if (!isMine) return
+      const results = f._postFlight?.acsResults
+      if (results) {
+        Object.entries(results).forEach(([task, passed]) => { if (passed) met.add(task) })
+      }
+    })
+    return met
+  }, [flights, user.id])
+
+  const now = Date.now()
+  const ACTIVE_WINDOW = 60 * 60_000 // 1 hour
+  const activeFlights = flights.filter((f) => {
+    if (f.status === 'closed' || f.status === 'cancelled') return false
+    if (f._source !== 'journeys_portal' && f.operator !== 'journeys') return false
+    const isMine = f.picId === user.id || f.sicId === user.id || f._bookingId
+    if (!isMine) return false
+    const dep = new Date(f.plannedDepartureUtc).getTime()
+    const end = dep + (f._duration || 1) * 3600_000
+    return dep <= now + ACTIVE_WINDOW && end >= now - 30 * 60_000 // starting within 1hr or not yet finished
+  })
+
+  // Scheduled (upcoming, not active)
+  const scheduledFlights = flights.filter((f) => {
+    if (f.status !== 'planned') return false
+    if (f._source !== 'journeys_portal' && f.operator !== 'journeys') return false
+    const isMine = f.picId === user.id || f.sicId === user.id || f._bookingId
+    if (!isMine) return false
+    const dep = new Date(f.plannedDepartureUtc).getTime()
+    return dep > now + ACTIVE_WINDOW
+  }).sort((a, b) => new Date(a.plannedDepartureUtc) - new Date(b.plannedDepartureUtc))
 
   const handleAccept = (rec) => {
     if (!rec.slot) return
@@ -2273,152 +3095,209 @@ function StudentDashboard({ user }) {
     }
     setAcceptedBookings((prev) => [...prev, booking])
     setAcceptedIds((prev) => new Set([...prev, rec.template.id]))
-    setToast(`✓ ${rec.template.title} booked — ${SCHEDULE_DAYS[rec.slot.dayIdx]} at ${rec.slot.slot}`)
-    setTimeout(() => setToast(null), 4000)
+    setToast(`✓ ${rec.template.title} booked`)
+    setTimeout(() => setToast(null), 3000)
   }
 
+  // Solo endorsement: student has solo hours logged
+  const canSolo = student.hours.soloPIC > 0
+
+  // Simulated completion counts (in real app would come from logbook)
+  const completedLessons = useMemo(() => {
+    const counts = {}
+    const templates = LESSON_TEMPLATES[student.program] || {}
+    Object.values(templates).flat().forEach((t) => {
+      // Stages up to currentStage - 1 are "completed"
+      counts[t.id] = 0
+    })
+    for (let stage = 1; stage < student.currentStage; stage++) {
+      (templates[stage] || []).forEach((t) => { counts[t.id] = (counts[t.id] || 0) + 1 })
+    }
+    return counts
+  }, [student.program, student.currentStage])
+
   const DOC_FIELDS = [
-    { key: 'governmentId', label: 'Government ID', showExpiry: true },
-    { key: 'insurance', label: "Renter's Insurance", showExpiry: true },
-    { key: 'medicalCert', label: 'Medical Certificate', showExpiry: true },
-    { key: 'studentPilotCert', label: 'Student Pilot Cert', showExpiry: false },
+    { key: 'governmentId', label: 'Gov ID', showExpiry: true },
+    { key: 'insurance', label: 'Insurance', showExpiry: true },
+    { key: 'medicalCert', label: 'Medical', showExpiry: true },
+    { key: 'studentPilotCert', label: 'Student Cert', showExpiry: false },
     { key: 'knowledgeTest', label: 'Knowledge Test', showExpiry: false },
   ]
 
   return (
-    <section className="pt-20 pb-12 px-6 bg-surface min-h-screen">
+    <section className="pt-20 pb-8 px-4 sm:px-6 bg-surface">
       <div className="max-w-6xl mx-auto">
-        {/* Toast */}
         {toast && (
           <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-green-500 text-white px-6 py-3 rounded-xl shadow-xl text-sm font-medium animate-[fadeIn_0.3s_ease]">
             {toast}
           </div>
         )}
 
-        {/* ── Header: Welcome + progress overview ── */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between flex-wrap gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-white">Welcome back, {student.name.split(' ')[0]}</h1>
-              <p className="text-slate-400 text-sm mt-1">{program?.name} — Stage {student.currentStage}/{program?.stages?.length || '?'}
-                {cfi && <span className="text-slate-500"> · CFI: {cfi.name}</span>}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              {student.dpe && (
-                <span className={`text-xs font-medium px-3 py-1 rounded-full ${DPE_STATUS_BG[student.dpe.status]} ${DPE_STATUS_COLOR[student.dpe.status]}`}>
-                  Checkride: {DPE_STATUS_LABEL[student.dpe.status]}
-                </span>
-              )}
-              <div className="text-right">
-                <div className="text-white font-bold text-xl">{student.hours.total} hrs</div>
-                <div className="text-slate-500 text-[10px]">Total logged</div>
-              </div>
-            </div>
+        {/* ── Header ── */}
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-2">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-white">Welcome, {student.name.split(' ')[0]}</h1>
+            <p className="text-slate-400 text-sm">{program?.name} · Stage {student.currentStage}/{program?.stages?.length || '?'}
+              {cfi && <span className="text-slate-500"> · {cfi.name}</span>}
+            </p>
           </div>
-
-          {/* Stage progress bar */}
-          <div className="mt-4">
-            <div className="flex items-center justify-between text-xs mb-1">
-              <span className="text-slate-400">Overall progress</span>
-              <span className="text-sky-400 font-bold">{Math.round(progress)}%</span>
-            </div>
-            <div className="h-3 bg-surface-card border border-surface-border rounded-full overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-sky-500 to-blue-500 rounded-full transition-all duration-700" style={{ width: `${progress}%` }} />
+          <div className="flex items-center gap-4">
+            {student.dpe && (
+              <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${DPE_STATUS_BG[student.dpe.status]} ${DPE_STATUS_COLOR[student.dpe.status]}`}>
+                {DPE_STATUS_LABEL[student.dpe.status]}
+              </span>
+            )}
+            <div className="text-right">
+              <div className="text-white font-bold text-lg">{student.hours.total} hrs</div>
+              <div className="text-slate-600 text-[10px]">{canSolo ? '✓ Solo endorsed' : 'Pre-solo'}</div>
             </div>
           </div>
         </div>
+        {/* Progress bar */}
+        <div className="mb-6">
+          <div className="h-2 bg-surface-card border border-surface-border rounded-full overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-sky-500 to-blue-500 rounded-full transition-all" style={{ width: `${progress}%` }} />
+          </div>
+          <div className="flex justify-between text-[10px] mt-1">
+            <span className="text-slate-500">{Math.round(progress)}% complete</span>
+            <span className="text-slate-500">{metCount}/{reqs.length} hour reqs met</span>
+          </div>
+        </div>
 
-        {/* ── Two-column: Next Lessons + Hours ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-
-          {/* Next Lessons — 2 cols wide */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* ══ LEFT: Lessons ══ */}
           <div className="lg:col-span-2 space-y-4">
-            <h2 className="text-white font-bold text-lg">Next Lessons</h2>
-            {recommendations.length === 0 && (
-              <div className="bg-surface-card border border-surface-border rounded-2xl p-8 text-center text-slate-400">
-                No lessons available right now — check back or call {JB_INFO.phone}
-              </div>
-            )}
-            {recommendations.map((rec, i) => {
-              const wb = rec.aircraft && student.weightLbs
-                ? calcTrainingWB(rec.aircraft, student.weightLbs, cfi?.weightLbs || 180, rec.template.durationHr * (rec.aircraft.fuelBurnGalHr || 8))
-                : null
-              const wbLevel = wb ? wbStatusLevel(wb) : null
-              const wbStyle = wbLevel ? WB_STATUS[wbLevel] : null
+
+            {/* Proposed next lessons — show as cards with accept/skip */}
+            <h2 className="text-white font-bold text-base">Proposed Lessons</h2>
+            {allRecommendations.slice(0, 3).map((rec, i) => {
+              const isAccepted = acceptedIds.has(rec.template.id)
               return (
-                <div key={i} className="bg-surface-card border border-surface-border rounded-2xl p-5">
-                  <div className="flex items-start justify-between mb-3">
+                <div key={`prop-${i}`} className={`rounded-xl p-3 flex items-center justify-between transition-all border ${
+                  isAccepted ? 'bg-green-400/8 border-green-400/20' : 'bg-surface-card/50 border-surface-border/50 animate-breathe'
+                }`}>
+                  <div className="flex items-center gap-3">
+                    <span className={`w-2.5 h-2.5 rounded-full ${isAccepted ? 'bg-green-400' : 'bg-sky-400/60 animate-pulse'}`} />
                     <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${BOOKING_TYPE_COLORS[rec.template.type] || 'bg-slate-400/20 text-slate-400'}`}>
-                          {BOOKING_TYPE_LABELS[rec.template.type] || rec.template.type}
-                        </span>
-                        <span className="text-white font-bold">{rec.template.title}</span>
-                        <span className="text-slate-500 text-xs">{rec.template.durationHr} hr</span>
-                      </div>
-                      <div className="text-slate-400 text-xs">
-                        {rec.cfi && <span>CFI: {rec.cfi.name} · </span>}
-                        {rec.aircraft && <span>{rec.aircraft.tailNumber} {rec.aircraft.makeModel} · </span>}
-                        {rec.slot && <span>{SCHEDULE_DAYS[rec.slot.dayIdx]} {rec.slot.slot}</span>}
+                      <div className={`text-sm font-medium ${isAccepted ? 'text-green-400' : 'text-slate-200'}`}>{rec.template.title}</div>
+                      <div className="text-slate-500 text-xs">
+                        {rec.template.durationHr} hr · {rec.cfi?.name || 'TBD'}
+                        {rec.slot && ` · ${SCHEDULE_DAYS[rec.slot.dayIdx]} ${rec.slot.slot}`}
+                        {rec.aircraft && ` · ${rec.aircraft.tailNumber}`}
                       </div>
                     </div>
-                    {rec.slot?.weather && (
-                      <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${WEATHER_FIT_COLORS[rec.weatherFit] || ''}`}>
-                        {WEATHER_FIT_LABELS[rec.weatherFit] || rec.weatherFit}
-                      </span>
-                    )}
                   </div>
-
-                  {/* W&B bar */}
-                  {wb && (
-                    <div className={`rounded-lg px-3 py-2 mb-3 text-[10px] border ${wbStyle?.bg || 'bg-surface'} ${wbStyle?.border || 'border-surface-border'}`}>
-                      <div className="flex justify-between">
-                        <span className="text-slate-400">W&B: {wb.totalWeight} / {wb.maxGross} lbs</span>
-                        <span className={wbStyle?.text || 'text-slate-400'}>{wb.totalWeight <= wb.maxGross ? `+${wb.maxGross - wb.totalWeight} margin` : `OVER ${wb.totalWeight - wb.maxGross}`}</span>
-                      </div>
+                  {isAccepted ? (
+                    <span className="text-green-400 text-[10px] font-semibold">✓ Scheduled</span>
+                  ) : (
+                    <div className="flex gap-1.5">
+                      <button onClick={() => handleSkip(rec)} className="text-[10px] text-slate-500 hover:text-white border border-surface-border px-2 py-1 rounded-lg transition-colors">Skip</button>
+                      <button onClick={() => handleAccept(rec)} className="text-[10px] text-sky-400 bg-sky-400/10 border border-sky-400/20 px-2 py-1 rounded-lg hover:bg-sky-400/20 transition-colors font-medium">Accept</button>
                     </div>
                   )}
-
-                  <div className="flex gap-2 justify-end">
-                    <button onClick={() => handleSkip(rec)} className="text-xs text-slate-400 hover:text-white border border-surface-border px-4 py-2 rounded-xl transition-colors">Skip</button>
-                    <button onClick={() => handleAccept(rec)} className="text-xs text-white bg-sky-500 hover:bg-sky-400 px-4 py-2 rounded-xl transition-colors font-medium">Accept & Book</button>
-                  </div>
                 </div>
               )
             })}
-
-            {acceptedBookings.length > 0 && (
-              <div className="bg-green-400/8 border border-green-400/20 rounded-2xl p-4">
-                <h3 className="text-green-400 text-xs font-bold uppercase tracking-wide mb-2">Booked</h3>
-                {acceptedBookings.map((b) => (
-                  <div key={b.id} className="flex items-center gap-2 text-xs text-slate-300 py-1">
-                    <span className="w-2 h-2 rounded-full bg-green-400" />
-                    <span className="font-medium">{b.title}</span>
-                    <span className="text-slate-500">{SCHEDULE_DAYS[b.dayIdx]} {b.slot}</span>
-                  </div>
-                ))}
-              </div>
+            {allRecommendations.length === 0 && (
+              <div className="bg-surface-card border border-surface-border rounded-xl p-4 text-center text-slate-500 text-xs">No lessons to propose right now</div>
             )}
+
+            {/* + Schedule button */}
+            <button onClick={() => document.getElementById('sec-schedule')?.scrollIntoView({ behavior: 'smooth' })}
+              className="w-full border-2 border-dashed border-slate-700 hover:border-sky-400/40 rounded-xl py-3 text-slate-400 hover:text-sky-400 text-sm font-medium transition-colors">
+              + Schedule a Lesson
+            </button>
           </div>
 
-          {/* Right sidebar: Hours + Documents */}
-          <div className="space-y-6">
-            {/* Hour requirements */}
-            <div className="bg-surface-card border border-surface-border rounded-2xl p-5">
-              <h3 className="text-white font-bold text-sm mb-3">Hour Requirements <span className="text-slate-500 text-xs font-normal">({metCount}/{reqs.length} met)</span></h3>
-              <div className="space-y-2.5">
-                {reqs.map((r) => {
-                  const pct = r.pct ?? Math.min(100, Math.round((r.actual / r.min) * 100))
-                  const met = r.actual >= r.min
+          {/* ══ RIGHT: ACS + Hours + Docs ══ */}
+          <div className="space-y-4">
+            {/* ACS Progress — Dual / Solo / Ground tabs */}
+            <div className="bg-surface-card border border-surface-border rounded-2xl overflow-hidden">
+              <div className="flex border-b border-surface-border">
+                {[
+                  { id: 'dual', label: 'Dual', icon: '👨‍✈️' },
+                  { id: 'solo', label: 'Solo', icon: '🧑‍✈️' },
+                  { id: 'ground', label: 'Ground', icon: '📚' },
+                ].map((t) => (
+                  <button key={t.id} onClick={() => setAcsTab(t.id)}
+                    className={`flex-1 py-2.5 text-xs font-medium transition-colors ${acsTab === t.id ? 'text-sky-400 border-b-2 border-sky-400 bg-sky-400/5' : 'text-slate-500 hover:text-slate-300'}`}>
+                    {t.icon} {t.label}
+                  </button>
+                ))}
+              </div>
+              <div className="p-4 max-h-[400px] overflow-y-auto space-y-3">
+                {acsTab === 'dual' && PPL_ACS.dual.map((area) => {
+                  const areaDone = area.tasks.filter((t) => acsMet.has(t)).length
                   return (
-                    <div key={r.label}>
-                      <div className="flex justify-between text-[10px] mb-0.5">
-                        <span className={met ? 'text-green-400' : 'text-slate-400'}>{r.label}</span>
-                        <span className={met ? 'text-green-400 font-bold' : 'text-slate-300'}>{r.actual}/{r.min} hr</span>
+                    <div key={area.id}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="text-slate-400 text-[10px] uppercase tracking-wide">Area {area.area} — {area.label}</div>
+                        <div className={`text-[10px] ${areaDone === area.tasks.length ? 'text-green-400' : 'text-slate-600'}`}>{areaDone}/{area.tasks.length}</div>
                       </div>
-                      <div className="h-1.5 bg-surface rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full transition-all ${met ? 'bg-green-400' : 'bg-sky-500'}`} style={{ width: `${pct}%` }} />
+                      <div className="space-y-0.5">
+                        {area.tasks.map((task) => {
+                          const done = acsMet.has(task) || student.currentStage > PPL_ACS.dual.indexOf(area) + 1
+                          return (
+                            <div key={task} className="flex items-center gap-2 text-xs py-0.5">
+                              <span className={`w-3.5 h-3.5 rounded flex items-center justify-center text-[8px] ${done ? 'bg-green-400/20 text-green-400' : 'bg-surface border border-surface-border text-slate-600'}`}>
+                                {done ? '✓' : ''}
+                              </span>
+                              <span className={done ? 'text-slate-300' : 'text-slate-500'}>{task}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+                {acsTab === 'solo' && (
+                  <>
+                    <div className={`text-xs font-medium px-3 py-2 rounded-lg ${canSolo ? 'bg-green-400/10 text-green-400 border border-green-400/20' : 'bg-amber-400/10 text-amber-400 border border-amber-400/20'}`}>
+                      {canSolo ? '✓ Solo endorsed — can fly solo' : '⏳ Pre-solo — complete Stage 3 dual requirements first'}
+                    </div>
+                    {PPL_ACS.solo.map((item) => {
+                      const tasksDone = item.tasks.filter((t) => acsMet.has(t)).length
+                      const done = tasksDone === item.tasks.length || (item.id === 'solo-pattern' && student.hours.soloPIC > 0)
+                      return (
+                        <div key={item.id} className={`rounded-lg border p-3 ${done ? 'bg-green-400/5 border-green-400/20' : 'border-surface-border'}`}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className={`text-xs font-semibold ${done ? 'text-green-400' : 'text-slate-300'}`}>{item.label}</span>
+                            <span className="text-[10px] text-slate-500">{done ? '✓ Done' : `${tasksDone}/${item.tasks.length}`}</span>
+                          </div>
+                          <div className="space-y-0.5">
+                            {item.tasks.map((t) => {
+                              const tDone = acsMet.has(t)
+                              return (
+                                <div key={t} className={`text-[10px] flex items-center gap-1.5 ${tDone ? 'text-green-400/80' : 'text-slate-500'}`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${tDone ? 'bg-green-400' : 'bg-slate-600'}`} />
+                                  {t}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </>
+                )}
+                {acsTab === 'ground' && PPL_ACS.ground.map((area) => {
+                  const tasksDone = area.tasks.filter((t) => acsMet.has(t)).length
+                  return (
+                    <div key={area.id} className={`rounded-lg border p-3 ${tasksDone === area.tasks.length ? 'border-green-400/20 bg-green-400/5' : 'border-surface-border'}`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className={`text-xs font-semibold ${tasksDone === area.tasks.length ? 'text-green-400' : 'text-slate-300'}`}>{area.label}</div>
+                        <div className={`text-[10px] ${tasksDone === area.tasks.length ? 'text-green-400' : 'text-slate-600'}`}>{tasksDone}/{area.tasks.length}</div>
+                      </div>
+                      <div className="space-y-0.5">
+                        {area.tasks.map((t) => {
+                          const tDone = acsMet.has(t)
+                          return (
+                            <div key={t} className={`text-[10px] flex items-center gap-1.5 ${tDone ? 'text-green-400/80' : 'text-slate-500'}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${tDone ? 'bg-green-400' : 'bg-slate-600'}`} />
+                              {t}
+                            </div>
+                          )
+                        })}
                       </div>
                     </div>
                   )
@@ -2426,42 +3305,54 @@ function StudentDashboard({ user }) {
               </div>
             </div>
 
-            {/* Documents */}
-            <div className="bg-surface-card border border-surface-border rounded-2xl p-5">
-              <h3 className="text-white font-bold text-sm mb-3">Documents</h3>
-              <div className="space-y-2">
+            {/* Hour requirements — compact */}
+            <div className="bg-surface-card border border-surface-border rounded-2xl p-4">
+              <h3 className="text-slate-400 text-[10px] uppercase tracking-wide mb-2">Hours ({metCount}/{reqs.length} met)</h3>
+              <div className="space-y-1.5">
+                {reqs.map((r) => {
+                  const pct = r.pct ?? Math.min(100, Math.round((r.actual / r.min) * 100))
+                  const met = r.actual >= r.min
+                  return (
+                    <div key={r.label} className="flex items-center gap-2">
+                      <div className="flex-1 text-[10px] text-slate-400 truncate">{r.label}</div>
+                      <div className="w-16 h-1.5 bg-surface rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${met ? 'bg-green-400' : 'bg-sky-500'}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <div className={`text-[10px] w-14 text-right ${met ? 'text-green-400' : 'text-slate-500'}`}>{r.actual}/{r.min}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Documents — compact */}
+            <div className="bg-surface-card border border-surface-border rounded-2xl p-4">
+              <h3 className="text-slate-400 text-[10px] uppercase tracking-wide mb-2">Documents</h3>
+              <div className="space-y-1">
                 {DOC_FIELDS.map((df) => {
                   const doc = student.docs[df.key]
                   if (!doc) return null
                   const es = df.showExpiry ? expiryStatus(doc.expiry) : null
                   return (
-                    <div key={df.key} className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs ${es ? EXPIRY_BG[es] : 'bg-surface border-surface-border'}`}>
-                      <div>
-                        <div className={es ? EXPIRY_COLOR[es] : 'text-slate-300'}>{df.label}</div>
-                        {doc.uploaded && <span className="text-green-400 text-[10px]">✓ Uploaded</span>}
-                      </div>
-                      <div className="text-right">
-                        {df.showExpiry && doc.expiry && <div className={`text-[10px] ${es ? EXPIRY_COLOR[es] : 'text-slate-500'}`}>{expiryLabel(doc.expiry)}</div>}
-                        {doc.score && <div className="text-sky-400 text-[10px] font-bold">Score: {doc.score}</div>}
-                      </div>
+                    <div key={df.key} className="flex items-center justify-between text-[10px]">
+                      <span className={es ? EXPIRY_COLOR[es] : 'text-slate-400'}>{df.label}</span>
+                      <span className={`${es ? EXPIRY_COLOR[es] : 'text-slate-600'}`}>{doc.uploaded ? '✓' : '—'} {df.showExpiry && doc.expiry ? expiryLabel(doc.expiry) : doc.score ? `Score: ${doc.score}` : ''}</span>
                     </div>
                   )
                 })}
               </div>
             </div>
 
-            {/* Block hours */}
+            {/* Block hours — compact */}
             {student.blockHoursPurchased > 0 && (
-              <div className="bg-surface-card border border-surface-border rounded-2xl p-5">
-                <h3 className="text-white font-bold text-sm mb-2">Block Hours</h3>
-                <div className="flex justify-between text-xs text-slate-400 mb-1">
-                  <span>Used</span>
-                  <span>{student.blockHoursUsed} / {student.blockHoursPurchased} hrs</span>
+              <div className="bg-surface-card border border-surface-border rounded-2xl p-4">
+                <div className="flex justify-between text-[10px] text-slate-400 mb-1">
+                  <span>Block Hours</span>
+                  <span className="text-green-400">{(student.blockHoursPurchased - student.blockHoursUsed).toFixed(1)} remaining</span>
                 </div>
-                <div className="h-2 bg-surface rounded-full overflow-hidden">
+                <div className="h-1.5 bg-surface rounded-full overflow-hidden">
                   <div className="h-full bg-sky-500 rounded-full" style={{ width: `${(student.blockHoursUsed / student.blockHoursPurchased) * 100}%` }} />
                 </div>
-                <div className="text-green-400 text-[10px] mt-1">{(student.blockHoursPurchased - student.blockHoursUsed).toFixed(1)} hrs remaining</div>
               </div>
             )}
           </div>
@@ -2521,6 +3412,9 @@ export function JourneysBoulder() {
   })
   const [showLogin, setShowLogin] = useState(false)
   const [bookingAircraft, setBookingAircraft] = useState(null)
+  const [squawkTail, setSquawkTail] = useState(null)
+  const [squawkVersion, setSquawkVersion] = useState(0) // bumped when squawk submitted to re-render panels
+  useEffect(() => { const u = subscribeSquawks(() => setSquawkVersion((v) => v + 1)); return u }, [])
 
   const isStudent = user?.role === 'student'
 
@@ -2541,11 +3435,11 @@ export function JourneysBoulder() {
       {isStudent ? (
         <>
           <StudentDashboard user={user} />
-          {user && <div className="px-4 sm:px-6 pb-6"><div className="max-w-6xl mx-auto"><RecentFlightBox user={user} /></div></div>}
+          {user && <ScheduleSection user={user} selectedAircraft={bookingAircraft} onSelectAircraft={setBookingAircraft} onClearAircraft={() => setBookingAircraft(null)} />}
+          {user && <MyFleetSection key={squawkVersion} user={user} onSquawk={setSquawkTail} />}
           <MiniGalleryStrip category="fleet" />
-          <FleetSection user={user} onBookAircraft={setBookingAircraft} />
-          {user && <ScheduleSection user={user} selectedAircraft={bookingAircraft} onClearAircraft={() => setBookingAircraft(null)} />}
-          {user && <MaintenanceSection user={user} />}
+          <FleetSection user={user} onBookAircraft={setBookingAircraft} onSquawk={setSquawkTail} squawkVersion={squawkVersion} />
+          {squawkTail && user && <SquawkPanel tailNumber={squawkTail} user={user} onClose={() => setSquawkTail(null)} />}
           <MiniGalleryStrip category="scenery" />
           <OperationsSection />
           <FooterSection />
@@ -2554,17 +3448,15 @@ export function JourneysBoulder() {
         <>
           <HeroSection />
           {user && <div className="px-4 sm:px-6 pb-6"><div className="max-w-6xl mx-auto"><RecentFlightBox user={user} /></div></div>}
+          {user && <MyFleetSection key={squawkVersion} user={user} onSquawk={setSquawkTail} />}
           <MiniGalleryStrip category="fleet" />
-          <FleetSection user={user} onBookAircraft={setBookingAircraft} />
-          {user && <ScheduleSection user={user} selectedAircraft={bookingAircraft} onClearAircraft={() => setBookingAircraft(null)} />}
+          <FleetSection user={user} onBookAircraft={setBookingAircraft} onSquawk={setSquawkTail} squawkVersion={squawkVersion} />
+          {squawkTail && user && <SquawkPanel tailNumber={squawkTail} user={user} onClose={() => setSquawkTail(null)} />}
+          {user && <ScheduleSection user={user} selectedAircraft={bookingAircraft} onSelectAircraft={setBookingAircraft} onClearAircraft={() => setBookingAircraft(null)} />}
           <MiniGalleryStrip category="training" />
           <TrainingSection />
-          {user && (
-            <>
-              <MiniGalleryStrip category="fbo" />
-              <MaintenanceSection user={user} />
-            </>
-          )}
+          <MiniGalleryStrip category="fbo" />
+          <MaintenanceSection user={user} />
           <MiniGalleryStrip category="fbo" />
           <FBOSection />
           <MiniGalleryStrip category="scenery" />
