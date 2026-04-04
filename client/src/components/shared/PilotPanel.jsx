@@ -59,7 +59,7 @@ function AvailabilityChip({ assessments }) {
 
 // ─── PilotBioRow ──────────────────────────────────────────────────────────────
 
-function PilotBioRow({ assessment, estimatedFlightHours, departureAirport, departureTime, estimatedEta, onSelectAsPic }) {
+function PilotBioRow({ assessment, estimatedFlightHours, departureAirport, departureTime, estimatedEta, onSelectAsPic, fuelCalc }) {
   const [expanded, setExpanded] = useState(false)
   const a = assessment
 
@@ -131,13 +131,13 @@ function PilotBioRow({ assessment, estimatedFlightHours, departureAirport, depar
           <div className="text-slate-600">{a.riskScore}/100</div>
         </div>
 
-        {/* Quick-schedule button — only for clean green pilots */}
+        {/* One-click schedule button — only for clean qualified pilots */}
         {onSelectAsPic && !a.disqualified && !hasConflict && !hasFatigueIssue && (
           <button
             onClick={(e) => { e.stopPropagation(); onSelectAsPic(a.pilotId) }}
-            className="flex-shrink-0 text-xs px-2 py-0.5 rounded border border-green-500/40 text-green-400 hover:bg-green-500/10 transition-colors"
+            className="flex-shrink-0 text-xs px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white font-medium transition-colors"
           >
-            Schedule →
+            Schedule
           </button>
         )}
 
@@ -171,6 +171,36 @@ function PilotBioRow({ assessment, estimatedFlightHours, departureAirport, depar
           {fatigue.fatigueRisk === 'critical' ? ' — exceeds 8h flight time limit' : ' — approaching 8h limit'}
         </p>
       )}
+
+      {/* Fuel sufficiency strip */}
+      {fuelCalc && fuelCalc.flightHrs > 0 && (() => {
+        const f = fuelCalc
+        const risk =
+          f.remMin < 0              ? { text: '✗ Insufficient', cls: 'text-red-400' }   :
+          f.remMin < f.reserveMin   ? { text: '⚠ Low',          cls: 'text-red-400' }   :
+          f.remMin < f.reserveMin * 2 ? { text: '⚡ Caution',   cls: 'text-yellow-400' } :
+                                        { text: '✓ OK',         cls: 'text-green-400' }
+        return (
+          <div className={`flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] px-2 py-1 rounded border ${f.fuelBg}`}>
+            <span className="text-slate-500">Fuel:</span>
+            <span className="text-slate-400">
+              payload <span className={`font-mono ${f.overweight ? 'text-red-400 font-bold' : 'text-slate-300'}`}>
+                {f.payloadLbs.toLocaleString()} lbs{f.overweight ? ' ⚠ OW' : ''}
+              </span>
+            </span>
+            <span className="text-slate-600">·</span>
+            <span className="text-slate-400">
+              endurance <span className="font-mono text-slate-300">{formatHours(f.enduranceHrs)}</span>
+            </span>
+            <span className="text-slate-600">·</span>
+            <span className="text-slate-400">
+              remaining <span className={`font-mono font-semibold ${f.fuelColor}`}>{formatHours(f.remHrs)}</span>
+            </span>
+            <span className="text-slate-600">·</span>
+            <span className={`font-semibold ${risk.cls}`}>{risk.text}</span>
+          </div>
+        )
+      })()}
 
       {/* Expanded detail */}
       {expanded && (
@@ -272,12 +302,12 @@ function PilotBioRow({ assessment, estimatedFlightHours, departureAirport, depar
 export function PilotPanel({
   aircraft, pilotAssessments, loading, flightConditions,
   departureTime, onSchedule, onScheduleReturn, isScheduled, scheduledEta,
+  pilotFuelMap, pilotRiskError, onRetryPilots, missionType = 'charter',
 }) {
-  const [showForm,       setShowForm]       = useState(false)
-  const [selectedPic,    setSelectedPic]    = useState('')
-  const [selectedSic,    setSelectedSic]    = useState('')
-  const [missionType,    setMissionType]    = useState('charter')
-  const [confirming,     setConfirming]     = useState(false)
+  const [showForm,    setShowForm]    = useState(false)
+  const [selectedPic, setSelectedPic] = useState('')
+  const [selectedSic, setSelectedSic] = useState('')
+  const [confirming,  setConfirming]  = useState(false)
   const [returnScheduled, setReturnScheduled] = useState(false)
 
   const dept = flightConditions?.dept
@@ -323,26 +353,48 @@ export function PilotPanel({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="text-xs text-slate-500 uppercase tracking-wide">Crew Assessment</div>
-        {/* Flight duration estimate */}
-        {estDuration && (
-          <div className="text-xs text-slate-400 flex items-center gap-3">
-            <span className="font-mono text-slate-300">{estDuration.distNm} nm</span>
-            <span>·</span>
-            <span>Est. <span className="font-mono text-sky-300">{formatHours(estDuration.flightHours)}</span> flight</span>
-            <span>·</span>
-            <span>Total <span className="font-mono text-slate-300">{formatHours(estDuration.totalHours)}</span> w/ taxi</span>
-          </div>
-        )}
+        {/* Flight duration + fuel summary */}
+        <div className="text-xs text-slate-400 flex flex-wrap items-center gap-2">
+          {estDuration && (
+            <>
+              <span className="font-mono text-slate-300">{estDuration.distNm} nm</span>
+              <span className="text-slate-600">·</span>
+              <span>Enroute <span className="font-mono text-sky-300">{formatHours(estDuration.flightHours)}</span></span>
+              <span className="text-slate-600">·</span>
+              <span>Block <span className="font-mono text-slate-300">{formatHours(estDuration.totalHours)}</span></span>
+            </>
+          )}
+          {aircraft?.fuelCapacityGal && aircraft?.fuelBurnGalHr && (
+            <>
+              {estDuration && <span className="text-slate-600">·</span>}
+              <span>{aircraft.fuelCapacityGal} gal · {aircraft.fuelBurnGalHr} gal/hr · max {formatHours(aircraft.fuelCapacityGal / aircraft.fuelBurnGalHr)}</span>
+            </>
+          )}
+        </div>
       </div>
 
       {loading ? (
         <p className="text-xs text-slate-500 animate-pulse">Assessing pilot qualifications…</p>
       ) : !pilotAssessments ? (
-        <p className="text-xs text-slate-600">
-          {hasRoute ? 'PilotRisk unavailable' : 'Enter route to assess pilots'}
-        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <p className="text-xs text-slate-500">
+            {!hasRoute
+              ? 'Enter route to assess pilots'
+              : pilotRiskError
+                ? `PilotRisk error — ${pilotRiskError}`
+                : 'PilotRisk unavailable'}
+          </p>
+          {hasRoute && onRetryPilots && (
+            <button
+              onClick={onRetryPilots}
+              className="text-[10px] px-2 py-0.5 rounded border border-sky-500/40 text-sky-400 hover:bg-sky-500/10 transition-colors"
+            >
+              ↺ Retry
+            </button>
+          )}
+        </div>
       ) : (
         <>
           {/* Pilot bio rows */}
@@ -355,10 +407,8 @@ export function PilotPanel({
                 departureAirport={dept}
                 departureTime={departureTime?.toISOString?.() ?? departureTime}
                 estimatedEta={estEta}
-                onSelectAsPic={(pilotId) => {
-                  setSelectedPic(pilotId)
-                  setShowForm(true)
-                }}
+                fuelCalc={pilotFuelMap?.[a.pilotId] ?? null}
+                onSelectAsPic={(pilotId) => onSchedule(pilotId, null, missionType)}
               />
             ))}
           </div>
@@ -458,21 +508,6 @@ export function PilotPanel({
                     </select>
                   </div>
 
-                  {/* Mission type */}
-                  <div className="flex flex-col gap-1 min-w-[120px]">
-                    <label className="text-xs text-slate-500">Mission type</label>
-                    <select
-                      value={missionType}
-                      onChange={(e) => setMissionType(e.target.value)}
-                      className="bg-slate-800 border border-slate-600 rounded px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                    >
-                      <option value="charter">Charter</option>
-                      <option value="training">Training</option>
-                      <option value="positioning">Positioning</option>
-                      <option value="cargo">Cargo</option>
-                      <option value="ferry">Ferry</option>
-                    </select>
-                  </div>
                 </div>
 
                 <div className="flex gap-2">

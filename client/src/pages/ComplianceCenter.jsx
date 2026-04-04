@@ -111,18 +111,20 @@ export function ComplianceWizardButton() {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export function ComplianceCenter() {
+export function ComplianceCenter({ embedded } = {}) {
   return (
     <div data-testid="page-compliance-center">
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <h1 className="text-slate-100 font-bold text-lg">Compliance Center</h1>
-          <p className="text-slate-400 text-xs mt-0.5">
-            SMS regulatory compliance status and filing history
-          </p>
+      {!embedded && (
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <h1 className="text-slate-100 font-bold text-lg">Compliance Center</h1>
+            <p className="text-slate-400 text-xs mt-0.5">
+              SMS regulatory compliance status and filing history
+            </p>
+          </div>
+          <ComplianceWizardButton />
         </div>
-        <ComplianceWizardButton />
-      </div>
+      )}
 
       {/* Status bars */}
       <section

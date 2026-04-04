@@ -3,7 +3,7 @@
  * survive page navigation and are visible in Flights page.
  */
 
-import { mockFlights } from '../mocks/flights'
+import { mockFlights, mockGliderTowFlights } from '../mocks/flights'
 
 const STORAGE_KEY     = 'flightsafe_scheduled'
 const SIM_FLIGHTS_KEY = 'flightsafe_sim_flights'
@@ -19,7 +19,7 @@ function getSimFlights() {
 
 /** Returns all flights: user-scheduled (newest first) + sim-generated Part 135 + mock seed. */
 export function getAllFlights() {
-  return [...getScheduled(), ...getSimFlights(), ...mockFlights]
+  return [...getScheduled(), ...getSimFlights(), ...mockFlights, ...mockGliderTowFlights]
 }
 
 /** Add a new scheduled flight (with optional riskSnapshot). */
@@ -50,9 +50,9 @@ export function subscribe(fn) {
   const handler = () => fn(getAllFlights())
   // Custom event — same tab (FlightPlanning adds flights, sim publishes flights)
   window.addEventListener(EVENT, handler)
-  // Storage event — cross-tab (sim tab writes sim flights, Flights tab reads them)
+  // Storage event — cross-tab (any tab writes scheduled or sim flights)
   const storageHandler = (e) => {
-    if (e.key === SIM_FLIGHTS_KEY) fn(getAllFlights())
+    if (e.key === SIM_FLIGHTS_KEY || e.key === STORAGE_KEY) fn(getAllFlights())
   }
   window.addEventListener('storage', storageHandler)
   return () => {

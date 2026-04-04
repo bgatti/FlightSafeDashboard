@@ -4,7 +4,10 @@
 //       + one tab per employee group: Flight Ops | Operations | Maintenance | FBO
 // =============================================================================
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, lazy, Suspense } from 'react'
+import { Personnel } from '../pages/Personnel'
+import { AircraftRegistry } from '../pages/AircraftRegistry'
+import { Clients } from '../pages/Clients'
 import {
   BarChart, Bar, LineChart, Line, ComposedChart, ScatterChart, Scatter,
   XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
@@ -946,7 +949,8 @@ export function Management() {
 
       <TabBar
         tabs={['Schedule', 'Demand Forecast', 'Weather Outlook', 'ML Model',
-               'Flight Ops', 'Operations', 'Maintenance', 'FBO']}
+               'Flight Ops', 'Operations', 'Maintenance', 'FBO',
+               'Personnel', 'Aircraft Registry', 'Clients']}
         active={tab}
         onChange={setTab}
       />
@@ -959,6 +963,9 @@ export function Management() {
       {tab === 5 && <OperationsTab demandData={demandData} />}
       {tab === 6 && <MaintenanceTab demandData={demandData} />}
       {tab === 7 && <FBOTab demandData={demandData} />}
+      {tab === 8 && <Personnel />}
+      {tab === 9 && <AircraftRegistry />}
+      {tab === 10 && <Clients />}
     </div>
   )
 }

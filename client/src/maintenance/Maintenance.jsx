@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { getSquawks, subscribeSquawks, isAircraftGrounded, resolveSquawk } from '../store/squawks'
+import { useAuthStore } from '../stores/authStore'
+import { activeCertsForPerson, hasActiveIA } from '../mocks/personnel'
 import {
-  mockSquawks,
   mockWorkOrders,
   mockInspectionSchedule,
   mockMaintenanceRecords,
@@ -316,6 +318,8 @@ function PartsSection({ workOrderId }) {
 // assigned personnel, and whether labor is actively accruing.
 
 function FleetStatusBoard() {
+  const [allSquawks, setAllSquawks] = useState(getSquawks)
+  useEffect(() => subscribeSquawks(setAllSquawks), [])
   return (
     <div>
       <SectionTitle>Fleet Status Board</SectionTitle>
@@ -352,7 +356,7 @@ function FleetStatusBoard() {
                 >
                   <td className="py-2.5 px-3 font-mono font-bold text-slate-100">
                     {ac.tailNumber}
-                    {!ac.airworthy && (
+                    {isAircraftGrounded(ac.id, mockAircraft, allSquawks) && (
                       <span className="ml-1.5 text-red-400 font-normal">GRND</span>
                     )}
                   </td>
@@ -421,7 +425,9 @@ function FleetStatusBoard() {
 // ─── Tab: Overview ────────────────────────────────────────────────────────────
 
 function OverviewTab() {
-  const urgentSquawks   = mockSquawks.filter((s) => s.severity === 'grounding' && s.status !== 'closed')
+  const [allSquawks, setAllSquawks] = useState(getSquawks)
+  useEffect(() => subscribeSquawks(setAllSquawks), [])
+  const urgentSquawks   = allSquawks.filter((s) => s.severity === 'grounding' && s.status !== 'closed')
   const aogWorkOrders   = mockWorkOrders.filter((w) => w.priority === 'aog' && w.status !== 'completed')
   const urgentWorkOrders = mockWorkOrders.filter(
     (w) => w.priority === 'urgent' && w.status !== 'completed' && w.status !== 'cancelled'
@@ -566,14 +572,343 @@ function OverviewTab() {
   )
 }
 
+// ─── Return-to-Service Printable Record ───────────────────────────────────────
+
+function RtsPrintRecord({ rtsData, onClose }) {
+  const printRef = useRef()
+
+  const S = {
+    th:  { border: '1px solid #aaa', padding: '3px 6px', background: '#f3f3f3', fontWeight: 'bold', fontSize: '9px', whiteSpace: 'nowrap' },
+    td:  { border: '1px solid #aaa', padding: '3px 6px', fontSize: '9px' },
+    tbl: { width: '100%', borderCollapse: 'collapse', marginBottom: '6px' },
+    hdr: { fontWeight: 'bold', fontSize: '9px', borderBottom: '1.5px solid #111', paddingBottom: '1px', marginTop: '8px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  }
+
+  function handlePrint() {
+    const el = printRef.current
+    if (!el) return
+    const win = window.open('', '_blank', 'width=1000,height=600')
+    win.document.write(`<!DOCTYPE html><html><head><title>RTS — ${rtsData.tailNumber}</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Courier New', monospace; font-size: 9px; padding: 16px 24px; color: #111; }
+        @media print { body { padding: 10px 16px; } @page { size: landscape; margin: 0.4in; } }
+      </style></head><body>`)
+    win.document.write(el.innerHTML)
+    win.document.write('</body></html>')
+    win.document.close()
+    setTimeout(() => { win.print() }, 300)
+  }
+
+  const ac = getAircraft(rtsData.tailNumber)
+  const wo = rtsData.workOrderId ? mockWorkOrders.find((w) => w.id === rtsData.workOrderId) : null
+  const parts = wo ? mockParts.filter((p) => p.workOrderId === wo.id) : []
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-start justify-center z-50 pt-8 px-4" onClick={onClose}>
+      <div
+        className="bg-white text-black rounded-lg w-full max-w-5xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Toolbar */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-300 bg-gray-50 rounded-t-lg">
+          <span className="font-bold text-xs">Return to Service Record — {rtsData.tailNumber}</span>
+          <div className="flex gap-2">
+            <button onClick={handlePrint} className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-4 py-1 rounded font-semibold">Print</button>
+            <button onClick={onClose} className="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded">Close</button>
+          </div>
+        </div>
+
+        {/* Printable content — compact landscape-style layout */}
+        <div ref={printRef} style={{ fontFamily: "'Courier New', monospace", padding: '12px 16px', fontSize: '9px' }}>
+          {/* Title row */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '2px solid #111', paddingBottom: '4px', marginBottom: '8px' }}>
+            <div>
+              <span style={{ fontWeight: 'bold', fontSize: '12px' }}>MAINTENANCE RECORD — RETURN TO SERVICE</span>
+              <span style={{ marginLeft: '12px', fontSize: '9px', color: '#555' }}>14 CFR 43.9 / 43.11</span>
+            </div>
+            <div style={{ fontSize: '9px', color: '#555' }}>{new Date().toISOString().split('T')[0]}</div>
+          </div>
+
+          {/* Two-column top: Aircraft + Discrepancy side by side */}
+          <div style={{ display: 'flex', gap: '12px', marginBottom: '6px' }}>
+            {/* Aircraft */}
+            <div style={{ flex: '0 0 36%' }}>
+              <div style={S.hdr}>Aircraft</div>
+              <table style={S.tbl}><tbody>
+                <tr><th style={S.th}>Tail</th><td style={{ ...S.td, fontWeight: 'bold' }}>{rtsData.tailNumber}</td></tr>
+                {ac && <tr><th style={S.th}>Type</th><td style={S.td}>{ac.typeDesignation || ac.type}</td></tr>}
+                {ac && <tr><th style={S.th}>S/N</th><td style={S.td}>{ac.serialNumber || 'N/A'}</td></tr>}
+                <tr><th style={S.th}>Hrs</th><td style={S.td}>{rtsData.airframeHours ?? 'N/A'}</td></tr>
+              </tbody></table>
+            </div>
+
+            {/* Discrepancy */}
+            <div style={{ flex: 1 }}>
+              <div style={S.hdr}>Squawk / Discrepancy</div>
+              <table style={S.tbl}><tbody>
+                <tr>
+                  <th style={S.th}>ID</th><td style={S.td}>{rtsData.squawkId}</td>
+                  <th style={S.th}>Severity</th><td style={{ ...S.td, fontWeight: 'bold' }}>{rtsData.severity?.toUpperCase()}</td>
+                  <th style={S.th}>Reported</th><td style={S.td}>{rtsData.reportedDate} — {rtsData.reportedBy}</td>
+                </tr>
+                <tr>
+                  <th style={S.th}>Desc</th>
+                  <td colSpan={5} style={S.td}>{rtsData.description}</td>
+                </tr>
+                {wo && <tr><th style={S.th}>WO</th><td colSpan={5} style={S.td}>{wo.id} — {wo.title}</td></tr>}
+              </tbody></table>
+            </div>
+          </div>
+
+          {/* Parts row — only if parts exist */}
+          {parts.length > 0 && (
+            <div style={{ marginBottom: '6px' }}>
+              <div style={S.hdr}>Parts Installed</div>
+              <table style={S.tbl}>
+                <thead>
+                  <tr>
+                    <th style={S.th}>P/N</th>
+                    <th style={S.th}>Description</th>
+                    <th style={{ ...S.th, textAlign: 'center' }}>Qty</th>
+                    <th style={S.th}>Supplier</th>
+                    <th style={S.th}>PO #</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parts.map((p) => (
+                    <tr key={p.id}>
+                      <td style={{ ...S.td, fontFamily: 'monospace' }}>{p.partNumber}</td>
+                      <td style={S.td}>{p.description}</td>
+                      <td style={{ ...S.td, textAlign: 'center' }}>{p.quantity}</td>
+                      <td style={S.td}>{p.supplier}</td>
+                      <td style={S.td}>{p.poNumber || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Corrective action + signature — side by side */}
+          <div style={{ display: 'flex', gap: '12px' }}>
+            {/* Corrective action */}
+            <div style={{ flex: 1 }}>
+              <div style={S.hdr}>Corrective Action</div>
+              <div style={{ border: '1px solid #aaa', padding: '4px 6px', minHeight: '36px', fontSize: '9px' }}>
+                {rtsData.resolutionNotes}
+              </div>
+            </div>
+
+            {/* Certification / signature block */}
+            <div style={{ flex: '0 0 36%' }}>
+              <div style={S.hdr}>Certification &amp; Approval</div>
+              <table style={S.tbl}><tbody>
+                <tr><th style={S.th}>Approved By</th><td style={{ ...S.td, fontWeight: 'bold' }}>{rtsData.resolvedBy}</td></tr>
+                <tr><th style={S.th}>Cert #</th><td style={S.td}>{rtsData.certificateNumber}</td></tr>
+                <tr><th style={S.th}>Cert Type</th><td style={S.td}>{rtsData.certificateType}</td></tr>
+                <tr><th style={S.th}>Date</th><td style={S.td}>{rtsData.resolvedDate}</td></tr>
+              </tbody></table>
+              <div style={{ display: 'flex', gap: '16px', marginTop: '10px' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ borderTop: '1px solid #111', paddingTop: '2px', fontSize: '8px', color: '#555' }}>Signature (14 CFR 43.3)</div>
+                </div>
+                <div style={{ flex: '0 0 80px' }}>
+                  <div style={{ borderTop: '1px solid #111', paddingTop: '2px', fontSize: '8px', color: '#555' }}>Date</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div style={{ marginTop: '10px', fontSize: '8px', color: '#888', textAlign: 'center', borderTop: '1px solid #ddd', paddingTop: '3px' }}>
+            FlightSafe SMS — 14 CFR 43.9(a) / 43.11 — generated {new Date().toISOString().split('T')[0]}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Return-to-Service Approval Modal ─────────────────────────────────────────
+
+function RtsApprovalModal({ squawk, onClose, onApprove }) {
+  const user = useAuthStore((s) => s.user)
+  const userCerts = activeCertsForPerson(user.personnelId)
+  const userHasIA = hasActiveIA(user.personnelId)
+
+  const [selectedCertId, setSelectedCertId] = useState(userCerts[0]?.id ?? '')
+  const [notes, setNotes] = useState('')
+  const [error, setError] = useState(null)
+
+  const selectedCert = mockCertificates.find((c) => c.id === selectedCertId)
+  // IA is required for annual / 100hr inspections, NOT for grounding squawk RTS
+  // Any A&P can return a grounded aircraft to service per 14 CFR 43.3 / 43.7
+  const wo = squawk.workOrderId ? mockWorkOrders.find((w) => w.id === squawk.workOrderId) : null
+  const isInspectionRts = wo?.type === 'inspection'
+  const needsIA = isInspectionRts
+  const canApprove = selectedCert && notes.trim().length > 0 && (!needsIA || userHasIA)
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    if (!canApprove) {
+      setError(needsIA && !userHasIA
+        ? 'Annual / 100hr inspection sign-off requires Inspector Authorization (IA).'
+        : 'Please fill in all required fields.')
+      return
+    }
+    onApprove({
+      squawkId: squawk.id,
+      tailNumber: squawk.tailNumber,
+      reportedBy: squawk.reportedBy,
+      reportedDate: squawk.reportedDate,
+      severity: squawk.severity,
+      description: squawk.description,
+      airframeHours: squawk.airframeHours,
+      workOrderId: squawk.workOrderId,
+      resolvedDate: new Date().toISOString().split('T')[0],
+      resolvedBy: user.name,
+      resolutionNotes: notes,
+      certificateNumber: selectedCert.certificateNumber,
+      certificateType: selectedCert.certType === 'IA' ? 'A&P / IA' : 'A&P',
+      certificateId: selectedCert.id,
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div
+        className="bg-surface-card border border-surface-border rounded-xl max-w-lg w-full"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-4 border-b border-surface-border">
+          <h3 className="text-slate-100 font-bold text-sm">Return to Service Approval</h3>
+          <p className="text-slate-400 text-xs mt-0.5">14 CFR 43.9 — Maintenance Record Entry</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+          {/* Squawk info */}
+          <div className="bg-slate-800 border border-surface-border rounded-lg p-3 space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono font-bold text-slate-100">{squawk.tailNumber}</span>
+              <Badge colorClasses={squawkSeverityColor(squawk.severity)}>
+                {squawkSeverityLabel(squawk.severity)}
+              </Badge>
+            </div>
+            <p className="text-xs text-slate-300">{squawk.description}</p>
+            {squawk.workOrderId && (
+              <p className="text-xs text-sky-400">Work Order: {squawk.workOrderId}</p>
+            )}
+          </div>
+
+          {/* IA warning for inspection sign-offs */}
+          {needsIA && !userHasIA && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+              <p className="text-xs text-red-400 font-semibold">Inspector Authorization Required</p>
+              <p className="text-xs text-red-400/80 mt-0.5">
+                This work order is an annual / 100hr inspection. Only mechanics with active IA certification
+                can sign off on inspection-based return to service (14 CFR 43.7).
+              </p>
+            </div>
+          )}
+
+          {/* Certificate selection */}
+          <div>
+            <label className="text-xs text-slate-400 block mb-1">
+              Signing Certificate <span className="text-slate-500">(14 CFR 43.9(a)(3))</span>
+            </label>
+            <select
+              value={selectedCertId}
+              onChange={(e) => setSelectedCertId(e.target.value)}
+              className="w-full text-xs bg-slate-800 border border-surface-border text-slate-200 rounded px-3 py-2"
+              required
+            >
+              {userCerts.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.certificateNumber} — {c.certType === 'IA' ? 'Inspector Authorization (IA)' : c.certType.replace(/_/g, ' ')}
+                  {c.status !== 'active' ? ` [${c.status.toUpperCase()}]` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Resolution notes */}
+          <div>
+            <label className="text-xs text-slate-400 block mb-1">
+              Corrective Action / Resolution Notes <span className="text-red-400">*</span>
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={4}
+              className="w-full text-xs bg-slate-800 border border-surface-border text-slate-200 rounded px-3 py-2 resize-y"
+              placeholder="Describe the corrective action taken, parts installed, and inspection results..."
+              required
+            />
+          </div>
+
+          {/* Signing mechanic info */}
+          <div className="bg-slate-800 border border-surface-border rounded-lg p-3 text-xs">
+            <div className="text-slate-400 text-[10px] uppercase tracking-wide mb-1">Signing As</div>
+            <div className="text-slate-200 font-semibold">{user.name}</div>
+            <div className="text-slate-400">
+              {selectedCert?.certificateNumber} — {selectedCert?.certType === 'IA' ? 'A&P / IA' : selectedCert?.certType?.replace(/_/g, ' ')}
+            </div>
+            {userHasIA && <div className="text-green-400 mt-0.5">IA authority active — can sign off inspections</div>}
+          </div>
+
+          {error && (
+            <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded px-3 py-2">
+              {error}
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-2 justify-end pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-xs px-4 py-2 rounded border border-surface-border text-slate-400 hover:text-slate-100 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!canApprove}
+              className={[
+                'text-xs px-4 py-2 rounded font-semibold transition-colors',
+                canApprove
+                  ? 'bg-green-600 hover:bg-green-500 text-white'
+                  : 'bg-slate-700 text-slate-500 cursor-not-allowed',
+              ].join(' ')}
+            >
+              Approve Return to Service
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // ─── Tab: Squawks ─────────────────────────────────────────────────────────────
 
 function SquawksTab() {
+  const [allSquawks, setAllSquawks] = useState(getSquawks)
+  useEffect(() => subscribeSquawks(setAllSquawks), [])
   const [filterStatus, setFilterStatus] = useState('active')
   const [filterTail,   setFilterTail]   = useState('all')
 
-  const tails   = [...new Set(mockSquawks.map((s) => s.tailNumber))].sort()
-  const visible = mockSquawks.filter((s) => {
+  const user = useAuthStore((s) => s.user)
+  const isMx = user.role === 'maintenance'
+
+  // RTS modal state
+  const [rtsSquawk, setRtsSquawk] = useState(null)
+  // Print record state
+  const [printData, setPrintData] = useState(null)
+
+  const tails   = [...new Set(allSquawks.map((s) => s.tailNumber))].sort()
+  const visible = allSquawks.filter((s) => {
     const statusOk = filterStatus === 'all'
       ? true
       : filterStatus === 'active'
@@ -583,8 +918,26 @@ function SquawksTab() {
     return statusOk && tailOk
   })
 
+  function handleRtsApprove(rtsData) {
+    // Resolve the squawk in the store
+    resolveSquawk(rtsData.squawkId, rtsData.resolvedBy, rtsData.resolutionNotes)
+    setRtsSquawk(null)
+    // Show printable record
+    setPrintData(rtsData)
+  }
+
   return (
     <div className="space-y-4">
+      {/* Maintenance login hint */}
+      {!isMx && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 flex items-start gap-2">
+          <span className="text-amber-400 text-base">🔧</span>
+          <div className="text-xs text-amber-300">
+            <strong>View-only mode.</strong> Log in as maintenance personnel (sidebar dropdown) to approve aircraft return to service.
+          </div>
+        </div>
+      )}
+
       {/* Filter bar */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex gap-1">
@@ -626,12 +979,13 @@ function SquawksTab() {
               <th className="py-2 px-4 text-left font-medium">Status</th>
               <th className="py-2 px-4 text-left font-medium">Reported</th>
               <th className="py-2 px-4 text-left font-medium">MEL Expiry</th>
+              <th className="py-2 px-4 text-left font-medium">Action / Record</th>
             </tr>
           </thead>
           <tbody>
             {visible.length === 0 && (
               <tr>
-                <td colSpan={6} className="py-6 text-center text-slate-500 text-sm">
+                <td colSpan={7} className="py-6 text-center text-slate-500 text-sm">
                   No squawks match the current filter.
                 </td>
               </tr>
@@ -669,11 +1023,65 @@ function SquawksTab() {
                     : <span className="text-slate-600">—</span>
                   }
                 </td>
+                <td className="py-2.5 px-4">
+                  {sq.status !== 'closed' ? (
+                    isMx ? (
+                      <button
+                        onClick={() => setRtsSquawk(sq)}
+                        className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-green-600 hover:bg-green-500 text-white font-semibold transition-colors shadow-sm whitespace-nowrap"
+                      >
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                        Return to Service
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-600 italic">Log in as A&P</span>
+                    )
+                  ) : (
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        {sq.resolvedBy && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-green-400 bg-green-500/10 border border-green-500/20 rounded px-1.5 py-0.5">
+                            <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                            Certified
+                          </span>
+                        )}
+                      </div>
+                      {sq.resolvedBy && (
+                        <div className="text-[10px] text-slate-400">{sq.resolvedBy}</div>
+                      )}
+                      {sq.resolvedDate && (
+                        <div className="text-[10px] text-slate-500">{sq.resolvedDate}</div>
+                      )}
+                      {sq.resolutionNotes && (
+                        <div className="text-[10px] text-slate-500 truncate max-w-[160px]" title={sq.resolutionNotes}>
+                          {sq.resolutionNotes}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* RTS Approval Modal */}
+      {rtsSquawk && (
+        <RtsApprovalModal
+          squawk={rtsSquawk}
+          onClose={() => setRtsSquawk(null)}
+          onApprove={handleRtsApprove}
+        />
+      )}
+
+      {/* Printable RTS Record */}
+      {printData && (
+        <RtsPrintRecord
+          rtsData={printData}
+          onClose={() => setPrintData(null)}
+        />
+      )}
     </div>
   )
 }

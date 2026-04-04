@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "cd client && npm run dev",
-    "test": "cd client && npm run test:run"
+    "test": "cd client && npm run test:run",
+    "check-services": "node check-services.js"
   }
 }

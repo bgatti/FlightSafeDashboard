@@ -55,6 +55,21 @@ function TrendBadge({ trend, delta }) {
   )
 }
 
+const PART_BADGE_STYLES = {
+  '135': 'text-sky-400   border-sky-500/40   bg-sky-500/10',
+  '91':  'text-amber-400 border-amber-500/40 bg-amber-500/10',
+  '61':  'text-emerald-400 border-emerald-500/40 bg-emerald-500/10',
+}
+
+function PartBadge({ part }) {
+  const p = part ?? '135'
+  return (
+    <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded border font-mono hidden sm:block ${PART_BADGE_STYLES[p] ?? 'text-slate-500 border-slate-600'}`}>
+      Pt {p}
+    </span>
+  )
+}
+
 function StatusDot({ status }) {
   const cls =
     status === 'active'    ? 'bg-green-400 animate-pulse' :
@@ -349,6 +364,9 @@ export function FlightBar({ flight, currentUser, recalculating, conflicts = [] }
           ? <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600 text-slate-400 font-mono hidden sm:block">DH</span>
           : <span className="flex-shrink-0 text-[10px] text-slate-600 capitalize hidden sm:block">{flight.missionType}</span>
         }
+
+        {/* Part badge */}
+        <PartBadge part={flight.part} />
 
         {/* Maintenance required flag (sim-generated) */}
         {flight._requiresMaintenance && (

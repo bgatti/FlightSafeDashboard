@@ -519,6 +519,7 @@ describe('FBO_MAINTENANCE_LINKS', () => {
 describe('mockAircraft fuelType and fboCategory', () => {
   test('all aircraft have fuelType', () => {
     for (const ac of mockAircraft) {
+      if (ac.glider) continue   // gliders are unpowered — fuelType is null by design
       expect(ac.fuelType).toBeTruthy()
       expect(['avgas_100ll', 'jet_a', 'mogas']).toContain(ac.fuelType)
     }

@@ -2,8 +2,20 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { mockAircraft, EQUIPMENT_FLAGS, RISK_PROFILE_FLAGS } from '../mocks/aircraft'
 import { TerrainProfile, CeilingRiskBar, computeMEA } from '../components/shared/TerrainProfile'
 import { PilotPanel, AvailabilityChip } from '../components/shared/PilotPanel'
-import { addFlight, extractRiskItems } from '../store/flights'
+import { addFlight, extractRiskItems, getAllFlights } from '../store/flights'
+import { PART_91_TYPES } from '../mocks/flights'
 import { estimateFlightDuration, estimateEta } from '../lib/flightCalc'
+import { mockPersonnel } from '../mocks/personnel'
+import { mockStudents, mockClubMembers } from '../training/mockTraining'
+import {
+  getTowAvailability,
+  towCycleMin,
+  timeAloftMin,
+  TOW_HEIGHTS,
+  TOW_SETTINGS,
+  towColorCss,
+  fmtTime,
+} from '../glider/gliderUtils'
 
 // ─── Departure time picker ─────────────────────────────────────────────────────
 
@@ -150,6 +162,29 @@ const AIRSAFE     = '/airsafe-api'
 const KNOWN_RISKS = '/known-risks'
 const PILOT_RISK  = '/pilot-risk'
 
+// ── Part 91 op-type smart defaults ───────────────────────────────────────────
+// Types where passengers are never carried — pax auto-resets to 0 on selection.
+const ZERO_PAX_TYPES = new Set([
+  'glider_tow', 'post_maintenance', 'ferry', 'positioning',
+  'test_flight', 'check_flight', 'aerial_work', 'glider_rental',
+])
+
+// Default notes pre-filled when selecting an op type (only when notes field is empty
+// or still shows the previous op type's default).
+const OP_TYPE_NOTES = {
+  sightseeing:      'Sightseeing air tour — §91.147 commercial air tour',
+  glider_tow:       'Glider aerotow — §91.309; tow pilot PIC, release at altitude',
+  glider_rental:    'Glider rental — student/club member PIC; FAA glider certificate required',
+  rental:           'Aircraft rental — renter-pilot PIC; valid pilot certificate and currency required',
+  post_maintenance: 'Post-maintenance functional check flight — §91.407; verify all repaired systems',
+  ferry:            'Ferry flight — aircraft repositioned to maintenance/sale/storage destination',
+  positioning:      'Aircraft repositioning — no passengers; return to base or operator',
+  test_flight:      'Aircraft test flight — §91.305; test area; reduced risk of injury to persons on ground',
+  personal:         'Personal/recreational flight — pilot currency and medical confirmed',
+  check_flight:     'Proficiency/check flight — §91.1; BFR or recurrent training',
+  aerial_work:      'Aerial work / photography — §91.1; low-altitude maneuvering awareness',
+}
+
 // ─── Flight category helpers ───────────────────────────────────────────────────
 
 function flightCategory(metar) {
@@ -221,6 +256,58 @@ function buildNarrative(dept, arr, aircraft, deptWeather, routeData) {
 // Risk ratio = estimated_rate / baseline
 
 const AIRSAFE_BASELINE = 9.74   // acc/Mhr — average random flight
+
+// ─── Local tow-pilot assessment builder ───────────────────────────────────────
+// PilotRisk doesn't hold tow-endorsement data, so for glider_tow ops we build
+// assessments locally from mockPersonnel instead of calling the API.
+
+function buildTowAssessment(p) {
+  const today = new Date()
+  const disqualifiers = []
+  const factors = []
+
+  if (p.medicalExpiry && new Date(p.medicalExpiry) < today) {
+    disqualifiers.push({ id: 'medical_expired', label: `Medical expired ${p.medicalExpiry}` })
+  } else if (p.medicalExpiry) {
+    const daysLeft = Math.round((new Date(p.medicalExpiry) - today) / 86_400_000)
+    if (daysLeft < 30) factors.push({ id: 'medical_expiring', label: `Medical expires in ${daysLeft}d`, severity: 'warning' })
+  }
+
+  if (p.lastFlightReview) {
+    const reviewAge = Math.round((today - new Date(p.lastFlightReview)) / 86_400_000)
+    if (reviewAge > 730) {
+      disqualifiers.push({ id: 'flight_review_expired', label: `Flight review expired (${Math.round(reviewAge / 30)}mo ago)` })
+    } else if (reviewAge > 600) {
+      factors.push({ id: 'flight_review_due_soon', label: `Flight review due within 4 months`, severity: 'caution' })
+    }
+  }
+
+  const disqualified = disqualifiers.length > 0
+  const riskScore    = disqualified ? 95 : factors.length > 0 ? 35 : 15
+  const riskLabel    = disqualified ? 'Disqualified' : factors.length > 0 ? 'Low-Med' : 'Low'
+
+  return {
+    pilotId:            p.id,
+    name:               p.name,
+    certType:           p.certType ?? 'Unknown',
+    medicalClass:       p.medicalClass ?? 3,
+    riskScore,
+    riskLabel,
+    disqualified,
+    disqualifiers,
+    factors,
+    tolInType90d:       '—',
+    hoursInType:        0,
+    totalHours:         (p.flightHoursYtd ?? 0) * 5,
+    licenses:           [{ type: p.certType ?? 'Unknown', ratings: [] }],
+    endorsements:       ['tow_certified', p.taildragherEndorsement ? 'tailwheel' : null].filter(Boolean),
+    ifrCurrencyExpiry:  p.ifrCurrencyExpiry  ?? null,
+    nightCurrencyExpiry: p.nightCurrencyExpiry ?? null,
+    medicalExpiry:      p.medicalExpiry      ?? null,
+    lastFlightReview:   p.lastFlightReview   ?? null,
+    hoursByCategory:    {},
+  }
+}
 
 function riskFromAirSafe(results, clusters) {
   // ── Primary path: cluster-based acc/Mhr scoring (new API) ────────────────
@@ -701,11 +788,250 @@ function EquipmentPanel({ equipment = {}, riskProfile = {} }) {
   )
 }
 
+// ─── Weight & fuel constants ───────────────────────────────────────────────────
+
+const FAA_AVG_WEIGHT_LBS = 190   // FAA AC 120-27F standard adult (summer, incl. carry-on)
+const FAA_AVG_BAG_LBS   = 30    // FAA AC 120-27F standard checked baggage
+const AVGAS_LBS_PER_GAL  = 6.0
+const JET_A_LBS_PER_GAL  = 6.7
+
+/**
+ * Per-aircraft weight status assessment.
+ * @param flightContext  Optional { flightHrs, isNight } — when provided, checks post-flight
+ *                       fuel reserve against FAA minimums (30 min day / 45 min night).
+ * @returns {{ status: 'ok'|'caution'|'critical', label: string, detail: string } | null}
+ *   null = aircraft lacks weight data
+ */
+function assessWeightStatus(aircraft, totalPaxLbs, totalBagLbs, flightContext = null) {
+  if (!aircraft.emptyWeightLbs || !aircraft.maxGrossWeightLbs) return null
+  const fuelDensity    = aircraft.fuelType === 'jet_a' ? JET_A_LBS_PER_GAL : AVGAS_LBS_PER_GAL
+  const usefulLoad     = aircraft.maxGrossWeightLbs - aircraft.emptyWeightLbs
+  const crewLbs        = FAA_AVG_WEIGHT_LBS   // single-pilot estimate
+  const payload        = totalPaxLbs + totalBagLbs
+  const totalOccupants = payload + crewLbs
+  const availForFuel   = usefulLoad - totalOccupants
+  const pct            = Math.round(totalOccupants / usefulLoad * 100)
+
+  // Hard overweight — no fuel can be loaded
+  if (totalOccupants > usefulLoad) {
+    return { status: 'critical', label: 'Overweight', detail: `${(totalOccupants - usefulLoad).toLocaleString()} lbs over useful load (incl. crew)` }
+  }
+
+  if (aircraft.fuelCapacityGal && aircraft.fuelBurnGalHr) {
+    const actualFuelGal = Math.min(aircraft.fuelCapacityGal, availForFuel / fuelDensity)
+    const enduranceHrs  = actualFuelGal / aircraft.fuelBurnGalHr
+
+    // Post-flight reserve check (when flight duration is known)
+    if (flightContext?.flightHrs > 0) {
+      const reserveMin = flightContext.isNight ? 45 : 30
+      const remHrs     = enduranceHrs - flightContext.flightHrs
+      const remMin     = Math.round(remHrs * 60)
+      if (remMin < reserveMin) {
+        return {
+          status: 'critical',
+          label:  'Below reserve',
+          detail: `${formatHours(remHrs)} remaining after flight — below ${reserveMin} min ${flightContext.isNight ? 'night' : 'day'} VFR reserve`,
+        }
+      }
+    }
+
+    // Static checks when no route is entered yet
+    const reserveFuelLbs = (aircraft.fuelBurnGalHr * 0.5) * fuelDensity  // 30 min
+    if (availForFuel < reserveFuelLbs) {
+      return { status: 'critical', label: 'Insufficient fuel capacity', detail: `Only ${Math.round(actualFuelGal)} gal usable after occupant weight` }
+    }
+    if (enduranceHrs < 1) {
+      return { status: 'caution', label: 'Low endurance', detail: `Max ${formatHours(enduranceHrs)} endurance with this payload` }
+    }
+  }
+
+  // Marginal — 2× payload would exceed useful load
+  if (2 * payload > usefulLoad) {
+    return { status: 'caution', label: 'Weight marginal', detail: `${pct}% of useful load — verify before scheduling` }
+  }
+  return { status: 'ok', label: 'Weight OK', detail: `${pct}% of useful load (${(usefulLoad - totalOccupants).toLocaleString()} lbs for fuel)` }
+}
+
+function formatHours(hrs) {
+  if (hrs == null) return '—'
+  const h = Math.floor(Math.abs(hrs))
+  const m = Math.round((Math.abs(hrs) - h) * 60)
+  return `${hrs < 0 ? '-' : ''}${h}:${m.toString().padStart(2, '0')}`
+}
+
+/**
+ * Calculate weight breakdown and fuel endurance for one pilot combination.
+ * Returns null when aircraft lacks fuel data.
+ */
+function parseHHMM(str) {
+  if (!str) return 0
+  const [h, m] = String(str).split(':')
+  return (parseInt(h) || 0) + (parseInt(m) || 0) / 60
+}
+
+function calcWeightFuel({ aircraft, picWeightLbs, sicWeightLbs = 0, paxWeights = [], bagLbs = 0, dept, arr, depTime, manualFlightHrs }) {
+  if (!aircraft.fuelCapacityGal || !aircraft.fuelBurnGalHr || !aircraft.emptyWeightLbs || !aircraft.maxGrossWeightLbs) return null
+
+  const fuelDensity   = aircraft.fuelType === 'jet_a' ? JET_A_LBS_PER_GAL : AVGAS_LBS_PER_GAL
+  const maxFuelLbs    = aircraft.fuelCapacityGal * fuelDensity
+  const crewLbs       = picWeightLbs + sicWeightLbs
+  const paxTotalLbs   = paxWeights.reduce((s, w) => s + (parseInt(w) || FAA_AVG_WEIGHT_LBS), 0)
+  const payloadLbs    = crewLbs + paxTotalLbs + (parseInt(bagLbs) || 0)
+  const usefulLoad    = aircraft.maxGrossWeightLbs - aircraft.emptyWeightLbs
+  const availForFuel  = usefulLoad - payloadLbs
+  const actualFuelLbs = Math.min(maxFuelLbs, Math.max(0, availForFuel))
+  const actualFuelGal = actualFuelLbs / fuelDensity
+  const enduranceHrs  = actualFuelGal / aircraft.fuelBurnGalHr
+
+  const manualHrs   = parseHHMM(manualFlightHrs)
+  const flightEst   = manualHrs > 0 ? null : estimateFlightDuration(dept, arr, aircraft.cruiseSpeedKts)
+  const flightHrs   = manualHrs > 0 ? manualHrs : (flightEst?.totalHours ?? 0)
+  const remHrs      = enduranceHrs - flightHrs
+  const remMin      = Math.round(remHrs * 60)
+
+  // Night: departure local hour < 6 or >= 20
+  const depHour = depTime?.date ? depTime.date.getHours() : null
+  const isNight = depHour != null && (depHour < 6 || depHour >= 20)
+  const reserveMin = isNight ? 45 : 30
+
+  const fuelColor =
+    remMin < 0             ? 'text-red-500'    :
+    remMin < reserveMin    ? 'text-red-400'    :
+    remMin < reserveMin * 2 ? 'text-yellow-400' : 'text-green-400'
+
+  const fuelBg =
+    remMin < 0             ? 'bg-red-500/15 border-red-500/40'    :
+    remMin < reserveMin    ? 'bg-red-500/10 border-red-400/30'    :
+    remMin < reserveMin * 2 ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-green-500/10 border-green-500/25'
+
+  return {
+    crewLbs, paxTotalLbs, payloadLbs, usefulLoad, availForFuel,
+    actualFuelLbs, actualFuelGal, enduranceHrs,
+    flightHrs, remHrs, remMin,
+    isNight, reserveMin, fuelColor, fuelBg,
+    overweight: payloadLbs > usefulLoad,
+    fuelShortfall: availForFuel < 0 ? Math.round(-availForFuel) : 0,
+    tripCostDollars: flightHrs > 0 ? Math.round(flightHrs * aircraft.opCostPerHour) : null,
+  }
+}
+
+// ─── Tow Configuration Panel (for glider aircraft) ────────────────────────────
+
+const TOW_AVAIL_COLORS = {
+  green:  { text: 'text-green-400',  bg: 'bg-green-500/10',  border: 'border-green-500/30',  bar: 'bg-green-500',  label: 'Available — 50%+ spare' },
+  yellow: { text: 'text-yellow-400', bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', bar: 'bg-yellow-500', label: 'Tight — at capacity' },
+  red:    { text: 'text-red-400',    bg: 'bg-red-500/10',    border: 'border-red-500/30',    bar: 'bg-red-500',    label: 'Overloaded — standby' },
+}
+
+function TowPanel({ airport, depMs, config, onChange, allFlights }) {
+  const { numTows, towHeights } = config
+
+  function setNum(n) {
+    const clipped = Math.max(1, Math.min(4, n))
+    onChange({
+      numTows: clipped,
+      towHeights: clipped > towHeights.length
+        ? [...towHeights, ...Array(clipped - towHeights.length).fill(2000)]
+        : towHeights.slice(0, clipped),
+    })
+  }
+
+  function setHeight(i, h) {
+    const next = [...towHeights]
+    next[i] = h
+    onChange({ numTows, towHeights: next })
+  }
+
+  const avail   = getTowAvailability(allFlights, airport, depMs, towHeights)
+  const avCfg   = TOW_AVAIL_COLORS[avail.color]
+
+  return (
+    <div className="flex flex-col gap-4 bg-sky-500/5 border border-sky-500/20 rounded-lg p-4">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-semibold text-sky-400 uppercase tracking-wide">Aerotow Configuration</span>
+        <span className="text-[10px] text-slate-500">§91.309</span>
+      </div>
+
+      {/* Number of tows */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-slate-400 uppercase tracking-wide">Number of tows</span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setNum(numTows - 1)}
+              className="w-7 h-7 rounded border border-surface-border text-slate-300 hover:border-sky-500/40 hover:text-sky-300 transition-colors text-sm">−</button>
+            <span className="w-6 text-center font-mono text-slate-100 text-sm">{numTows}</span>
+            <button onClick={() => setNum(numTows + 1)}
+              className="w-7 h-7 rounded border border-surface-border text-slate-300 hover:border-sky-500/40 hover:text-sky-300 transition-colors text-sm">+</button>
+          </div>
+        </div>
+
+        {/* Per-tow heights */}
+        <div className="flex flex-col gap-1 flex-1">
+          <span className="text-xs text-slate-400 uppercase tracking-wide">Tow heights</span>
+          <div className="flex flex-col gap-1.5">
+            {towHeights.map((h, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="text-[10px] text-slate-500 w-10">Tow {i + 1}</span>
+                <div className="flex gap-1">
+                  {TOW_HEIGHTS.map((ft) => (
+                    <button key={ft} onClick={() => setHeight(i, ft)}
+                      className={`px-2 py-0.5 rounded border text-xs transition-colors ${
+                        h === ft
+                          ? 'border-sky-500/50 bg-sky-500/15 text-sky-300'
+                          : 'border-surface-border text-slate-400 hover:text-slate-200 hover:border-slate-500'
+                      }`}>
+                      {(ft / 1000).toFixed(0)}k ft
+                    </button>
+                  ))}
+                </div>
+                <span className="text-[10px] text-slate-600">
+                  ~{towCycleMin(h)} min tow · ~{timeAloftMin(h)} min aloft
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Availability indicator — only shown if there are tows in the first 15 min */}
+      {avail.hasTowsInWindow ? (
+        <div className={`rounded border px-3 py-2 flex flex-col gap-1.5 ${avCfg.border} ${avCfg.bg}`}>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <span className={`text-xs font-medium flex items-center gap-1.5 ${avCfg.text}`}>
+              <span className={`w-2 h-2 rounded-full ${avCfg.bar}`} />
+              {avCfg.label}
+            </span>
+            <span className="text-[10px] font-mono text-slate-500">
+              {avail.reservedMin}/{avail.capacityMin} min in 30-min window
+            </span>
+          </div>
+          <div className="h-1 bg-slate-700 rounded-full overflow-hidden">
+            <div className={`h-full rounded-full ${avCfg.bar}`}
+              style={{ width: `${Math.min(100, avail.reservedMin / avail.capacityMin * 100)}%` }} />
+          </div>
+          {avail.isStandby && (
+            <p className="text-[10px] text-yellow-300">
+              ⚠ Tow window overloaded — this reservation will be added as <strong>standby</strong>.
+              See Glider Ops for confirmed slot times.
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="text-[10px] text-slate-600">
+          No competing tows in first 15 min of departure window — capacity check deferred.
+          Settings: {TOW_SETTINGS.groundTimeMin} min ground · {TOW_SETTINGS.minutesPer1000ft} min/1000 ft
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AircraftRiskCard({
   aircraft, airSafeResult, loading, error, terrainMetrics,
   knownRiskAssessment, loadingKnown,
-  pilotAssessments, loadingPilots,
+  pilotAssessments, loadingPilots, pilotRiskError, onRetryPilots,
   flightConditions, onSchedule, onScheduleReturn, isScheduled, scheduledEta,
+  towConfig, onTowChange, allFlights, missionType,
 }) {
   const [expanded, setExpanded] = useState(false)
   const { ratio, rate, label, color, mode } = riskFromAirSafe(
@@ -727,9 +1053,12 @@ function AircraftRiskCard({
         : expanded ? 'border-sky-500/40' : 'border-surface-border'
     }`}>
       {/* Main row */}
-      <button
-        className="w-full text-left px-4 py-3 flex items-center gap-4"
+      <div
+        role="button"
+        tabIndex={0}
+        className="w-full text-left px-4 py-3 flex items-center gap-4 cursor-pointer"
         onClick={() => setExpanded((v) => !v)}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setExpanded((v) => !v)}
         aria-expanded={expanded}
       >
         {/* Airworthy dot */}
@@ -758,8 +1087,32 @@ function AircraftRiskCard({
           <div className="text-xs text-slate-500">capacity</div>
         </div>
 
-        {/* Key capability chips */}
-        <div className="hidden md:flex gap-1 flex-shrink-0">
+        {/* Weight status */}
+        {(() => {
+          const fc         = flightConditions ?? {}
+          const paxLbs     = fc.paxWeights?.reduce((s,w) => s + (parseInt(w) || FAA_AVG_WEIGHT_LBS), 0) ?? 0
+          const bagLbs     = fc.bagWeightLbs ?? 0
+          const manualHrs  = parseHHMM(fc.manualFlightHrs)
+          const flightEst  = manualHrs > 0 ? null : estimateFlightDuration(fc.dept, fc.arr, aircraft.cruiseSpeedKts)
+          const flightHrs  = manualHrs > 0 ? manualHrs : (flightEst?.totalHours ?? 0)
+          const depHour    = fc.depTime?.date?.getHours() ?? null
+          const isNight    = depHour != null && (depHour < 6 || depHour >= 20)
+          const ws = assessWeightStatus(aircraft, paxLbs, bagLbs, flightHrs > 0 ? { flightHrs, isNight } : null)
+          if (!ws) return <div className="flex-shrink-0 w-8" />
+          const cfg = {
+            ok:       { color: 'text-green-300',  bg: 'bg-green-500/25',  border: 'border-green-500/50'  },
+            caution:  { color: 'text-yellow-300', bg: 'bg-yellow-500/25', border: 'border-yellow-500/50' },
+            critical: { color: 'text-red-300',    bg: 'bg-red-500/40',    border: 'border-red-500/70'    },
+          }[ws.status]
+          return (
+            <div className="flex-shrink-0 text-center w-8" title={`${ws.label} — ${ws.detail}`}>
+              <span className={`text-sm px-1 py-0.5 rounded border ${cfg.color} ${cfg.bg} ${cfg.border}`}>⚖</span>
+            </div>
+          )
+        })()}
+
+        {/* Capability chips + MEL — fixed width so columns align across cards */}
+        <div className="hidden md:flex flex-wrap gap-1 flex-shrink-0 w-48">
           {aircraft.equipment?.fiki && (
             <span title="FIKI — Flight Into Known Icing" className="text-xs px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20">❄️ FIKI</span>
           )}
@@ -775,33 +1128,97 @@ function AircraftRiskCard({
           {!aircraft.equipment?.ifrCertified && (
             <span title="Not IFR certified" className="text-xs px-1.5 py-0.5 rounded bg-red-500/10 text-red-300 border border-red-500/20">VFR only</span>
           )}
-          {/* OEI ceiling chip — only for twins */}
           {aircraft.riskProfile?.multiEngine && aircraft.singleEngineCeiling && (
-            <span className={`flex-shrink-0 text-xs px-1.5 py-0.5 rounded border font-mono ${
-              terrainMetrics?.mea && aircraft.singleEngineCeiling < terrainMetrics.mea
-                ? 'bg-red-500/10 text-red-400 border-red-500/30'
-                : terrainMetrics?.mea
-                  ? 'bg-green-400/10 text-green-400 border-green-500/20'
-                  : 'bg-slate-700/50 text-slate-400 border-slate-600'
-            }`}>
-              OEI {aircraft.singleEngineCeiling.toLocaleString()}ft
-              {terrainMetrics?.mea && aircraft.singleEngineCeiling < terrainMetrics.mea ? ' ⚠' : ''}
+            (() => {
+              // Compare OEI ceiling against DA (decision altitude) — the critical threshold
+              // for a single-engine missed approach. Fall back to MEA only when DA is unknown.
+              const da         = terrainMetrics?.approachDA
+              const mea        = terrainMetrics?.mea
+              const benchmark  = da ?? mea   // DA is preferred; MEA is en-route fallback
+              const oei        = aircraft.singleEngineCeiling
+              const critical   = benchmark != null && oei < benchmark
+              const hasData    = benchmark != null
+              const label      = da != null ? 'vs DA' : mea != null ? 'vs MEA' : null
+              return (
+                <span
+                  title={da != null
+                    ? `OEI ceiling ${oei.toLocaleString()} ft vs approach DA ${da.toLocaleString()} ft`
+                    : mea != null
+                      ? `OEI ceiling ${oei.toLocaleString()} ft vs MEA ${mea.toLocaleString()} ft`
+                      : `Single-engine ceiling ${oei.toLocaleString()} ft`}
+                  className={`text-xs px-1.5 py-0.5 rounded border font-mono ${
+                    critical
+                      ? 'bg-red-500/10 text-red-400 border-red-500/30'
+                      : hasData
+                        ? 'bg-green-400/10 text-green-400 border-green-500/20'
+                        : 'bg-slate-700/50 text-slate-400 border-slate-600'
+                  }`}>
+                  OEI {oei.toLocaleString()}ft{critical ? ' ⚠' : ''}{label ? ` · ${label}` : ''}
+                </span>
+              )
+            })()
+          )}
+          {aircraft.melItemsOpen?.length > 0 && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-400/10 text-yellow-400 border border-yellow-500/20">
+              MEL {aircraft.melItemsOpen.length}
             </span>
           )}
         </div>
 
-        {/* MEL */}
-        {aircraft.melItemsOpen?.length > 0 && (
-          <span className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded bg-yellow-400/10 text-yellow-400 border border-yellow-500/20">
-            MEL {aircraft.melItemsOpen.length}
-          </span>
-        )}
+        {/* Trip cost + fuel remaining chip */}
+        {(() => {
+          const fc  = flightConditions ?? {}
+          const wf  = calcWeightFuel({
+            aircraft,
+            picWeightLbs:  FAA_AVG_WEIGHT_LBS,
+            sicWeightLbs:  0,
+            paxWeights:    fc.paxWeights ?? [],
+            bagLbs:        fc.bagWeightLbs ?? 0,
+            dept:          fc.dept,
+            arr:           fc.arr,
+            depTime:       fc.depTime,
+            manualFlightHrs: fc.manualFlightHrs,
+          })
 
-        {/* Op cost */}
-        <div className="flex-shrink-0 text-center w-20">
-          <div className="text-sm text-slate-300">${aircraft.opCostPerHour.toLocaleString()}</div>
-          <div className="text-xs text-slate-500">per hour</div>
-        </div>
+          if (!wf) {
+            // Aircraft lacks fuel data — show hourly rate only
+            return (
+              <>
+                <div className="flex-shrink-0 text-center w-20">
+                  <div className="text-sm font-mono text-slate-400">—</div>
+                  <div className="text-[10px] text-slate-500">fuel rem</div>
+                </div>
+                <div className="flex-shrink-0 text-center w-20">
+                  <div className="text-sm font-mono text-slate-300">${aircraft.opCostPerHour.toLocaleString()}</div>
+                  <div className="text-[10px] text-slate-500">per hour</div>
+                </div>
+              </>
+            )
+          }
+
+          const hasRoute = wf.flightHrs > 0
+          const endHrs   = aircraft.fuelCapacityGal / aircraft.fuelBurnGalHr
+
+          return (
+            <>
+              {/* Fuel remaining column */}
+              <div className="flex-shrink-0 text-center w-20"
+                title={`Max endurance ${formatHours(endHrs)}`}>
+                <div className={`text-sm font-mono font-semibold ${wf.fuelColor}`}>
+                  {wf.remMin < 0 ? '⚠ ' : ''}{formatHours(hasRoute ? wf.remHrs : endHrs)}
+                </div>
+                <div className="text-[10px] text-slate-500">{hasRoute ? 'fuel rem' : 'endurance'}</div>
+              </div>
+              {/* Trip cost column */}
+              <div className="flex-shrink-0 text-center w-20">
+                <div className="text-sm font-mono text-slate-300">
+                  {wf.tripCostDollars != null ? `$${wf.tripCostDollars.toLocaleString()}` : `$${aircraft.opCostPerHour.toLocaleString()}`}
+                </div>
+                <div className="text-[10px] text-slate-500">{wf.tripCostDollars != null ? 'est. trip' : 'per hour'}</div>
+              </div>
+            </>
+          )
+        })()}
 
         {/* Combined risk score */}
         <div className="flex-shrink-0 w-40 flex flex-col gap-1">
@@ -865,27 +1282,29 @@ function AircraftRiskCard({
         </div>
 
         {/* Pilot availability chip */}
-        <div className="flex-shrink-0 hidden md:block" onClick={(e) => e.stopPropagation()}>
+        <div className="flex-shrink-0 w-32 hidden md:block" onClick={(e) => e.stopPropagation()}>
           <AvailabilityChip assessments={pilotAssessments} />
         </div>
 
         {/* Schedule button */}
-        {isScheduled ? (
-          <span className="flex-shrink-0 text-xs px-2 py-1 rounded border border-green-500/30 text-green-400 bg-green-400/10">
-            ✓ Scheduled
-          </span>
-        ) : (
-          <button
-            className="flex-shrink-0 text-xs px-2 py-1 rounded border border-sky-500/40 text-sky-400 hover:bg-sky-500/10 transition-colors"
-            onClick={(e) => { e.stopPropagation(); setExpanded(true) }}
-            title="Schedule this flight"
-          >
-            Schedule
-          </button>
-        )}
+        <div className="flex-shrink-0 w-20 text-center">
+          {isScheduled ? (
+            <span className="text-xs px-2 py-1 rounded border border-green-500/30 text-green-400 bg-green-400/10">
+              ✓ Scheduled
+            </span>
+          ) : (
+            <button
+              className="text-xs px-2 py-1 rounded border border-sky-500/40 text-sky-400 hover:bg-sky-500/10 transition-colors"
+              onClick={(e) => { e.stopPropagation(); setExpanded(true) }}
+              title="Schedule this flight"
+            >
+              Schedule
+            </button>
+          )}
+        </div>
 
         <span className="text-slate-500 text-xs flex-shrink-0">{expanded ? '▲' : '▼'}</span>
-      </button>
+      </div>
 
       {/* Expanded detail */}
       {expanded && (
@@ -985,17 +1404,49 @@ function AircraftRiskCard({
           {/* Known-risk exposure assessment */}
           <KnownRiskPanel assessment={knownRiskAssessment} loading={loadingKnown} />
 
-          {/* Pilot availability + schedule */}
+          {/* Tow configuration — glider aircraft only */}
+          {aircraft.needs_tow && towConfig && (
+            <TowPanel
+              airport={flightConditions?.dept || aircraft.assignedBase || 'KBDU'}
+              depMs={flightConditions?.depTime?.date
+                ? flightConditions.depTime.date.getTime()
+                : Date.now() + 3_600_000}
+              config={towConfig}
+              onChange={onTowChange}
+              allFlights={allFlights ?? []}
+            />
+          )}
+
+          {/* Pilot availability + schedule (fuel calc merged in) */}
           <PilotPanel
             aircraft={aircraft}
             pilotAssessments={pilotAssessments}
             loading={loadingPilots}
+            pilotRiskError={pilotRiskError}
+            onRetryPilots={onRetryPilots}
             flightConditions={flightConditions}
             departureTime={flightConditions?.depTime?.date ?? null}
+            pilotFuelMap={(() => {
+              if (!aircraft.fuelCapacityGal) return null
+              const { dept, arr, depTime, paxWeights: paxWts = [], bagWeightLbs: bagLbs = 0, manualFlightHrs: manualHrs } = flightConditions ?? {}
+              const pilotList = pilotAssessments?.length > 0
+                ? pilotAssessments
+                : mockPersonnel
+                    .filter(p => p.role === 'pilot_pic' || p.role === 'pilot_sic')
+                    .map(p => ({ pilotId: p.id, name: p.name }))
+              return Object.fromEntries(
+                pilotList.map(a => {
+                  const person = mockPersonnel.find(p => p.id === a.pilotId)
+                  const picWt  = person?.weightLbs ?? FAA_AVG_WEIGHT_LBS
+                  return [a.pilotId, calcWeightFuel({ aircraft, picWeightLbs: picWt, paxWeights: paxWts, bagLbs, dept, arr, depTime, manualFlightHrs: manualHrs })]
+                })
+              )
+            })()}
             onSchedule={onSchedule}
             onScheduleReturn={onScheduleReturn}
             isScheduled={isScheduled}
             scheduledEta={scheduledEta}
+            missionType={missionType}
           />
 
           {/* Equipment + risk profile */}
@@ -1023,6 +1474,17 @@ function AircraftRiskCard({
 // ─── Main page ─────────────────────────────────────────────────────────────────
 
 export function FlightPlanning() {
+  const [planningTab,     setPlanningTab]     = useState('135')   // '135' | '91'
+  // ── Part 91 specific state ──────────────────────────────────────────────────
+  const [opType,          setOpType]          = useState(PART_91_TYPES[0].id)
+  const [notes91,         setNotes91]         = useState('')
+  // ── Shared state (PAX / weight / timing) ─────────────────────────────────
+  const [paxWeights,      setPaxWeights]      = useState([FAA_AVG_WEIGHT_LBS])
+  const [paxBags,         setPaxBags]         = useState([FAA_AVG_BAG_LBS])  // per-pax baggage lbs
+  const [paxNames,        setPaxNames]        = useState([''])               // per-pax full names
+  const [weightVerified,  setWeightVerified]  = useState(false)
+  const [manualFlightHrs, setManualFlightHrs] = useState('')   // H:MM string for circular flights
+  // ── Shared state (used by both Part 135 and Part 91 pipelines) ────────────
   const [dept, setDept] = useState('')
   const [arr,  setArr]  = useState('')
   const [pax,  setPax]  = useState('')
@@ -1035,13 +1497,26 @@ export function FlightPlanning() {
   const [knownRisks,     setKnownRisks]     = useState(null)  // KnownRiskAssessment per aircraft
   const [loadingKnown,   setLoadingKnown]   = useState(false)
   const [pilotRisks,     setPilotRisks]     = useState(null)  // { [tailNumber]: PilotAssessment[] }
+  const [pilotRiskError, setPilotRiskError] = useState(null)  // string | null
   const [loadingPilots,  setLoadingPilots]  = useState(false)
   const [scheduledMap,   setScheduledMap]   = useState({})    // { [ac.id]: true }
   const [scheduledEtas,  setScheduledEtas]  = useState({})    // { [ac.id]: Date }
+  const [towConfigs,     setTowConfigs]     = useState({})    // { [ac.id]: { numTows, towHeights } }
+  const [rentalPicId,    setRentalPicId]    = useState(null)  // for rental / glider_rental op types
+  const [allFlights,     setAllFlights]     = useState(() => getAllFlights())
 
   const [loadingDept,  setLoadingDept]  = useState(false)
   const [loadingRoute, setLoadingRoute] = useState(false)
   const [errors, setErrors] = useState({})
+
+  // ── Derived flags (needed before effects) ────────────────────────────────────
+  const isTowOp = planningTab === '91' && opType === 'glider_tow'
+
+  const scheduleMissionType =
+    opType === 'glider_tow'   ? 'tow'
+    : opType === 'reposition' ? 'positioning'
+    : opType === 'training'   ? 'training'
+    : 'charter'
 
   // ── Fetch departure weather ──────────────────────────────────────────────────
   const fetchDeptWeather = useCallback(async (icao) => {
@@ -1116,6 +1591,7 @@ export function FlightPlanning() {
     const deptElevFt  = routeDat?.stations?.departure?.elevFt ?? null
     const arrElevFt   = routeDat?.stations?.arrival?.elevFt   ?? null
     const mea         = computeMEA(maxElevFt)
+    const approachDA  = terrainMet?.approachDA ?? null   // set by TerrainProfile after terrain load
     const highestAirportFt = Math.max(deptElevFt ?? 0, arrElevFt ?? 0)
     // Mountainous: peak terrain rises >2000 ft above both airports (genuine crossing)
     const isMountainousRoute = maxElevFt != null && deptElevFt != null && arrElevFt != null
@@ -1157,7 +1633,12 @@ export function FlightPlanning() {
           departureElevFt:    deptElevFt,
           arrivalElevFt:      arrElevFt,
           highestAirportFt:   highestAirportFt > 0 ? highestAirportFt : null,
-          oeiBelowMEA:        mea != null && ac.singleEngineCeiling != null
+          // OEI vs DA is the critical check — can the aircraft execute a missed approach
+          // on one engine? MEA is retained as an en-route obstacle-clearance flag only.
+          oeiBelowDA:          approachDA != null && ac.singleEngineCeiling != null
+            ? ac.singleEngineCeiling < approachDA
+            : false,
+          oeiBelowMEA:         mea != null && ac.singleEngineCeiling != null
             ? ac.singleEngineCeiling < mea
             : false,
           oeiBelowArrivalElev: arrElevFt != null && ac.singleEngineCeiling != null
@@ -1199,6 +1680,7 @@ export function FlightPlanning() {
     if (!dept || !arr || !eligibleAc.length) return
 
     setLoadingPilots(true)
+    setPilotRiskError(null)
 
     // Derive flight conditions
     const deptMetar = deptWx?.metar?.[0] ?? null
@@ -1221,9 +1703,15 @@ export function FlightPlanning() {
       if (res.ok) {
         const data = await res.json()
         setPilotRisks(data.byTail ?? null)
+        setPilotRiskError(null)
+      } else {
+        setPilotRiskError(`HTTP ${res.status}`)
       }
-    } catch {
-      // PilotRisk unavailable — fail silently
+    } catch (err) {
+      const reason = err?.message?.includes('fetch')
+        ? 'PilotRisk service unreachable (port 5002)'
+        : (err?.message ?? 'Unknown error')
+      setPilotRiskError(reason)
     } finally {
       setLoadingPilots(false)
     }
@@ -1269,6 +1757,13 @@ export function FlightPlanning() {
     return freshResults
   }, [dept, arr])
 
+  // ── Keep allFlights fresh (used by tow capacity check) ──────────────────────
+  useEffect(() => {
+    const handler = () => setAllFlights(getAllFlights())
+    window.addEventListener('flightsafe:scheduled', handler)
+    return () => window.removeEventListener('flightsafe:scheduled', handler)
+  }, [])
+
   // ── Reactive risk pipeline: runs whenever pax + route + weather are all ready ──
   // Clears stale aircraft data whenever the route changes.
   useEffect(() => {
@@ -1276,14 +1771,22 @@ export function FlightPlanning() {
     setKnownRisks(null)
     setTerrainMetrics(null)
     setPilotRisks(null)
+    setPilotRiskError(null)
     setScheduledMap({})
   }, [dept, arr])
 
   useEffect(() => {
-    const n = parseInt(pax)
-    if (!n || n < 1 || !dept || !arr || !routeData || !deptWeather) return
+    const n        = parseInt(pax) || 0
+    const zeroPaxOp = planningTab === '91' && ZERO_PAX_TYPES.has(opType)
+    // Need pax ≥ 1 OR be a zero-pax Part 91 op type
+    if (n < 1 && !zeroPaxOp) return
+    if (!dept || !arr || !routeData || !deptWeather) return
 
-    const eligible = mockAircraft.filter((ac) => ac.airworthy && (ac.passengerCapacity ?? 0) >= n)
+    // For zero-pax Part 91 ops, eligible aircraft matches what eligibleAircraft shows:
+    // glider_tow → is_tow; all others → all airworthy
+    const eligible = zeroPaxOp
+      ? mockAircraft.filter((ac) => ac.airworthy && (isTowOp ? ac.is_tow : true))
+      : mockAircraft.filter((ac) => ac.airworthy && (ac.passengerCapacity ?? 0) >= n)
     if (!eligible.length) return
 
     let cancelled = false
@@ -1292,14 +1795,26 @@ export function FlightPlanning() {
       if (cancelled) return
       await fetchKnownRisks(eligible, airSafeResults, null, routeData, deptWeather)
       if (cancelled) return
-      await fetchPilotRisks(eligible, routeData, deptWeather, depTime)
+      if (isTowOp) {
+        // PilotRisk doesn't hold tow-endorsement data — build assessments locally
+        const towPilots = mockPersonnel.filter(
+          (p) => p.towCertified && p.taildragherEndorsement && p.role?.startsWith('pilot_')
+        )
+        const assessments = towPilots.map(buildTowAssessment)
+        const byTail = Object.fromEntries(eligible.map((ac) => [ac.tailNumber, assessments]))
+        setPilotRisks(byTail)
+        setLoadingPilots(false)
+      } else {
+        await fetchPilotRisks(eligible, routeData, deptWeather, depTime)
+      }
     })()
 
     return () => { cancelled = true }
-  }, [dept, arr, pax, routeData, deptWeather, depTime, fetchAirSafeRisks, fetchKnownRisks, fetchPilotRisks])
+  }, [dept, arr, pax, planningTab, opType, isTowOp, routeData, deptWeather, depTime, fetchAirSafeRisks, fetchKnownRisks, fetchPilotRisks])
 
   // ── Schedule a flight from the plan page ─────────────────────────────────
-  function handleScheduleFlight(aircraft, picId, sicId, missionType) {
+  function handleScheduleFlight(aircraft, picId, sicId, missionType, overridePicId) {
+    picId = overridePicId ?? picId
     const crew = pilotRisks?.[aircraft.tailNumber] ?? []
     const pic  = crew.find((a) => a.pilotId === picId)
     const sic  = crew.find((a) => a.pilotId === sicId)
@@ -1368,7 +1883,27 @@ export function FlightPlanning() {
       sic:                 sic ? `${sic.name.split(' ')[1]}, ${sic.name[0]}.` : null,
       sicId:               sicId ?? null,
       passengers:          parseInt(pax) || 0,
-      missionType,
+      passengerNames:      paxNames.filter(Boolean),
+      missionType:         planningTab === '91' ? opType : missionType,
+      part:                planningTab,
+      ...(planningTab === '91' && {
+        part91Type:    opType,
+        paxWeightLbs:  paxWeights.reduce((s, w) => s + (parseInt(w) || FAA_AVG_WEIGHT_LBS), 0),
+        bagWeightLbs:  totalBagLbs,
+        notes:         notes91 || undefined,
+      }),
+      ...(aircraft.needs_tow && towConfigs[aircraft.id] && {
+        airport:  dept || aircraft.assignedBase,
+        towInfo:  {
+          ...towConfigs[aircraft.id],
+          isStandby: getTowAvailability(
+            allFlights,
+            dept || aircraft.assignedBase,
+            depTime.date ? depTime.date.getTime() : Date.now() + 3_600_000,
+            towConfigs[aircraft.id].towHeights,
+          ).isStandby,
+        },
+      }),
       riskScore,
       riskP: picRiskP,
       riskA,
@@ -1422,6 +1957,27 @@ export function FlightPlanning() {
   }
 
   // ── Event handlers ──────────────────────────────────────────────────────
+  // ── Default Part 91 departure/arrival to base airport on tab switch ─────────
+  const BASE_AIRPORT = mockAircraft[0]?.assignedBase ?? 'KBDU'
+
+  useEffect(() => {
+    if (planningTab === '91') {
+      const newDept = dept || BASE_AIRPORT
+      const newArr  = arr  || BASE_AIRPORT
+      if (!dept) { setDept(newDept); fetchDeptWeather(newDept) }
+      if (!arr)  {
+        setArr(newArr)
+        if (newDept.length >= 3) fetchRouteWeather(newDept, newArr, depTime.date)
+      }
+      if (ZERO_PAX_TYPES.has(opType)) {
+        setPax('0'); setPaxWeights([]); setPaxBags([]); setPaxNames([])
+      } else if (!pax || pax === '') {
+        setPax('1'); setPaxWeights([FAA_AVG_WEIGHT_LBS])
+      }
+      if (!notes91) setNotes91(OP_TYPE_NOTES[opType] ?? '')
+    }
+  }, [planningTab])  // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleDeptCommit(icao) {
     setDept(icao)
     if (icao.length >= 3) fetchDeptWeather(icao)
@@ -1438,92 +1994,348 @@ export function FlightPlanning() {
   }
 
   function handlePaxChange(val) {
-    setPax(val.replace(/\D/g, ''))
+    const n = parseInt(val.replace(/\D/g, '')) || 0
+    setPax(String(n))
+    setPaxWeights((prev) => n > prev.length ? [...prev, ...Array(n - prev.length).fill(FAA_AVG_WEIGHT_LBS)] : prev.slice(0, n))
+    setPaxBags((prev)    => n > prev.length ? [...prev, ...Array(n - prev.length).fill(FAA_AVG_BAG_LBS)]    : prev.slice(0, n))
+    setPaxNames((prev)   => n > prev.length ? [...prev, ...Array(n - prev.length).fill('')]                 : prev.slice(0, n))
+    setWeightVerified(false)
   }
+
+  // ── Derived totals ────────────────────────────────────────────────────────
+  const totalBagLbs = paxBags.reduce((s, b) => s + (parseInt(b) || 0), 0)
+  const totalPaxLbs = paxWeights.reduce((s, w) => s + (parseInt(w) || FAA_AVG_WEIGHT_LBS), 0)
+
+  // Weight criticality: flag the form section if any eligible aircraft is caution or critical
+  const weightCritical = paxWeights.length > 0 && mockAircraft
+    .filter((ac) => (ac.passengerCapacity ?? 0) >= paxWeights.length)
+    .some((ac) => {
+      const ws = assessWeightStatus(ac, totalPaxLbs, totalBagLbs)
+      return ws && ws.status !== 'ok'
+    })
+
+  // Quick duration presets per Part 91 op type (most common durations)
+  const QUICK_DURATIONS = {
+    sightseeing:      ['0:30', '0:45', '1:00'],
+    glider_tow:       ['0:20', '0:30', '0:45'],
+    post_maintenance: ['0:30', '1:00', '1:30'],
+    ferry:            ['1:30', '2:00', '3:00'],
+    positioning:      ['1:00', '1:30', '2:00'],
+    test_flight:      ['1:00', '1:30', '2:00'],
+    personal:         ['1:00', '1:30', '2:00'],
+    check_flight:     ['0:45', '1:00', '1:30'],
+    aerial_work:      ['1:00', '1:30', '2:00'],
+  }
+  const quickDurations = QUICK_DURATIONS[opType] ?? ['1:00', '1:30', '2:00']
 
   // ── Derived data ─────────────────────────────────────────────────────────
   const paxCount = parseInt(pax) || 0
-  const eligibleAircraft = paxCount > 0
-    ? mockAircraft.filter((ac) => (ac.passengerCapacity ?? 0) >= paxCount).sort((a, b) => {
-        // sort: airworthy first, then by airsafe similarity asc (lower risk first)
+  const eligibleAircraft = isTowOp
+    ? mockAircraft.filter((ac) => ac.is_tow).sort((a, b) => {
         if (a.airworthy !== b.airworthy) return b.airworthy - a.airworthy
-        const aScore = aircraftRisks[a.id]?.result?.results?.reduce((s, r) => s + r.score, 0) ?? 0
-        const bScore = aircraftRisks[b.id]?.result?.results?.reduce((s, r) => s + r.score, 0) ?? 0
-        return aScore - bScore
+        return 0
       })
-    : []
+    : paxCount > 0
+      ? mockAircraft.filter((ac) => (ac.passengerCapacity ?? 0) >= paxCount).sort((a, b) => {
+          // sort: airworthy first, then by airsafe similarity asc (lower risk first)
+          if (a.airworthy !== b.airworthy) return b.airworthy - a.airworthy
+          const aScore = aircraftRisks[a.id]?.result?.results?.reduce((s, r) => s + r.score, 0) ?? 0
+          const bScore = aircraftRisks[b.id]?.result?.results?.reduce((s, r) => s + r.score, 0) ?? 0
+          return aScore - bScore
+        })
+      : []
 
-  const arrMetar = routeData?.metars?.data?.find(
-    (m) => m.station_id === arr || m.station_id?.endsWith(arr.slice(-3))
-  )
-  const arrTaf = routeData?.tafs?.data?.filter(
-    (t) => t.station_id === arr || t.station_id?.endsWith(arr.slice(-3))
-  )
+  const arrMetar = Array.isArray(routeData?.metars?.data)
+    ? routeData.metars.data.find((m) => m.station_id === arr || m.station_id?.endsWith(arr.slice(-3)))
+    : null
+  const arrTaf = Array.isArray(routeData?.tafs?.data)
+    ? routeData.tafs.data.filter((t) => t.station_id === arr || t.station_id?.endsWith(arr.slice(-3)))
+    : null
   const deptMetar = deptWeather?.metar?.[0] ?? null
   const deptTaf   = deptWeather?.taf ?? null
 
   return (
     <div className="flex flex-col gap-6" data-testid="flight-planning">
-      {/* ── Header ── */}
-      <div>
-        <h1 className="text-xl font-semibold text-slate-100">Flight Planning</h1>
-        <p className="text-sm text-slate-400 mt-0.5">
-          Select route and passenger count to assess aircraft options with live weather and NTSB accident history.
-        </p>
+      {/* ── Header + Tab switcher ── */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-100">Flight Planning</h1>
+          <p className="text-sm text-slate-400 mt-0.5">
+            {planningTab === '135'
+              ? 'Part 135 on-demand charter — live weather, terrain, and NTSB risk scoring.'
+              : 'Part 91 general aviation operations — sightseeing, maintenance, ferry, and more.'}
+          </p>
+        </div>
+
+        {/* Planning mode tabs */}
+        <div className="flex items-center gap-1 mt-1">
+          {[
+            { key: '135', label: 'Part 135 Charter',   color: 'sky'   },
+            { key: '91',  label: 'Part 91 Operations', color: 'amber' },
+          ].map(({ key, label, color }) => (
+            <button
+              key={key}
+              onClick={() => setPlanningTab(key)}
+              className={`px-4 py-2 rounded text-sm font-medium border transition-colors ${
+                planningTab === key
+                  ? color === 'sky'
+                    ? 'bg-sky-500/20 border-sky-500/50 text-sky-300'
+                    : 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                  : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* ── Planning form ── */}
-      <div className="bg-surface-card border border-surface-border rounded-xl p-5 flex flex-wrap items-end gap-6">
-        <IcaoInput
-          label="Departure"
-          value={dept}
-          onChange={setDept}
-          onCommit={handleDeptCommit}
-          loading={loadingDept}
-          placeholder="KDFW"
-        />
+      {/* ── Part 91 operation type selector ── */}
+      {planningTab === '91' && (
+          <div className="bg-surface-card border border-amber-500/20 rounded-xl p-5 flex flex-col gap-4">
+            <div className="text-xs text-amber-400 font-semibold uppercase tracking-wide">Operation Type</div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              {PART_91_TYPES.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => {
+                    const prevDefault = OP_TYPE_NOTES[opType] ?? ''
+                    setOpType(t.id)
+                    setRentalPicId(null)
+                    // Auto-zero pax for crew-only operations
+                    if (ZERO_PAX_TYPES.has(t.id)) {
+                      handlePaxChange('0')
+                    }
+                    // Pre-fill notes when empty or still showing previous default
+                    if (!notes91 || notes91 === prevDefault) {
+                      setNotes91(OP_TYPE_NOTES[t.id] ?? '')
+                    }
+                  }}
+                  className={`text-left rounded-lg px-3 py-2.5 border text-xs transition-colors ${
+                    opType === t.id
+                      ? 'border-amber-500/50 bg-amber-500/10 text-amber-300'
+                      : 'border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+                  }`}
+                >
+                  <div className="font-medium">{t.label}</div>
+                  <div className="text-[10px] text-slate-600 mt-0.5">{t.reg}</div>
+                </button>
+              ))}
+            </div>
+            {(() => {
+              const sel = PART_91_TYPES.find((t) => t.id === opType)
+              return sel ? (
+                <div className="flex items-center gap-3 text-xs text-slate-500">
+                  <span>Baseline risk multiplier:</span>
+                  <span className={`font-mono font-bold ${
+                    sel.riskRatio >= 1.5 ? 'text-red-400' :
+                    sel.riskRatio >= 1.3 ? 'text-orange-400' :
+                    sel.riskRatio >= 1.1 ? 'text-yellow-400' : 'text-green-400'
+                  }`}>{sel.riskRatio.toFixed(2)}×</span>
+                  <span>→ Base risk score ≈ {Math.round(sel.riskRatio * 25)} (refined by aircraft + weather)</span>
+                </div>
+              ) : null
+            })()}
 
-        <div className="text-slate-600 text-lg self-center pb-1">→</div>
+            {/* Rental / Glider Rental — PIC selector from student + club roster */}
+            {(opType === 'rental' || opType === 'glider_rental') && (
+              <div className="border-t border-surface-border pt-4 flex flex-col gap-3">
+                <div className="text-xs text-amber-400 uppercase tracking-wide">
+                  PIC — Select from students or flying club
+                  {rentalPicId && <span className="text-green-400 ml-2">✓ Selected</span>}
+                </div>
 
-        <IcaoInput
-          label="Arrival"
-          value={arr}
-          onChange={setArr}
-          onCommit={handleArrCommit}
-          loading={loadingRoute}
-          placeholder="KBOS"
-        />
+                {/* Students */}
+                <div className="flex flex-col gap-1">
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wide">Flight School Students</div>
+                  <div className="flex flex-wrap gap-2">
+                    {(mockStudents ?? []).map((s) => (
+                      <button
+                        key={s.id}
+                        onClick={() => setRentalPicId(s.id)}
+                        className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+                          rentalPicId === s.id
+                            ? 'border-amber-500/50 bg-amber-500/10 text-amber-300'
+                            : 'border-surface-border text-slate-400 hover:text-slate-200 hover:border-slate-500'
+                        }`}
+                      >
+                        {s.name}
+                        <span className="text-[10px] text-slate-600 ml-1">· {s.program ?? 'student'}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-        <div className="flex flex-col gap-1">
-          <label className="text-xs text-slate-400 uppercase tracking-wide">Passengers</label>
-          <input
-            type="number"
-            min="1"
-            max="20"
-            value={pax}
-            onChange={(e) => handlePaxChange(e.target.value)}
-            placeholder="0"
-            className="w-20 bg-surface-card border border-surface-border rounded px-3 py-2 text-sm text-slate-100
-                       focus:outline-none focus:ring-1 focus:ring-sky-500 placeholder-slate-600"
-          />
-        </div>
+                {/* Flying club members */}
+                <div className="flex flex-col gap-1">
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wide">Boulder Aviators Club</div>
+                  <div className="flex flex-wrap gap-2">
+                    {(mockClubMembers ?? []).map((m) => {
+                      const issues = !m.duesCurrent || !m.bfrCurrent || !m.medicalCurrent || !m.rentersUploaded
+                      return (
+                        <button
+                          key={m.id}
+                          onClick={() => !issues && setRentalPicId(m.id)}
+                          disabled={issues}
+                          title={issues ? 'Not eligible — dues/BFR/medical/renters issue' : 'Click to select'}
+                          className={`text-xs px-3 py-1.5 rounded border transition-colors ${
+                            issues
+                              ? 'border-slate-700 text-slate-600 cursor-not-allowed opacity-50'
+                              : rentalPicId === m.id
+                                ? 'border-amber-500/50 bg-amber-500/10 text-amber-300'
+                                : 'border-surface-border text-slate-400 hover:text-slate-200 hover:border-slate-500'
+                          }`}
+                        >
+                          {m.name}
+                          {issues && <span className="text-red-500 ml-1">⚠</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+      )}
 
-        {/* Divider */}
-        <div className="w-px h-10 bg-surface-border self-end mb-1 hidden sm:block" />
+      {/* ── Unified route + PAX + weight form (shared by Part 135 and 91) ── */}
+      <div className="bg-surface-card border border-surface-border rounded-xl p-5 flex flex-wrap items-start gap-6">
+            <IcaoInput label="Departure" value={dept} onChange={setDept} onCommit={handleDeptCommit} loading={loadingDept} placeholder="KBDU" />
+            <div className="text-slate-600 text-lg mt-6">→</div>
+            <IcaoInput label="Arrival" value={arr} onChange={setArr} onCommit={handleArrCommit} loading={loadingRoute} placeholder="KBDU" />
 
-        <DepartureTimePicker value={depTime} onChange={handleDepTimeChange} />
+            {/* Manual flight time — shown when departure == arrival (circular / local flight) */}
+            {dept && arr && dept.toUpperCase() === arr.toUpperCase() && dept.length >= 3 && (
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-slate-400 uppercase tracking-wide">Flight time (H:MM)</label>
+                <input
+                  type="text"
+                  value={manualFlightHrs}
+                  onChange={(e) => setManualFlightHrs(e.target.value)}
+                  placeholder="1:30"
+                  className="w-20 bg-surface-card border border-sky-500/40 rounded px-3 py-2 text-sm font-mono text-slate-100
+                             focus:outline-none focus:ring-1 focus:ring-sky-500 placeholder-slate-600"
+                />
+                <div className="flex gap-1 mt-1">
+                  {quickDurations.map((d) => (
+                    <button
+                      key={d}
+                      onClick={() => setManualFlightHrs(d)}
+                      className={`px-2 py-0.5 rounded text-[10px] border transition-colors ${
+                        manualFlightHrs === d
+                          ? 'bg-sky-500/20 border-sky-500/50 text-sky-300'
+                          : 'border-slate-700 text-slate-500 hover:border-slate-500 hover:text-slate-300'
+                      }`}
+                    >{d}</button>
+                  ))}
+                </div>
+                <div className="text-[10px] text-slate-600">Local / circular flight</div>
+              </div>
+            )}
 
-        {/* Status chips */}
-        <div className="flex gap-2 flex-wrap self-center pb-0.5">
-          {dept && !loadingDept && deptWeather && (
-            <CategoryPill cat={flightCategory(deptMetar)} />
-          )}
-          {arr && !loadingRoute && routeData && (
-            <CategoryPill cat={flightCategory(arrMetar)} />
-          )}
-          {loadingDept  && <span className="text-xs text-slate-500 animate-pulse">Fetching dept weather…</span>}
-          {loadingRoute && <span className="text-xs text-slate-500 animate-pulse">Fetching route weather…</span>}
-        </div>
+            <div className="w-px h-10 bg-surface-border mt-5 hidden sm:block" />
+
+            {/* PAX stepper */}
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-slate-400 uppercase tracking-wide">Passengers</label>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => handlePaxChange(String(Math.max(0,(parseInt(pax)||0)-1)))}
+                  className="w-8 h-8 rounded border border-surface-border text-slate-300 hover:border-sky-500/40 hover:text-sky-300 transition-colors text-lg leading-none"
+                >−</button>
+                <span className="w-8 text-center font-mono text-slate-100 text-sm">{parseInt(pax)||0}</span>
+                <button
+                  onClick={() => handlePaxChange(String(Math.min(20,(parseInt(pax)||0)+1)))}
+                  className="w-8 h-8 rounded border border-surface-border text-slate-300 hover:border-sky-500/40 hover:text-sky-300 transition-colors text-lg leading-none"
+                >+</button>
+              </div>
+              <div className="text-[10px] text-slate-600">FAA std {FAA_AVG_WEIGHT_LBS} lbs</div>
+            </div>
+
+            {/* Per-pax rows: name + weight + baggage */}
+            {paxWeights.length > 0 && (
+              <div className={`flex flex-col gap-2 rounded-lg p-3 border transition-colors ${
+                weightCritical
+                  ? 'border-orange-500/50 bg-orange-500/5'
+                  : 'border-transparent'
+              }`}>
+                {weightCritical && (
+                  <div className="flex items-center gap-2 text-xs text-orange-400">
+                    <span className="text-orange-400">⚠</span>
+                    <span>Weight loading marginal — verify with pilot before scheduling</span>
+                  </div>
+                )}
+                <div className="grid grid-cols-[10rem_4rem_4rem] gap-x-2 gap-y-1.5">
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wide">Full name</div>
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wide text-center">Wt (lbs)</div>
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wide text-center">Bag (lbs)</div>
+                  {paxWeights.map((w, i) => (
+                    <>
+                      <input
+                        key={`name-${i}`}
+                        type="text"
+                        placeholder={`Passenger ${i + 1}`}
+                        value={paxNames[i] ?? ''}
+                        onChange={(e) => setPaxNames(prev => { const next=[...prev]; next[i]=e.target.value; return next })}
+                        className="bg-surface-card border border-surface-border rounded px-2 py-1 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500 placeholder-slate-600"
+                      />
+                      <input
+                        key={`wt-${i}`}
+                        type="number" min="50" max="450" value={w}
+                        onChange={(e) => { setPaxWeights(prev => { const next=[...prev]; next[i]=parseInt(e.target.value)||FAA_AVG_WEIGHT_LBS; return next }); setWeightVerified(false) }}
+                        className="w-full bg-surface-card border border-surface-border rounded px-2 py-1 text-xs font-mono text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500 text-center"
+                      />
+                      <input
+                        key={`bag-${i}`}
+                        type="number" min="0" max="200" value={paxBags[i] ?? FAA_AVG_BAG_LBS}
+                        onChange={(e) => { setPaxBags(prev => { const next=[...prev]; next[i]=parseInt(e.target.value)||0; return next }); setWeightVerified(false) }}
+                        className="w-full bg-surface-card border border-surface-border rounded px-2 py-1 text-xs font-mono text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500 text-center"
+                      />
+                    </>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between mt-1">
+                  <div className="text-[10px] text-slate-500 font-mono">
+                    {totalPaxLbs.toLocaleString()} pax + {totalBagLbs.toLocaleString()} bag = {(totalPaxLbs + totalBagLbs).toLocaleString()} lbs
+                  </div>
+                  {weightCritical && (
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={weightVerified}
+                        onChange={(e) => setWeightVerified(e.target.checked)}
+                        className="accent-orange-400 w-3.5 h-3.5"
+                      />
+                      <span className="text-xs text-orange-300">Weight verified</span>
+                    </label>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="w-px h-10 bg-surface-border mt-5 hidden sm:block" />
+
+            <DepartureTimePicker value={depTime} onChange={handleDepTimeChange} />
+
+            {/* Part 91 notes */}
+            {planningTab === '91' && (
+              <div className="flex flex-col gap-1 flex-1 min-w-[200px]">
+                <label className="text-xs text-slate-400 uppercase tracking-wide">Notes / Purpose</label>
+                <input
+                  type="text" value={notes91} onChange={(e) => setNotes91(e.target.value)}
+                  placeholder="e.g. Post-annual test flight, fuel system check"
+                  className="bg-surface-card border border-surface-border rounded px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-amber-500 w-full placeholder-slate-600"
+                />
+              </div>
+            )}
+
+            {/* Weather status chips */}
+            <div className="flex gap-2 flex-wrap items-center mt-5">
+              {dept && !loadingDept && deptWeather && <CategoryPill cat={flightCategory(deptMetar)} />}
+              {arr  && !loadingRoute && routeData   && <CategoryPill cat={flightCategory(arrMetar)} />}
+              {loadingDept  && <span className="text-xs text-slate-500 animate-pulse">Fetching dept weather…</span>}
+              {loadingRoute && <span className="text-xs text-slate-500 animate-pulse">Fetching route weather…</span>}
+            </div>
       </div>
 
       {/* ── Errors ── */}
@@ -1534,41 +2346,35 @@ export function FlightPlanning() {
         </div>
       )}
 
-      {/* ── Step 1: Departure weather ── */}
-      {(deptWeather || loadingDept) && (
+      {/* ── Step 1: Weather ── */}
+      {(deptWeather || loadingDept || routeData || loadingRoute) && (
         <section className="flex flex-col gap-3">
           <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
-            Step 1 — Departure Weather
+            Step 1 — Weather
           </h2>
-          {loadingDept ? (
-            <div className="bg-surface-card border border-surface-border rounded-lg p-4 text-xs text-slate-500 animate-pulse">
-              Fetching METAR + TAF for {dept}…
-            </div>
-          ) : (
-            <WeatherCard label={`${dept} Departure`} metar={deptMetar} taf={deptTaf} />
-          )}
-        </section>
-      )}
 
-      {/* ── Step 2: Route + arrival weather ── */}
-      {(routeData || loadingRoute) && (
-        <section className="flex flex-col gap-3">
-          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
-            Step 2 — Route &amp; Arrival Weather
-          </h2>
-          {loadingRoute ? (
-            <div className="bg-surface-card border border-surface-border rounded-lg p-4 text-xs text-slate-500 animate-pulse">
-              Computing route corridor and fetching weather…
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <div className="lg:col-span-3">
-                <RouteWeatherBanner routeData={routeData} />
+          {/* Departure + Arrival side by side */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {loadingDept ? (
+              <div className="bg-surface-card border border-surface-border rounded-lg p-4 text-xs text-slate-500 animate-pulse">
+                Fetching METAR + TAF for {dept}…
               </div>
+            ) : deptWeather ? (
               <WeatherCard label={`${dept} Departure`} metar={deptMetar} taf={deptTaf} />
-              <div />
+            ) : null}
+
+            {loadingRoute ? (
+              <div className="bg-surface-card border border-surface-border rounded-lg p-4 text-xs text-slate-500 animate-pulse">
+                Fetching arrival weather…
+              </div>
+            ) : routeData && arr && arr.toUpperCase() !== dept.toUpperCase() ? (
               <WeatherCard label={`${arr} Arrival`} metar={arrMetar ?? null} taf={arrTaf ?? null} />
-            </div>
+            ) : null}
+          </div>
+
+          {/* Route corridor banner */}
+          {routeData && !loadingRoute && (
+            <RouteWeatherBanner routeData={routeData} />
           )}
         </section>
       )}
@@ -1583,14 +2389,16 @@ export function FlightPlanning() {
       )}
 
       {/* ── Step 3: Aircraft risk assessment ── */}
-      {paxCount > 0 && (
+      {(paxCount > 0 || isTowOp) && (
         <section className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
-              Step 3 — Aircraft Risk Assessment
+              Step 2 — Aircraft Risk Assessment
             </h2>
             <span className="text-xs text-slate-500">
-              {eligibleAircraft.length} aircraft with capacity ≥ {paxCount} pax
+              {isTowOp
+                ? `${eligibleAircraft.length} tow aircraft`
+                : `${eligibleAircraft.length} aircraft with capacity ≥ ${paxCount} pax`}
             </span>
           </div>
 
@@ -1605,25 +2413,41 @@ export function FlightPlanning() {
                   Enter departure and arrival to include AirSafe accident analysis.
                 </p>
               ) : null}
-              {eligibleAircraft.map((ac) => (
-                <AircraftRiskCard
-                  key={ac.id}
-                  aircraft={ac}
-                  airSafeResult={aircraftRisks[ac.id]?.result ?? null}
-                  loading={aircraftRisks[ac.id]?.loading ?? false}
-                  error={aircraftRisks[ac.id]?.error ?? null}
-                  terrainMetrics={terrainMetrics}
-                  knownRiskAssessment={knownRisks?.[ac.id] ?? null}
-                  loadingKnown={loadingKnown}
-                  pilotAssessments={pilotRisks?.[ac.tailNumber] ?? null}
-                  loadingPilots={loadingPilots}
-                  flightConditions={{ dept, arr, depTime }}
-                  onSchedule={(picId, sicId, missionType) => handleScheduleFlight(ac, picId, sicId, missionType)}
-                  onScheduleReturn={(opts) => handleScheduleReturn(ac, opts)}
-                  isScheduled={scheduledMap[ac.id] ?? false}
-                  scheduledEta={scheduledEtas[ac.id] ?? null}
-                />
-              ))}
+              {eligibleAircraft.map((ac) => {
+                // Seed default tow config for gliders
+                if (ac.needs_tow && !towConfigs[ac.id]) {
+                  setTimeout(() => setTowConfigs((prev) =>
+                    prev[ac.id] ? prev : { ...prev, [ac.id]: { numTows: 1, towHeights: [2000] } }
+                  ), 0)
+                }
+                return (
+                  <AircraftRiskCard
+                    key={ac.id}
+                    aircraft={ac}
+                    airSafeResult={aircraftRisks[ac.id]?.result ?? null}
+                    loading={aircraftRisks[ac.id]?.loading ?? false}
+                    error={aircraftRisks[ac.id]?.error ?? null}
+                    terrainMetrics={terrainMetrics}
+                    knownRiskAssessment={knownRisks?.[ac.id] ?? null}
+                    loadingKnown={loadingKnown}
+                    pilotAssessments={pilotRisks?.[ac.tailNumber] ?? null}
+                    loadingPilots={loadingPilots}
+                    flightConditions={{ dept, arr, depTime, paxWeights, bagWeightLbs: totalBagLbs, manualFlightHrs }}
+                    onSchedule={(picId, sicId, missionType) => handleScheduleFlight(ac, picId, sicId, missionType)}
+                    onScheduleReturn={(opts) => handleScheduleReturn(ac, opts)}
+                    isScheduled={scheduledMap[ac.id] ?? false}
+                    scheduledEta={scheduledEtas[ac.id] ?? null}
+                    towConfig={ac.needs_tow ? (towConfigs[ac.id] ?? { numTows: 1, towHeights: [2000] }) : null}
+                    onTowChange={ac.needs_tow
+                      ? (cfg) => setTowConfigs((prev) => ({ ...prev, [ac.id]: cfg }))
+                      : null}
+                    allFlights={allFlights}
+                    pilotRiskError={pilotRiskError}
+                    onRetryPilots={() => fetchPilotRisks(eligibleAircraft, routeData, deptWeather, depTime)}
+                    missionType={scheduleMissionType}
+                  />
+                )
+              })}
             </div>
           )}
         </section>
@@ -1635,7 +2459,8 @@ export function FlightPlanning() {
           <span className="text-4xl">✈️</span>
           <p className="text-slate-400 text-sm max-w-sm">
             Enter a departure and arrival airport (ICAO codes) to pull live weather.
-            Then enter passenger count to see eligible aircraft with NTSB risk scores.
+            Enter departure and arrival airports, passenger count, and (for Part 91) weights
+            to see eligible aircraft with live weather and NTSB risk scores.
           </p>
         </div>
       )}

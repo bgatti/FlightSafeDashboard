@@ -213,7 +213,7 @@ export function CommCard({ comm }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export function SafetyComms() {
+export function SafetyComms({ embedded } = {}) {
   const [filter, setFilter] = useState('all')
 
   const filtered = filter === 'all'
@@ -222,17 +222,19 @@ export function SafetyComms() {
 
   return (
     <div data-testid="page-safety-comms" className="space-y-5">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-slate-100 font-bold text-lg">Safety Communications</h1>
-          <p className="text-slate-400 text-xs mt-0.5">
-            4 communication types · post-flight debriefs · toolbox talks · bulletins · management reports
-          </p>
+      {!embedded && (
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-slate-100 font-bold text-lg">Safety Communications</h1>
+            <p className="text-slate-400 text-xs mt-0.5">
+              4 communication types · post-flight debriefs · toolbox talks · bulletins · management reports
+            </p>
+          </div>
+          <button className="text-sm bg-sky-500 hover:bg-sky-400 text-white px-3 py-1.5 rounded font-semibold text-xs">
+            + New Communication
+          </button>
         </div>
-        <button className="text-sm bg-sky-500 hover:bg-sky-400 text-white px-3 py-1.5 rounded font-semibold text-xs">
-          + New Communication
-        </button>
-      </div>
+      )}
 
       {/* Channel descriptions */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

@@ -1,30 +1,33 @@
 import { NavLink } from 'react-router-dom'
 import { useUiStore } from '../../stores/uiStore'
+import { useAuthStore, MAINTENANCE_PERSONNEL } from '../../stores/authStore'
 
 const NAV_ITEMS = [
   { to: '/',            label: 'SMS Overview',      icon: '🏠' },
   { to: '/plan',        label: 'Flight Planning',   icon: '🛫' },
   { to: '/flights',     label: 'Flights',           icon: '🗺️' },
   { divider: true },
-  { to: '/personnel',   label: 'Personnel',         icon: '👥' },
-  { to: '/aircraft',    label: 'Aircraft Registry', icon: '✈️' },
   { to: '/maintenance', label: 'Maintenance',        icon: '🔧' },
   { to: '/fbo',         label: 'FBO Operations',     icon: '⛽' },
   { to: '/pos',         label: 'Point of Sale',      icon: '🧾' },
   { to: '/business',    label: 'Business P&L',       icon: '📊' },
   { to: '/leases',      label: 'Leases',              icon: '📄' },
-  { to: '/training',   label: 'Pilot Training',      icon: '🎓' },
+  { to: '/training',    label: 'Pilot Training',     icon: '🎓' },
+  { to: '/glider-ops', label: 'Glider Ops',          icon: '🪂' },
+  { to: '/mile-high-gliding', label: 'Mile High Gliding', icon: '🏔️' },
+  { to: '/journeys-boulder', label: 'Journeys Aviation', icon: '🛩️' },
   { to: '/management',  label: 'Management',         icon: '📋' },
   { to: '/sim',         label: 'Simulation',         icon: '🎮' },
-  { to: '/comms',       label: 'Safety Comms',       icon: '📡' },
   { divider: true },
-  { to: '/compliance',  label: 'Compliance Center', icon: '📁' },
   { to: '/reports',     label: 'Pilot Reports',     icon: '📝' },
 ]
 
 export function Sidebar() {
   const sidebarOpen = useUiStore((s) => s.sidebarOpen)
   const toggleSidebar = useUiStore((s) => s.toggleSidebar)
+  const user = useAuthStore((s) => s.user)
+  const loginAs = useAuthStore((s) => s.loginAs)
+  const logout = useAuthStore((s) => s.logout)
 
   return (
     <div className="flex flex-col h-full">
@@ -42,6 +45,53 @@ export function Sidebar() {
         >
           {sidebarOpen ? '«' : '»'}
         </button>
+      </div>
+
+      {/* Persona Switcher */}
+      <div className="px-2 py-3 border-b border-surface-border">
+        {sidebarOpen ? (
+          <div className="space-y-1.5">
+            <div className="text-[10px] text-slate-500 uppercase tracking-wide px-1">Logged in as</div>
+            <div className="bg-surface-card border border-surface-border rounded-lg p-2">
+              <div className="text-xs text-slate-200 font-semibold">{user.name}</div>
+              <div className="text-[10px] text-slate-400 capitalize">
+                {user.role}
+                {user.certType && <span className="text-sky-400 ml-1">({user.certType})</span>}
+              </div>
+              {user.canReturnToService && (
+                <div className="text-[10px] text-green-400 mt-0.5">IA — can sign RTS</div>
+              )}
+            </div>
+            <select
+              value={user.personnelId ?? ''}
+              onChange={(e) => {
+                if (e.target.value === '') logout()
+                else loginAs(e.target.value)
+              }}
+              className="w-full text-xs bg-surface-card border border-surface-border text-slate-300 rounded px-2 py-1.5"
+              aria-label="Switch persona"
+            >
+              <option value="">Alex Torres (Dispatcher)</option>
+              <optgroup label="Maintenance Personnel">
+                {MAINTENANCE_PERSONNEL.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} — {p.roleLabel}
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center">
+            <span
+              className="text-base cursor-help"
+              title={`${user.name} (${user.role})`}
+              aria-label={`Logged in as ${user.name}`}
+            >
+              {user.role === 'maintenance' ? '🔧' : '👤'}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Navigation */}

@@ -44,9 +44,10 @@ const TIME_FILTERS = [
 
 function isToday(iso) {
   const d = new Date(iso), n = new Date()
-  return d.getUTCFullYear() === n.getUTCFullYear()
-      && d.getUTCMonth()    === n.getUTCMonth()
-      && d.getUTCDate()     === n.getUTCDate()
+  // Compare in LOCAL time — flights are scheduled in local, stored as ISO/UTC
+  return d.getFullYear() === n.getFullYear()
+      && d.getMonth()    === n.getMonth()
+      && d.getDate()     === n.getDate()
 }
 
 function filterFlights(flights, timeFilter) {
@@ -228,6 +229,7 @@ function ImpliedRepoBar({ repo }) {
 export function Flights() {
   const [flights,       setFlights]       = useState(() => getAllFlights())
   const [timeFilter,    setTimeFilter]    = useState('today')
+  const [partFilter,    setPartFilter]    = useState(null)   // null = All
   const [flightTab,     setFlightTab]     = useState(null)
   const [selectedId,    setSelectedId]    = useState(null)
   const [currentUser,   setCurrentUser]   = useState(() => personnelToUser(mockPersonnel[0]))
@@ -292,7 +294,11 @@ export function Flights() {
   // ── Filtering ──────────────────────────────────────────────────────────────
   const timeFiltered = filterFlights(flights, timeFilter)
 
-  const tabFiltered = timeFiltered.filter((f) => {
+  const partFiltered = partFilter
+    ? timeFiltered.filter((f) => (f.part ?? '135') === partFilter)
+    : timeFiltered
+
+  const tabFiltered = partFiltered.filter((f) => {
     if (!flightTab) return true
     if (flightTab === 'mine')   return f.picId === currentUser?.id || f.sicId === currentUser?.id
     if (flightTab === 'others') return f.picId !== currentUser?.id && f.sicId !== currentUser?.id
@@ -319,8 +325,8 @@ export function Flights() {
   ].sort((a, b) => a._sortKey - b._sortKey)
 
   // ── Stats ──────────────────────────────────────────────────────────────────
-  const activeCount   = timeFiltered.filter((f) => f.status === 'active').length
-  const criticalCount = timeFiltered.filter((f) => {
+  const activeCount   = partFiltered.filter((f) => f.status === 'active').length
+  const criticalCount = partFiltered.filter((f) => {
     const r = f.riskSnapshot?.ratioToBaseline ?? (f.riskScore ? f.riskScore / 25 : 0)
     return r >= 2
   }).length
@@ -337,7 +343,7 @@ export function Flights() {
             {activeCount > 0     && <span className="text-green-400 font-medium">{activeCount} active · </span>}
             {criticalCount > 0   && <span className="text-red-400 font-medium">{criticalCount} elevated risk · </span>}
             {totalConflictCount > 0 && <span className="text-orange-400 font-medium">{totalConflictCount} conflict{totalConflictCount !== 1 ? 's' : ''} · </span>}
-            {timeFiltered.length} flight{timeFiltered.length !== 1 ? 's' : ''} in view
+            {partFiltered.length} flight{partFiltered.length !== 1 ? 's' : ''} in view
           </p>
         </div>
 
@@ -363,7 +369,7 @@ export function Flights() {
 
       {/* ── Route Map ── */}
       <RouteMap
-        flights={timeFiltered}
+        flights={partFiltered}
         selectedId={selectedId}
         onSelect={(id) => setSelectedId((prev) => prev === id ? null : id)}
       />
@@ -377,37 +383,67 @@ export function Flights() {
       />
 
       {/* ── Filters + tabs ── */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-1">
-          {TIME_FILTERS.map(({ key, label }) => (
-            <button
-              key={key}
-              onClick={() => setTimeFilter(key)}
-              className={`px-3 py-1 rounded text-xs border transition-colors ${
-                timeFilter === key
-                  ? 'bg-sky-500/20 border-sky-500/50 text-sky-300'
-                  : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+      <div className="flex flex-col gap-2">
+        {/* Row 1: time filter + mine/others */}
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-1">
+            {TIME_FILTERS.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setTimeFilter(key)}
+                className={`px-3 py-1 rounded text-xs border transition-colors ${
+                  timeFilter === key
+                    ? 'bg-sky-500/20 border-sky-500/50 text-sky-300'
+                    : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1 text-xs">
+            {[['mine','My Flights'],['others','Other Flights'],[null,'All']].map(([val, label]) => (
+              <button
+                key={String(val)}
+                onClick={() => setFlightTab(val)}
+                className={`px-3 py-1 rounded border transition-colors ${
+                  flightTab === val
+                    ? 'bg-sky-500/20 border-sky-500/50 text-sky-300'
+                    : 'border-slate-700 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="flex items-center gap-1 text-xs">
-          {[['mine','My Flights'],['others','Other Flights'],[null,'All']].map(([val, label]) => (
-            <button
-              key={String(val)}
-              onClick={() => setFlightTab(val)}
-              className={`px-3 py-1 rounded border transition-colors ${
-                flightTab === val
-                  ? 'bg-sky-500/20 border-sky-500/50 text-sky-300'
-                  : 'border-slate-700 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+        {/* Row 2: Part filter */}
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className="text-[10px] text-slate-600 uppercase tracking-wide mr-1">Reg</span>
+          {[
+            [null,  'All'],
+            ['135', 'Part 135'],
+            ['91',  'Part 91'],
+            ['61',  'Part 61 Training'],
+          ].map(([val, label]) => {
+            const active = partFilter === val
+            const colorMap = { '135': 'bg-sky-500/20 border-sky-500/50 text-sky-300', '91': 'bg-amber-500/20 border-amber-500/50 text-amber-300', '61': 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300' }
+            return (
+              <button
+                key={String(val)}
+                onClick={() => setPartFilter(val)}
+                className={`px-3 py-1 rounded text-xs border transition-colors ${
+                  active
+                    ? (val ? colorMap[val] : 'bg-sky-500/20 border-sky-500/50 text-sky-300')
+                    : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500'
+                }`}
+              >
+                {label}
+              </button>
+            )
+          })}
         </div>
       </div>
 

@@ -315,6 +315,42 @@ export const LESSON_TEMPLATES = {
       { id: 'cpl-4-3', title: 'IACRA & Endorsement Finalization',    type: 'ground',      requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: false, durationHr: 1.0 },
     ],
   },
+
+  glider_private_pilot: {
+    1: [
+      { id: 'gpp-1-1', title: 'Glider Intro — Controls & Straight-&-Level', type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
+      { id: 'gpp-1-2', title: 'Aerotow Procedures & Traffic Pattern',        type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
+      { id: 'gpp-1-3', title: 'Stalls & Spin Awareness',                     type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
+    ],
+    2: [
+      { id: 'gpp-2-1', title: 'Soaring Techniques — Ridge & Thermal',        type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
+      { id: 'gpp-2-2', title: 'Pattern & Off-Field Landing Planning',         type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
+      { id: 'gpp-2-3', title: 'Pre-Solo Ground — Regulations & Weather',     type: 'ground',      requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: false, durationHr: 1.0 },
+    ],
+    3: [
+      { id: 'gpp-3-1', title: 'First Solo — Pattern Tows',                   type: 'solo',        requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
+      { id: 'gpp-3-2', title: 'Solo Soaring Practice',                        type: 'solo',        requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.5 },
+    ],
+    4: [
+      { id: 'gpp-4-1', title: 'Mock Oral Exam — Glider ACS',                 type: 'ground',      requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: false, durationHr: 1.5 },
+      { id: 'gpp-4-2', title: 'Mock Practical — Full Maneuvers',              type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.5 },
+    ],
+  },
+
+  glider_add_on: {
+    1: [
+      { id: 'gao-1-1', title: 'Glider Systems & Aerotow Orientation',        type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
+      { id: 'gao-1-2', title: 'Pattern Work & Spot Landings',                 type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
+    ],
+    2: [
+      { id: 'gao-2-1', title: 'Soaring Skills — Thermal Centering',          type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
+      { id: 'gao-2-2', title: 'Emergency Off-Field Procedures',               type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
+    ],
+    3: [
+      { id: 'gao-3-1', title: 'Mock Practical — Add-On Checkride',           type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.5 },
+      { id: 'gao-3-2', title: 'IACRA & Endorsement Review',                   type: 'ground',      requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: false, durationHr: 1.0 },
+    ],
+  },
 }
 
 // ── Aircraft capability helpers ───────────────────────────────────────────────
@@ -367,19 +403,47 @@ export function isSlotOccupied(bookings, day, slot, entityField, entityId) {
 }
 
 /**
+ * Derive flight frequency for a student from existing bookings.
+ * Returns { lessonsPerWeek, dayGap } where dayGap is the recommended
+ * minimum days between proposed lessons.
+ */
+export function studentFlightFrequency(studentId, bookings) {
+  const flightDays = new Set(
+    bookings
+      .filter(b => b.studentId === studentId && b.type !== 'ground')
+      .map(b => b.day),
+  )
+  const lessonsPerWeek = Math.max(1, flightDays.size)
+  const dayGap = Math.max(1, Math.floor(7 / lessonsPerWeek))
+  return { lessonsPerWeek, dayGap }
+}
+
+/**
  * Find the next available (dayIdx, slot) where student + CFI + aircraft are all free,
  * honoring student preferences where possible.
+ *
+ * @param {object[]} bookings
+ * @param {string}   studentId
+ * @param {string}   cfiId
+ * @param {string}   aircraftId
+ * @param {object}   preferences  — { preferredSlots, preferredDays, weatherMin }
+ * @param {Set}      skipSlotKeys — Set of "dayIdx:slot" strings to skip
+ * @param {number}   minDayIdx    — do not return days earlier than this index
  *
  * Searches days 0–12 (skipping Sunday index 6).
  * Returns { dayIdx, slot, dateLabel, weather } or null.
  */
-export function findNextAvailableSlot(bookings, studentId, cfiId, aircraftId, preferences = {}) {
+export function findNextAvailableSlot(
+  bookings, studentId, cfiId, aircraftId,
+  preferences = {}, skipSlotKeys = new Set(), minDayIdx = 0,
+) {
   const { preferredSlots = [], preferredDays = [], weatherMin = 'any' } = preferences
   const SEARCH_DAYS = [0,1,2,3,4,5,7,8,9,10,11,12]
 
   // Two passes: first try preferred days/slots, then any day/slot
   for (const strict of [true, false]) {
     for (const dayIdx of SEARCH_DAYS) {
+      if (dayIdx < minDayIdx) continue
       if (strict && preferredDays.length > 0 && !preferredDays.includes(dayIdx % 7)) continue
 
       const wx = WEATHER_14DAY[dayIdx]
@@ -391,9 +455,12 @@ export function findNextAvailableSlot(bookings, studentId, cfiId, aircraftId, pr
         // Check weather acceptability
         if (weatherMin === 'vmc' && wx.condition === 'imc') continue
 
+        // Skip explicitly rejected slots
+        if (skipSlotKeys.has(`${dayIdx}:${slot}`)) continue
+
         // Check all three resources are free
         const studentBusy  = isSlotOccupied(bookings, dayIdx, slot, 'studentId',  studentId)
-        const cfiBusy      = cfiId     ? isSlotOccupied(bookings, dayIdx, slot, 'cfiId',      cfiId)     : false
+        const cfiBusy      = cfiId      ? isSlotOccupied(bookings, dayIdx, slot, 'cfiId',      cfiId)      : false
         const aircraftBusy = aircraftId ? isSlotOccupied(bookings, dayIdx, slot, 'aircraftId', aircraftId) : false
 
         if (!studentBusy && !cfiBusy && !aircraftBusy) {
@@ -420,17 +487,26 @@ export function findNextAvailableSlot(bookings, studentId, cfiId, aircraftId, pr
  * @param {object}   student        — mockStudents entry
  * @param {object[]} allPersonnel   — full mockPersonnel array
  * @param {object[]} allAircraft    — full mockAircraft array
- * @param {object[]} bookings       — mockBookings array
+ * @param {object[]} bookings       — base bookings (mockBookings + any accepted)
+ * @param {Set}      skipSlotKeys   — Set of "dayIdx:slot" strings to exclude
  * @returns {Array}  up to 3 recommendation objects
  */
-export function recommendLessons(student, allPersonnel, allAircraft, bookings) {
+export function recommendLessons(student, allPersonnel, allAircraft, bookings, skipSlotKeys = new Set()) {
   const programTemplates = LESSON_TEMPLATES[student.program]
   if (!programTemplates) return []
 
   // Build ordered list of lesson templates: current stage first, then next stage
   const stageNow  = programTemplates[student.currentStage]    ?? []
   const stageNext = programTemplates[student.currentStage + 1] ?? []
-  const candidates = [...stageNow, ...stageNext].slice(0, 5) // up to 5 candidates to pick 3 from
+  const candidates = [...stageNow, ...stageNext].slice(0, 8) // wider pool for skip headroom
+
+  // Derive pacing from how frequently this student has been flying
+  const { dayGap } = studentFlightFrequency(student.id, bookings)
+
+  // Working copy of bookings — grows as we place virtual proposals so each
+  // recommendation lands on a different day and respects resource conflicts.
+  const workingBookings = [...bookings]
+  let minDay = 0  // earliest day index the next proposal may start on
 
   const results = []
 
@@ -438,42 +514,55 @@ export function recommendLessons(student, allPersonnel, allAircraft, bookings) {
     if (results.length >= 3) break
 
     // ── Select aircraft ────────────────────────────────────────────────────────
-    // Prefer aircraft from student's assignedAircraftIds; fall back to fleet.
     const candidateAircraft = [
       ...student.assignedAircraftIds.map(id => allAircraft.find(a => a.id === id)).filter(Boolean),
       ...allAircraft.filter(a => !student.assignedAircraftIds.includes(a.id)),
     ]
 
     let chosenAircraft = null
-    // Ground lessons don't need aircraft
     if (template.type !== 'ground') {
       chosenAircraft = candidateAircraft.find(a => aircraftFitsLesson(a, template)) ?? null
-      if (!chosenAircraft && template.type !== 'ground') {
-        // No matching aircraft available — still show the lesson but flag it
-      }
     }
 
     // ── Select CFI ─────────────────────────────────────────────────────────────
-    // For solo flights, no CFI needed in the booking slot (they fly alone).
     let chosenCfi = null
     if (template.type !== 'solo') {
       const assignedCfi = allPersonnel.find(p => p.id === student.assignedCfiId)
       if (assignedCfi && cfiFitsLesson(assignedCfi, template)) {
         chosenCfi = assignedCfi
       } else {
-        // Find another qualified CFI
         chosenCfi = allPersonnel.find(p => p.id !== student.assignedCfiId && cfiFitsLesson(p, template)) ?? null
       }
     }
 
-    // ── Find available slot ────────────────────────────────────────────────────
+    // ── Find available slot (paced and skip-aware) ─────────────────────────────
     const slot = findNextAvailableSlot(
-      bookings,
+      workingBookings,
       student.id,
       template.type !== 'solo' ? chosenCfi?.id ?? null : null,
       chosenAircraft?.id ?? null,
       student.preferences,
+      skipSlotKeys,
+      minDay,
     )
+
+    // Block this slot in the working pool so the next recommendation is on a
+    // different day (and respects CFI/aircraft double-booking).
+    if (slot) {
+      workingBookings.push({
+        id: `_proposed_${results.length}`,
+        day:         slot.dayIdx,
+        slot:        slot.slot,
+        duration:    Math.ceil(template.durationHr),
+        studentId:   student.id,
+        cfiId:       chosenCfi?.id ?? null,
+        aircraftId:  chosenAircraft?.id ?? null,
+        type:        template.type,
+        title:       template.title,
+      })
+      // Advance minimum day for the next proposal by the pacing gap
+      minDay = slot.dayIdx + dayGap
+    }
 
     // ── Compute weather fit ────────────────────────────────────────────────────
     const wx  = slot?.weather ?? null
@@ -489,6 +578,71 @@ export function recommendLessons(student, allPersonnel, allAircraft, bookings) {
   }
 
   return results
+}
+
+// ── Weight & Balance ──────────────────────────────────────────────────────────
+
+/**
+ * Compute weight-and-balance for a standard dual training flight.
+ * Both pilot and student sit in front seats. Solo: pass cfiWeightLbs = 0.
+ *
+ * @param {object} aircraft          — mockAircraft entry with weightBalance block
+ * @param {number} studentWeightLbs
+ * @param {number} cfiWeightLbs      — 0 for solo
+ * @param {number} [fuelGal]         — defaults to aircraft.weightBalance.standardTrainingFuelGal
+ * @param {number} [baggageLbs]      — defaults to 20 (headsets, charts)
+ * @returns {object|null}
+ */
+export function calcTrainingWB(aircraft, studentWeightLbs, cfiWeightLbs, fuelGal, baggageLbs = 20) {
+  const wb = aircraft?.weightBalance
+  if (!wb) return null
+
+  const useFuel = Math.min(fuelGal ?? wb.standardTrainingFuelGal, wb.maxFuelUsableGal)
+  const fuelLbs = useFuel * wb.fuelWeightPerGal
+  const occupantLbs = (studentWeightLbs ?? 0) + (cfiWeightLbs ?? 0)
+  const totalWeightLbs = wb.emptyWeightLbs + occupantLbs + fuelLbs + baggageLbs
+
+  const totalMoment =
+    wb.emptyWeightLbs  * wb.emptyArm +
+    occupantLbs        * wb.stations.frontSeats.arm +
+    fuelLbs            * wb.stations.fuel.arm +
+    baggageLbs         * (wb.stations.baggage?.arm ?? wb.stations.aftBaggage?.arm ?? wb.emptyArm)
+
+  const cgIn       = +(totalMoment / totalWeightLbs).toFixed(1)
+  const overweight = totalWeightLbs > wb.maxGrossLbs
+  const cgOk       = cgIn >= wb.cgLimits.forwardIn && cgIn <= wb.cgLimits.aftIn
+
+  return {
+    totalWeightLbs: Math.round(totalWeightLbs),
+    maxGrossLbs:    wb.maxGrossLbs,
+    usefulLoadLbs:  wb.maxGrossLbs - wb.emptyWeightLbs,
+    occupantLbs:    Math.round(occupantLbs),
+    fuelLbs:        Math.round(fuelLbs),
+    fuelGal:        useFuel,
+    baggageLbs,
+    cgIn,
+    cgForwardIn:    wb.cgLimits.forwardIn,
+    cgAftIn:        wb.cgLimits.aftIn,
+    overweight,
+    overweightBy:   overweight ? Math.round(totalWeightLbs - wb.maxGrossLbs) : 0,
+    cgOk,
+    ok: !overweight && cgOk,
+  }
+}
+
+export const WB_STATUS = {
+  ok:      { label: 'W&B OK',   color: 'text-emerald-400', bg: 'bg-emerald-400/5  border-emerald-400/20' },
+  caution: { label: 'Caution',  color: 'text-amber-400',   bg: 'bg-amber-400/5   border-amber-400/20'   },
+  no_go:   { label: 'No-Go',    color: 'text-risk-high',   bg: 'bg-risk-high/5   border-risk-high/20'   },
+}
+
+export function wbStatusLevel(wb) {
+  if (!wb) return null
+  if (wb.overweight || !wb.cgOk) return 'no_go'
+  // Caution: within 50 lbs of max gross, or CG within 1" of either limit
+  if (wb.maxGrossLbs - wb.totalWeightLbs < 50) return 'caution'
+  if (wb.cgIn - wb.cgForwardIn < 1 || wb.cgAftIn - wb.cgIn < 1) return 'caution'
+  return 'ok'
 }
 
 function buildReason(student, template, aircraft, cfi) {

@@ -1,10 +1,24 @@
+import { useLocation } from 'react-router-dom'
 import { useUiStore } from '../../stores/uiStore'
 import { Sidebar } from './Sidebar'
 import { Header } from './Header'
 import { AppRoutes } from '../../router'
 
+/** Routes that render as full-screen portals (no sidebar / header) */
+const PORTAL_ROUTES = ['/mile-high-gliding', '/journeys-boulder']
+
 export function Layout() {
   const sidebarOpen = useUiStore((s) => s.sidebarOpen)
+  const { pathname } = useLocation()
+  const isPortal = PORTAL_ROUTES.some((r) => pathname.startsWith(r))
+
+  if (isPortal) {
+    return (
+      <main className="h-screen overflow-auto bg-surface" id="main-content">
+        <AppRoutes />
+      </main>
+    )
+  }
 
   return (
     <div className="flex h-screen overflow-hidden">

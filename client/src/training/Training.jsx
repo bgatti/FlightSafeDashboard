@@ -20,6 +20,7 @@ import {
   DPE_STATUS_LABEL, DPE_STATUS_COLOR, DPE_STATUS_BG,
   recommendLessons,
   WEATHER_FIT_COLORS, WEATHER_FIT_LABELS,
+  calcTrainingWB, wbStatusLevel, WB_STATUS,
 } from './trainingUtils'
 
 // ── Shared layout helpers ─────────────────────────────────────────────────────
@@ -203,8 +204,11 @@ function OverviewTab() {
 // ═════════════════════════════════════════════════════════════════════════════
 
 function StudentsTab() {
-  const [selected, setSelected] = useState(mockStudents[0].id)
+  const [selected,       setSelected]       = useState(mockStudents[0].id)
+  const [weightOverrides, setWeightOverrides] = useState({}) // studentId → lbs
+
   const student = mockStudents.find((s) => s.id === selected)
+  const studentWeightLbs = weightOverrides[student?.id] ?? student?.weightLbs
   const program = PROGRAMS[student?.program]
   const cfi     = getPerson(student?.assignedCfiId)
   const reqs    = requirementProgress(student, student?.program)
@@ -259,13 +263,27 @@ function StudentsTab() {
               <p className="text-slate-400 text-sm">{student.email} · {student.phone}</p>
               <p className="text-slate-500 text-xs mt-0.5">Enrolled {student.enrolledDate} · {program?.name} · Stage {student.currentStage}/{program?.stages.length}</p>
             </div>
-            <div className="flex gap-2">
-              <Badge className={DPE_STATUS_BG[student.dpe.status]}>
-                <span className={DPE_STATUS_COLOR[student.dpe.status]}>{DPE_STATUS_LABEL[student.dpe.status]}</span>
-              </Badge>
-              {student.clubMember && (
-                <Badge className="bg-violet-400/10 border-violet-400/30 text-violet-300">Club Member</Badge>
-              )}
+            <div className="flex flex-col items-end gap-2">
+              <div className="flex gap-2">
+                <Badge className={DPE_STATUS_BG[student.dpe.status]}>
+                  <span className={DPE_STATUS_COLOR[student.dpe.status]}>{DPE_STATUS_LABEL[student.dpe.status]}</span>
+                </Badge>
+                {student.clubMember && (
+                  <Badge className="bg-violet-400/10 border-violet-400/30 text-violet-300">Club Member</Badge>
+                )}
+              </div>
+              {/* Flight planning weight — editable */}
+              <div className="flex items-center gap-2">
+                <label className="text-slate-500 text-xs whitespace-nowrap">Flight weight</label>
+                <input
+                  type="number"
+                  min={50} max={400}
+                  value={studentWeightLbs ?? ''}
+                  onChange={(e) => setWeightOverrides((prev) => ({ ...prev, [student.id]: Number(e.target.value) }))}
+                  className="w-16 px-2 py-0.5 rounded border border-surface-border bg-surface-card text-slate-200 text-xs text-right focus:border-sky-400 focus:outline-none"
+                />
+                <span className="text-slate-500 text-xs">lbs</span>
+              </div>
             </div>
           </div>
 
@@ -367,7 +385,7 @@ function StudentsTab() {
           </div>
 
           {/* Next 3 lesson recommendations */}
-          <NextLessonsPanel student={student} />
+          <NextLessonsPanel student={student} studentWeightLbs={studentWeightLbs} />
         </div>
       )}
     </div>
@@ -376,26 +394,98 @@ function StudentsTab() {
 
 // ── Next 3 Lessons Panel ──────────────────────────────────────────────────────
 
-function NextLessonsPanel({ student }) {
-  const recommendations = recommendLessons(student, mockPersonnel, mockAircraft, mockBookings)
+function NextLessonsPanel({ student, studentWeightLbs }) {
+  const [skippedSlots,       setSkippedSlots]       = useState(new Set())
+  const [acceptedBookings,   setAcceptedBookings]   = useState([])
+  const [acceptedTemplateIds,setAcceptedTemplateIds]= useState(new Set())
+  const [toast,              setToast]              = useState(null)
 
-  if (!recommendations.length) return null
+  const allBookings = [...mockBookings, ...acceptedBookings]
+  const recommendations = recommendLessons(
+    student, mockPersonnel, mockAircraft, allBookings, skippedSlots,
+  ).filter(r => !acceptedTemplateIds.has(r.template.id))
+
+  function handleSkip(rec) {
+    if (!rec.slot) return
+    setSkippedSlots(prev => new Set([...prev, `${rec.slot.dayIdx}:${rec.slot.slot}`]))
+  }
+
+  function handleAccept(rec) {
+    if (!rec.slot) return
+    const booking = {
+      id:         `_accepted_${Date.now()}`,
+      day:        rec.slot.dayIdx,
+      slot:       rec.slot.slot,
+      duration:   Math.ceil(rec.template.durationHr),
+      studentId:  student.id,
+      cfiId:      rec.cfi?.id ?? null,
+      aircraftId: rec.aircraft?.id ?? null,
+      type:       rec.template.type,
+      title:      rec.template.title,
+    }
+    setAcceptedBookings(prev => [...prev, booking])
+    setAcceptedTemplateIds(prev => new Set([...prev, rec.template.id]))
+    setToast({ title: rec.template.title, dateLabel: rec.slot.dateLabel, slotStr: rec.slot.slot.replace(/(\d{2})(\d{2})/, '$1:$2') })
+    setTimeout(() => setToast(null), 4000)
+  }
+
+  const hasSkips    = skippedSlots.size > 0
+  const hasAccepted = acceptedBookings.length > 0
+
+  if (!recommendations.length && !hasAccepted) return null
 
   return (
     <div>
-      <SectionTitle>Proposed Next 3 Lessons</SectionTitle>
-      <p className="text-slate-500 text-xs -mt-2 mb-3">
-        Based on program stage, hour gaps, CFI availability, aircraft requirements, and {student.preferences?.weatherMin === 'any' ? 'any' : 'VMC'} weather preference.
+      <div className="flex items-center justify-between mb-1">
+        <SectionTitle>Proposed Next Lessons</SectionTitle>
+        {hasSkips && (
+          <button
+            onClick={() => setSkippedSlots(new Set())}
+            className="text-xs text-slate-500 hover:text-slate-300 underline"
+          >
+            Reset skips
+          </button>
+        )}
+      </div>
+      <p className="text-slate-500 text-xs mb-3">
+        Paced to match training frequency · {student.preferences?.weatherMin === 'any' ? 'any weather' : 'VMC preference'} · accept to book, skip to propose alternatives
       </p>
+
+      {/* Toast */}
+      {toast && (
+        <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-400/10 border border-emerald-400/30 text-emerald-300 text-xs">
+          <span>✓</span>
+          <span><strong>{toast.title}</strong> added to schedule — {toast.dateLabel} at {toast.slotStr}</span>
+        </div>
+      )}
+
+      {/* Accepted bookings summary */}
+      {hasAccepted && (
+        <div className="mb-3 space-y-1">
+          {acceptedBookings.map(b => (
+            <div key={b.id} className="flex items-center gap-2 px-3 py-1.5 rounded bg-emerald-400/5 border border-emerald-400/20 text-xs text-emerald-400">
+              <span>✓</span>
+              <span className="flex-1">{b.title}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="space-y-3">
         {recommendations.map((rec, i) => {
           const { template, aircraft, cfi, slot, wx, fit, reason, acWarnings } = rec
-          const typeColor  = BOOKING_TYPE_COLORS[template.type] ?? 'bg-slate-400/20 border-slate-400/40 text-slate-300'
-          const fitColor   = WEATHER_FIT_COLORS[fit]
-          const fitLabel   = WEATHER_FIT_LABELS[fit]
+          const typeColor = BOOKING_TYPE_COLORS[template.type] ?? 'bg-slate-400/20 border-slate-400/40 text-slate-300'
+          const fitColor  = WEATHER_FIT_COLORS[fit]
+          const fitLabel  = WEATHER_FIT_LABELS[fit]
+          const canAccept = !!slot
+
+          const cfiWeight = template.type === 'solo' ? 0 : (cfi?.weightLbs ?? 0)
+          const wb        = aircraft ? calcTrainingWB(aircraft, studentWeightLbs ?? 0, cfiWeight) : null
+          const wbLevel   = wbStatusLevel(wb)
+          const wbStyle   = wbLevel ? WB_STATUS[wbLevel] : null
 
           return (
-            <div key={template.id} className="bg-surface-card border border-surface-border rounded-lg overflow-hidden">
+            <div key={`${template.id}-${i}`} className="bg-surface-card border border-surface-border rounded-lg overflow-hidden">
               {/* Header */}
               <div className="flex items-center gap-2 px-3 py-2 border-b border-surface-border/60">
                 <span className="text-slate-500 text-xs font-mono">#{i + 1}</span>
@@ -403,7 +493,22 @@ function NextLessonsPanel({ student }) {
                   {BOOKING_TYPE_LABELS[template.type]}
                 </span>
                 <p className="text-slate-100 font-medium text-sm flex-1">{template.title}</p>
-                <span className="text-slate-500 text-xs">{template.durationHr}h</span>
+                <span className="text-slate-500 text-xs mr-2">{template.durationHr}h</span>
+                {/* Skip / Accept */}
+                <button
+                  onClick={() => handleSkip(rec)}
+                  disabled={!slot}
+                  className="text-xs px-2 py-1 rounded border border-slate-600 text-slate-400 hover:border-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  Skip
+                </button>
+                <button
+                  onClick={() => handleAccept(rec)}
+                  disabled={!canAccept}
+                  className="text-xs px-2 py-1 rounded border border-emerald-500/60 text-emerald-400 hover:bg-emerald-400/10 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  Accept
+                </button>
               </div>
 
               {/* Body */}
@@ -444,10 +549,10 @@ function NextLessonsPanel({ student }) {
                       <p className="text-slate-200">{aircraft.tailNumber}</p>
                       <p className="text-slate-500">{aircraft.makeModel}</p>
                       <div className="flex flex-wrap gap-1 mt-1">
-                        {aircraft.equipment?.ifrCertified      && <span className="px-1.5 py-0.5 rounded text-xs border bg-sky-400/10    border-sky-400/30    text-sky-300">IFR</span>}
-                        {aircraft.riskProfile?.complexAircraft  && <span className="px-1.5 py-0.5 rounded text-xs border bg-amber-400/10  border-amber-400/30  text-amber-300">Complex</span>}
-                        {aircraft.riskProfile?.multiEngine      && <span className="px-1.5 py-0.5 rounded text-xs border bg-emerald-400/10 border-emerald-400/30 text-emerald-300">Multi</span>}
-                        {aircraft.equipment?.glassPanel         && <span className="px-1.5 py-0.5 rounded text-xs border bg-violet-400/10  border-violet-400/30  text-violet-300">Glass</span>}
+                        {aircraft.equipment?.ifrCertified     && <span className="px-1.5 py-0.5 rounded text-xs border bg-sky-400/10    border-sky-400/30    text-sky-300">IFR</span>}
+                        {aircraft.riskProfile?.complexAircraft && <span className="px-1.5 py-0.5 rounded text-xs border bg-amber-400/10  border-amber-400/30  text-amber-300">Complex</span>}
+                        {aircraft.riskProfile?.multiEngine     && <span className="px-1.5 py-0.5 rounded text-xs border bg-emerald-400/10 border-emerald-400/30 text-emerald-300">Multi</span>}
+                        {aircraft.equipment?.glassPanel        && <span className="px-1.5 py-0.5 rounded text-xs border bg-violet-400/10  border-violet-400/30  text-violet-300">Glass</span>}
                       </div>
                       {acWarnings.length > 0 && (
                         <p className="text-amber-400 mt-1">⚠ {acWarnings[0]}</p>
@@ -478,6 +583,27 @@ function NextLessonsPanel({ student }) {
                   )}
                 </div>
               </div>
+
+              {/* W&B bar */}
+              {wb && wbStyle && (
+                <div className={`flex items-center gap-3 px-3 py-1.5 border-t border-surface-border/40 text-xs ${wbStyle.bg}`}>
+                  <span className={`font-semibold ${wbStyle.color}`}>{wbStyle.label}</span>
+                  <span className="text-slate-400">
+                    {wb.totalWeightLbs} / {wb.maxGrossLbs} lbs
+                    {wb.overweight && <span className="text-risk-high ml-1">(+{wb.overweightBy} lbs over)</span>}
+                  </span>
+                  <span className="text-slate-500">·</span>
+                  <span className="text-slate-400">
+                    CG {wb.cgIn}" <span className="text-slate-600">({wb.cgForwardIn}–{wb.cgAftIn}")</span>
+                    {!wb.cgOk && <span className="text-risk-high ml-1">out of limits</span>}
+                  </span>
+                  <span className="text-slate-500">·</span>
+                  <span className="text-slate-600">{wb.fuelGal} gal · {wb.occupantLbs} lbs crew</span>
+                  {(!studentWeightLbs) && (
+                    <span className="text-amber-400 ml-auto">enter student weight above</span>
+                  )}
+                </div>
+              )}
 
               {/* Reason footer */}
               {reason && (
@@ -533,7 +659,7 @@ function CfisTab() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3 text-xs mt-2">
+              <div className="grid grid-cols-4 gap-3 text-xs mt-2">
                 <div>
                   <p className="text-slate-500">CFI Certificate</p>
                   <p className="text-slate-200 font-mono">{p.cfiCert}</p>
@@ -543,6 +669,10 @@ function CfisTab() {
                   <p className={EXPIRY_COLOR[medSt] ?? 'text-slate-400'}>
                     Class {p.medicalClass} · {expiryLabel(p.medicalExpiry)}
                   </p>
+                </div>
+                <div>
+                  <p className="text-slate-500">Flight Weight</p>
+                  <p className="text-slate-200">{p.weightLbs ? `${p.weightLbs} lbs` : <span className="text-slate-600">—</span>}</p>
                 </div>
                 <div>
                   <p className="text-slate-500">Active Students</p>

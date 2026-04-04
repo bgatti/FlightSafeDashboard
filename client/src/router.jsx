@@ -15,6 +15,11 @@ import { BusinessPnL } from './business/BusinessPnL'
 import { Management } from './management/Management'
 import { Leases } from './leases/Leases'
 import { Training } from './training/Training'
+import { GliderOps } from './glider/GliderOps'
+import { MileHighGliding } from './glider/MileHighGliding'
+import { JourneysBoulder } from './glider/JourneysBoulder'
+import { Clients } from './pages/Clients'
+import { Settings } from './pages/Settings'
 
 export function AppRoutes() {
   return (
@@ -23,8 +28,8 @@ export function AppRoutes() {
       <Route path="/flights"     element={<Flights />} />
       <Route path="/live"        element={<Navigate to="/flights" replace />} />
       <Route path="/plan"        element={<FlightPlanning />} />
-      <Route path="/personnel"   element={<Personnel />} />
-      <Route path="/aircraft"    element={<AircraftRegistry />} />
+      <Route path="/personnel"   element={<Navigate to="/management" replace />} />
+      <Route path="/aircraft"    element={<Navigate to="/management" replace />} />
       <Route path="/maintenance" element={<Maintenance />} />
       <Route path="/fbo"         element={<FBO />} />
       <Route path="/pos"         element={<POS />} />
@@ -32,19 +37,15 @@ export function AppRoutes() {
       <Route path="/management"  element={<Management />} />
       <Route path="/leases"      element={<Leases />} />
       <Route path="/training"    element={<Training />} />
+      <Route path="/glider-ops"  element={<GliderOps />} />
+      <Route path="/mile-high-gliding" element={<MileHighGliding />} />
+      <Route path="/journeys-boulder" element={<JourneysBoulder />} />
+      <Route path="/clients"     element={<Navigate to="/management" replace />} />
       <Route path="/sim"         element={<Sim />} />
-      <Route path="/comms"       element={<SafetyComms />} />
-      <Route path="/compliance"  element={<ComplianceCenter />} />
+      <Route path="/comms"       element={<Navigate to="/" replace />} />
+      <Route path="/compliance"  element={<Navigate to="/" replace />} />
       <Route path="/reports"     element={<PilotReports />} />
-      <Route path="/settings"    element={<SettingsPlaceholder />} />
+      <Route path="/settings"    element={<Settings />} />
     </Routes>
-  )
-}
-
-function SettingsPlaceholder() {
-  return (
-    <div className="text-slate-400 text-sm">
-      Settings — coming soon
-    </div>
   )
 }

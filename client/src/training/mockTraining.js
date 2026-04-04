@@ -95,6 +95,76 @@ export const PROGRAMS = {
       { id: 'dual',       label: 'Dual flight training',         min: 55,  unit: 'hrs' },
     ],
   },
+
+  glider_private_pilot: {
+    id:   'glider_private_pilot',
+    name: 'Glider Private Pilot Certificate',
+    reg:  'FAR Part 61 §61.109(f)',
+    icon: '🪂',
+    description: 'Earn your glider certificate. Tow-launched operations from KBDU. Aircraft: SGS 2-33A or G103.',
+    wetRatePerHr: 85,
+    instructorRatePerHr: 65,
+    towRatePerLaunch: 40,    // per tow (to 2000 ft)
+    typicalHours: { min: 10, avg: 20 },
+    typicalLaunches: { min: 20, avg: 35 },
+    typicalCost:  { min: 2_200, avg: 3_800 },
+    stages: [
+      { number: 1, title: 'Intro & Ground School',        objectives: ['Glider aerodynamics', 'Tow procedures', 'Traffic patterns'], minHours: 3 },
+      { number: 2, title: 'Dual Soaring & Pattern Work',  objectives: ['Aerotow techniques', 'Thermaling', 'Landing accuracy'], minHours: 5 },
+      { number: 3, title: 'Solo Operations',              objectives: ['First solo', 'Solo T&Ls ×5', 'Soaring XC'], minHours: 2 },
+    ],
+    requirements: [
+      { id: 'total_glider',  label: 'Total glider flight time',  min: 10,  unit: 'hrs' },
+      { id: 'solo_glider',   label: 'Solo PIC glider time',      min: 2,   unit: 'hrs' },
+      { id: 'launches',      label: 'Total launches',            min: 20,  unit: 'launches' },
+      { id: 'solo_launches', label: 'Solo launches',             min: 10,  unit: 'launches' },
+    ],
+  },
+
+  glider_add_on: {
+    id:   'glider_add_on',
+    name: 'Glider Add-On Rating',
+    reg:  'FAR Part 61 §61.63',
+    icon: '🪂',
+    description: 'Add glider to an existing pilot certificate. Expedited program for rated pilots. Aircraft: G103.',
+    wetRatePerHr: 95,
+    instructorRatePerHr: 65,
+    towRatePerLaunch: 45,
+    typicalHours: { min: 3, avg: 8 },
+    typicalLaunches: { min: 10, avg: 20 },
+    typicalCost:  { min: 900, avg: 1_800 },
+    stages: [
+      { number: 1, title: 'Transition & Pattern Work', objectives: ['Glider systems', 'Aerotow techniques', 'Accuracy landings'], minHours: 3 },
+      { number: 2, title: 'Solo & Checkride Prep',     objectives: ['Solo flights', 'Soaring maneuvers', 'Mock practical'],      minHours: 2 },
+    ],
+    requirements: [
+      { id: 'dual_glider',   label: 'Dual glider instruction',  min: 3,   unit: 'hrs' },
+      { id: 'solo_launches', label: 'Solo launches',             min: 5,   unit: 'launches' },
+    ],
+  },
+
+  glider_cfig: {
+    id:   'glider_cfig',
+    name: 'Glider Flight Instructor (CFIG)',
+    reg:  'FAR Part 61 §61.183',
+    icon: '🎓',
+    description: 'Glider instructor certificate. Requires Glider Commercial or ATP. Airport: KBDU.',
+    wetRatePerHr: 95,
+    instructorRatePerHr: 75,
+    towRatePerLaunch: 45,
+    typicalHours: { min: 15, avg: 25 },
+    typicalLaunches: { min: 25, avg: 40 },
+    typicalCost:  { min: 2_500, avg: 4_000 },
+    stages: [
+      { number: 1, title: 'Fundamentals of Instruction', objectives: ['Teaching methods', 'FITS', 'Scenario-based training'], minHours: 8 },
+      { number: 2, title: 'Instructor Maneuvers',        objectives: ['Spin training', 'Stall recognition', 'Aerotow emergencies'], minHours: 5 },
+      { number: 3, title: 'Checkride Prep',              objectives: ['CFIG oral', 'FOI written', 'Practical test'], minHours: 4 },
+    ],
+    requirements: [
+      { id: 'total_glider', label: 'Total glider PIC', min: 25,  unit: 'hrs' },
+      { id: 'instruction',  label: 'Dual given',        min: 5,   unit: 'hrs' },
+    ],
+  },
 }
 
 // ── Block Purchase Packages ────────────────────────────────────────────────────
@@ -121,9 +191,9 @@ export const CLUB_CONFIG = {
 export const mockClubMembers = [
   { id: 'cm-001', personnelId: 'prs-001', name: 'James Smith',    memberSince: '2022-01-01', duesCurrent: true,  lastPayDate: '2026-03-01', bfrCurrent: true,  medicalCurrent: true,  rentersUploaded: true  },
   { id: 'cm-002', personnelId: 'prs-003', name: 'Marcus Davis',   memberSince: '2023-06-15', duesCurrent: true,  lastPayDate: '2026-03-01', bfrCurrent: true,  medicalCurrent: true,  rentersUploaded: true  },
-  { id: 'cm-003', personnelId: 'prs-004', name: 'Anika Patel',    memberSince: '2024-02-01', duesCurrent: true,  lastPayDate: '2026-03-01', bfrCurrent: true,  medicalCurrent: true,  rentersUploaded: true  },
+  { id: 'cm-003', personnelId: 'prs-004', name: 'Anika Patel',    memberSince: '2024-02-01', duesCurrent: true,  lastPayDate: '2026-03-01', bfrCurrent: true,  medicalCurrent: true,  rentersUploaded: true,  gliderRating: true  },
   { id: 'cm-004', personnelId: 'prs-017', name: 'Linda Foster',   memberSince: '2021-09-01', duesCurrent: true,  lastPayDate: '2026-03-01', bfrCurrent: true,  medicalCurrent: true,  rentersUploaded: true  },
-  { id: 'cm-005', personnelId: 'prs-018', name: 'Greg Yamamoto',  memberSince: '2023-03-10', duesCurrent: true,  lastPayDate: '2026-03-01', bfrCurrent: true,  medicalCurrent: true,  rentersUploaded: true  },
+  { id: 'cm-005', personnelId: 'prs-018', name: 'Greg Yamamoto',  memberSince: '2023-03-10', duesCurrent: true,  lastPayDate: '2026-03-01', bfrCurrent: true,  medicalCurrent: true,  rentersUploaded: true,  gliderRating: true  },
   { id: 'cm-006', personnelId: null,      name: 'Fiona Weston',   memberSince: '2025-04-01', duesCurrent: false, lastPayDate: '2026-02-01', bfrCurrent: true,  medicalCurrent: true,  rentersUploaded: true  },
   { id: 'cm-007', personnelId: null,      name: 'Omar Khalid',    memberSince: '2024-11-15', duesCurrent: true,  lastPayDate: '2026-03-01', bfrCurrent: false, medicalCurrent: true,  rentersUploaded: true  },
   { id: 'cm-008', personnelId: null,      name: 'Pauline Greco',  memberSince: '2025-01-20', duesCurrent: true,  lastPayDate: '2026-03-01', bfrCurrent: true,  medicalCurrent: false, rentersUploaded: false },
@@ -161,6 +231,7 @@ export const mockStudents = [
   {
     id:              'std-001',
     name:            'Emily Carter',
+    weightLbs:       135,
     email:           'ecarter@email.com',
     phone:           '720-555-0101',
     enrolledDate:    '2025-11-01',
@@ -215,6 +286,7 @@ export const mockStudents = [
   {
     id:              'std-002',
     name:            'Tyler Mason',
+    weightLbs:       178,
     email:           'tmason@email.com',
     phone:           '303-555-0177',
     enrolledDate:    '2026-02-15',
@@ -253,6 +325,7 @@ export const mockStudents = [
   {
     id:              'std-003',
     name:            'Priya Singh',
+    weightLbs:       128,
     email:           'psingh@email.com',
     phone:           '720-555-0233',
     enrolledDate:    '2025-09-10',
@@ -306,6 +379,7 @@ export const mockStudents = [
   {
     id:              'std-004',
     name:            'Derek Hayes',
+    weightLbs:       193,
     email:           'dhayes@email.com',
     phone:           '303-555-0312',
     enrolledDate:    '2024-06-01',
@@ -354,6 +428,70 @@ export const mockStudents = [
         { id: 'req-renters',   label: "Renter's insurance current on date",    done: false }, // expired!
       ],
     },
+  },
+
+  // ── Glider students ────────────────────────────────────────────────────────
+  {
+    id:              'std-005',
+    name:            'Ryan Okada',
+    weightLbs:       172,
+    email:           'rokada@email.com',
+    phone:           '720-555-0198',
+    enrolledDate:    '2026-01-10',
+    program:         'glider_private_pilot',
+    currentStage:    2,
+    status:          'active',
+    assignedCfiId:   'prs-017',               // Linda Foster — CFIG
+    assignedAircraftIds: ['ac-008', 'ac-009'], // SGS 2-33A + G103 Twin Astir
+    preferences: {
+      preferredSlots: ['1000', '1100', '1300'],
+      preferredDays:  [0, 6],                  // weekends
+      weatherMin:     'vmc',
+    },
+    docs: {
+      governmentId:     { type: 'drivers_license', expiry: '2030-03-01', uploaded: true,  uploadDate: '2026-01-10' },
+      insurance:        { carrier: 'AVEMCO', policyNumber: 'AV-6612055', expiry: daysFrom(200), uploaded: true, uploadDate: '2026-01-10' },
+      medicalCert:      { class: 3, certNumber: 'MED-661202', expiry: '2028-01-31', uploaded: true, uploadDate: '2026-01-12' },
+      studentPilotCert: { certNumber: 'SPC-661202', issueDate: '2026-01-12', uploaded: true },
+    },
+    hours: {
+      total: 8.5, dual: 7.0, soloPIC: 1.5,
+    },
+    blockHoursPurchased: 15,
+    blockHoursUsed:       8.5,
+    clubMember:           false,
+    dpe: { status: 'not_started', scheduledDate: null, dpeId: null, tasks: [] },
+  },
+  {
+    id:              'std-006',
+    name:            'Sara Lindstrom',
+    weightLbs:       138,
+    email:           'slindstrom@email.com',
+    phone:           '303-555-0267',
+    enrolledDate:    '2025-10-15',
+    program:         'glider_add_on',
+    currentStage:    3,
+    status:          'active',
+    assignedCfiId:   'prs-017',               // Linda Foster — CFIG
+    assignedAircraftIds: ['ac-009'],           // G103 Twin Astir
+    preferences: {
+      preferredSlots: ['0900', '1000'],
+      preferredDays:  [2, 4, 6],              // Wed, Fri, Sat
+      weatherMin:     'vmc',
+    },
+    docs: {
+      governmentId: { type: 'drivers_license', expiry: '2028-09-15', uploaded: true, uploadDate: '2025-10-15' },
+      insurance:    { carrier: 'AVEMCO', policyNumber: 'AV-7730119', expiry: daysFrom(180), uploaded: true, uploadDate: '2025-10-15' },
+      medicalCert:  { class: 2, certNumber: 'MED-770119', expiry: daysFrom(290), uploaded: true, uploadDate: '2025-10-16' },
+      pilotCert:    { certNumber: 'PPL-770119', certType: 'Private', uploaded: true },
+    },
+    hours: {
+      total: 195.0, dual: 12.0, soloPIC: 183.0,
+    },
+    blockHoursPurchased: 10,
+    blockHoursUsed:       9.5,
+    clubMember:           true,
+    dpe: { status: 'not_started', scheduledDate: null, dpeId: null, tasks: [] },
   },
 ]
 

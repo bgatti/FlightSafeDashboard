@@ -1,3 +1,6 @@
+import { useState } from 'react'
+import { SafetyComms } from './SafetyComms'
+import { ComplianceCenter } from './ComplianceCenter'
 import { mockSmsPillars, mockPaveStatus } from '../mocks/smsOverview'
 import { mockSpiTargets, mockKpiTimeSeries, mockHeatMapData, mockHazards } from '../mocks/riskRegister'
 import { mockTrainingKpi } from '../mocks/personnel'
@@ -304,7 +307,11 @@ const laggingIndicators = [
   { label: 'Open audit findings',      value: 2,   unit: '',       trend: -1,  trendGood: true  },
 ]
 
+const SMS_TABS = ['Overview', 'Safety Comms', 'Compliance Center']
+
 export function SmsOverview() {
+  const [activeTab, setActiveTab] = useState('Overview')
+
   return (
     <div data-testid="page-sms-overview" className="space-y-6">
 
@@ -322,6 +329,30 @@ export function SmsOverview() {
           <p className="text-amber-400">FAA Part 5 compliance due: 2027-05-27</p>
         </div>
       </div>
+
+      {/* Tab bar */}
+      <div className="border-b border-surface-border flex gap-0" role="tablist" aria-label="SMS sections">
+        {SMS_TABS.map((t) => (
+          <button
+            key={t}
+            role="tab"
+            aria-selected={activeTab === t}
+            onClick={() => setActiveTab(t)}
+            className={[
+              'px-4 py-2 text-sm border-b-2 transition-colors',
+              activeTab === t
+                ? 'text-sky-400 border-sky-400'
+                : 'text-slate-400 border-transparent hover:text-slate-100 hover:border-slate-600',
+            ].join(' ')}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'Safety Comms' && <SafetyComms embedded />}
+      {activeTab === 'Compliance Center' && <ComplianceCenter embedded />}
+      {activeTab === 'Overview' && <>
 
       {/* SPI Scorecard strip */}
       <section aria-label="Safety Performance Indicators">
@@ -397,6 +428,7 @@ export function SmsOverview() {
           />
         </div>
       </section>
+      </>}
 
     </div>
   )
