@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { PortalIcon } from './icons'
 
 /**
  * Airport operations / field conditions dashboard.
@@ -41,7 +42,7 @@ export function AirportOps({ getOps, title = 'Current Operations', openLabel, cl
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           {displayFields.map((item) => (
             <div key={item.label} className="bg-surface-card border border-surface-border rounded-xl p-4 text-center">
-              <div className="text-2xl mb-1">{item.icon}</div>
+              <div className="flex justify-center mb-1.5 text-slate-400"><PortalIcon emoji={item.icon} size={20} /></div>
               <div className="text-slate-500 text-[10px] uppercase tracking-wide">{item.label}</div>
               <div className="text-white text-sm font-bold mt-1">{item.value ?? ops[item.key] ?? '--'}</div>
             </div>

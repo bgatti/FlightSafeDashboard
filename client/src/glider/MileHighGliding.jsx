@@ -5,7 +5,7 @@ import {
 } from './mhgData'
 import {
   PortalNav, PortalLoginModal, MiniGalleryStrip, GalleryGrid,
-  AirportOps, PortalFooter, SquawkPanel, STATUS_COLOR, fmt$, getAircraftPhoto,
+  AirportOps, PortalFooter, SquawkPanel, STATUS_COLOR, fmt$, getAircraftPhoto, PortalIcon,
 } from '../portal'
 import {
   ScheduleSection, FleetSection as JBFleetSection, StudentDashboard,
@@ -284,10 +284,10 @@ function HeroSection({ onBook }) {
           </a>
         </div>
         <div className="mt-8 flex flex-wrap gap-6 justify-center text-white/50 text-xs">
-          <span>✈️ Rides from $175</span>
-          <span>🏔️ Up to 10,600 ft</span>
-          <span>🎓 Flight instruction</span>
-          <span>📅 Year-round</span>
+          <span>Rides from $175</span>
+          <span>Up to 10,600 ft</span>
+          <span>Flight instruction</span>
+          <span>Year-round</span>
         </div>
       </div>
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 animate-bounce text-white/40">
@@ -381,7 +381,7 @@ function FleetSection({ user, onSquawk }) {
                     {user && (
                       <button onClick={(e) => { e.stopPropagation(); onSquawk?.(ac.tailNumber) }}
                         className="mt-3 w-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 py-2 rounded-xl text-xs transition-all border border-amber-500/20">
-                        🔧 Report Squawk — {ac.tailNumber}
+                        Report Squawk — {ac.tailNumber}
                       </button>
                     )}
                   </div>
@@ -442,7 +442,7 @@ function InstructionSection() {
           ))}
         </div>
         <div className="mt-8 bg-gradient-to-r from-sky-900/50 to-indigo-900/50 border border-sky-400/20 rounded-2xl p-8 text-center">
-          <h3 className="text-white text-xl font-bold mb-2">🎓 Complete Your Rating Here</h3>
+          <h3 className="text-white text-xl font-bold mb-2">Complete Your Rating Here</h3>
           <p className="text-slate-300 text-sm max-w-xl mx-auto leading-relaxed">
             From first flight to checkride — all at Mile High. Train in mountain soaring from day one.
             Most students solo in 30–40 flights. A glider rating typically costs $3,000–$5,000 — a fraction of powered flight.
@@ -533,12 +533,12 @@ function LeaderboardSection() {
 /* ─── START SOARING (MHG-specific "surprise me") ─── */
 function StartSoaringSection({ onBook }) {
   const cards = [
-    { icon: '🦅', title: 'Why Soaring?', body: 'No engine, no noise — just you and the sky. Pilots describe it as meditation at altitude. The Schweizer 2-32 once held a world record. You can fly one today.' },
-    { icon: '🏔️', title: 'Front Range Advantage', body: 'Mountain wave, thermal, and ridge lift converge right here. Boulder is one of the best soaring sites in North America — year-round, consistent, spectacular.' },
-    { icon: '⏱️', title: 'Solo Faster Than You Think', body: 'Most students solo in 30–40 flights. FAA examiner on staff means no traveling for your checkride. From first flight to certificate, all at MHG.' },
-    { icon: '💰', title: 'Affordable Aviation', body: 'A complete glider rating typically costs $3K–$5K — compare to $10K+ for powered. No fuel burn, lower insurance, simpler aircraft.' },
-    { icon: '📊', title: 'The Numbers', body: 'The 2-32 glides 34:1. Released at 10,600 ft, that\'s 30+ minutes with zero lift. And there\'s almost always lift over the Rockies.' },
-    { icon: '🌊', title: 'Mountain Wave', body: 'Westerly winds create standing waves above the Rockies that can carry gliders past 30,000 ft. Boulder is famous for it. Some days you climb faster than a jet.' },
+    { emoji: '🦅', title: 'Why Soaring?', body: 'No engine, no noise — just you and the sky. Pilots describe it as meditation at altitude. The Schweizer 2-32 once held a world record. You can fly one today.' },
+    { emoji: '🏔️', title: 'Front Range Advantage', body: 'Mountain wave, thermal, and ridge lift converge right here. Boulder is one of the best soaring sites in North America — year-round, consistent, spectacular.' },
+    { emoji: '⏱️', title: 'Solo Faster Than You Think', body: 'Most students solo in 30–40 flights. FAA examiner on staff means no traveling for your checkride. From first flight to certificate, all at MHG.' },
+    { emoji: '💰', title: 'Affordable Aviation', body: 'A complete glider rating typically costs $3K–$5K — compare to $10K+ for powered. No fuel burn, lower insurance, simpler aircraft.' },
+    { emoji: '📊', title: 'The Numbers', body: 'The 2-32 glides 34:1. Released at 10,600 ft, that\'s 30+ minutes with zero lift. And there\'s almost always lift over the Rockies.' },
+    { emoji: '🌊', title: 'Mountain Wave', body: 'Westerly winds create standing waves above the Rockies that can carry gliders past 30,000 ft. Boulder is famous for it. Some days you climb faster than a jet.' },
   ]
 
   return (
@@ -551,7 +551,7 @@ function StartSoaringSection({ onBook }) {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {cards.map((c) => (
             <div key={c.title} className="bg-surface-card border border-surface-border rounded-2xl p-6 hover:border-sky-400/30 transition-all group">
-              <div className="text-3xl mb-3 group-hover:scale-110 transition-transform inline-block">{c.icon}</div>
+              <div className="mb-3 group-hover:scale-110 transition-transform inline-block text-sky-400"><PortalIcon emoji={c.emoji} size={28} /></div>
               <h3 className="text-white font-bold mb-2">{c.title}</h3>
               <p className="text-slate-400 text-sm leading-relaxed">{c.body}</p>
             </div>

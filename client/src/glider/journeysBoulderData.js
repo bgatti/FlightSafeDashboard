@@ -507,29 +507,7 @@ export const JB_TRAINING = [
 ]
 
 /* ──────────────── GALLERY ──────────────── */
-// Aircraft type photos — Wikimedia Commons CC-licensed
-const WM = 'https://upload.wikimedia.org/wikipedia/commons/thumb'
-export const AIRCRAFT_TYPE_PHOTOS = {
-  'Cessna 150':   `${WM}/5/55/Cessna_150M_%28cropped%29.jpg/400px-Cessna_150M_%28cropped%29.jpg`,
-  'Diamond DA20':  `${WM}/1/1e/Diamond_DA20_%288735090139%29.jpg/400px-Diamond_DA20_%288735090139%29.jpg`,
-  'Cessna 172P':   `${WM}/b/b0/Cessna_172S_Skyhawk_SP%2C_Private_JP6817606.jpg/400px-Cessna_172S_Skyhawk_SP%2C_Private_JP6817606.jpg`,
-  'Cessna 172N':   `${WM}/b/b0/Cessna_172S_Skyhawk_SP%2C_Private_JP6817606.jpg/400px-Cessna_172S_Skyhawk_SP%2C_Private_JP6817606.jpg`,
-  'Cessna 172G':   `${WM}/b/b0/Cessna_172S_Skyhawk_SP%2C_Private_JP6817606.jpg/400px-Cessna_172S_Skyhawk_SP%2C_Private_JP6817606.jpg`,
-  'Cessna 172S':   `${WM}/b/b0/Cessna_172S_Skyhawk_SP%2C_Private_JP6817606.jpg/400px-Cessna_172S_Skyhawk_SP%2C_Private_JP6817606.jpg`,
-  'Cessna 182':    `${WM}/1/13/Cessna182t_skylane_n2231f_cotswoldairshow_2010_arp.jpg/400px-Cessna182t_skylane_n2231f_cotswoldairshow_2010_arp.jpg`,
-  'Citabria':      `${WM}/0/03/Citabria_7GCBC.jpg/400px-Citabria_7GCBC.jpg`,
-  'Pipistrel Alpha': `${WM}/9/9c/F-WLAB_Pipistrel_Alpha_Electro_3_%28cropped%29_2.jpg/400px-F-WLAB_Pipistrel_Alpha_Electro_3_%28cropped%29_2.jpg`,
-  'Pipistrel Virus': `${WM}/e/eb/G-PIVI_Pipistrel_Virus_SW127.jpg/400px-G-PIVI_Pipistrel_Virus_SW127.jpg`,
-}
-
-// Lookup: find photo by makeModel string (fuzzy match on type prefix)
-export function getAircraftPhoto(makeModel) {
-  if (!makeModel) return null
-  for (const [key, url] of Object.entries(AIRCRAFT_TYPE_PHOTOS)) {
-    if (makeModel.includes(key)) return url
-  }
-  return null
-}
+// Aircraft type photos moved to ../portal/portalConstants.js (shared across all portals)
 
 // Gallery images — real photos from journeysaviation.com
 const JB_IMG_BASE = 'https://www.journeysaviation.com/uploads/1/3/2/8/132898297'

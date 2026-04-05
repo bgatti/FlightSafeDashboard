@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { to: '/mile-high-gliding', label: 'Mile High Gliding', icon: '🏔️' },
   { to: '/journeys-boulder', label: 'Journeys Aviation', icon: '🛩️' },
   { to: '/skydiving',        label: 'Skydiving Ops',     icon: '🌤️' },
+  { to: '/mile-hi-skydiving', label: 'Mile Hi Skydiving', icon: '🪂' },
   { to: '/management',  label: 'Management',         icon: '📋' },
   { to: '/sim',         label: 'Simulation',         icon: '🎮' },
   { divider: true },

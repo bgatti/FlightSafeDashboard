@@ -21,8 +21,9 @@ import {
 import {
   PortalNav, PortalLoginModal, MiniGalleryStrip, GalleryGrid,
   AirportOps, PortalFooter, SquawkPanel as SharedSquawkPanel,
-  GALLERY_GRADIENTS, STATUS_COLOR, fmt$, getAircraftPhoto,
+  GALLERY_GRADIENTS, STATUS_COLOR, fmt$, getAircraftPhoto, PortalIcon,
 } from '../portal'
+import { IcMaint, IcDual, IcSolo, IcGround, IcShield } from '../portal/icons'
 import { towDeficiencyMin, towCycleMin, TOW_SETTINGS } from './gliderUtils'
 
 /* ═══════════════════════════════════════════════════════════
@@ -265,7 +266,7 @@ function MaintenanceSection({ user }) {
           <p className="text-slate-400">A&P, IA, and Rotax iRMT certified · ROTAX iRC</p>
         </div>
         <div className="max-w-lg mx-auto bg-surface-card border border-surface-border rounded-2xl p-8 text-center">
-          <div className="text-4xl mb-4">🔧</div>
+          <div className="mb-4 text-slate-400"><IcMaint size={32} stroke={1} /></div>
           <h3 className="text-white font-bold text-lg mb-2">Full-Service Maintenance Shop</h3>
           <p className="text-slate-400 text-sm mb-4">Annual, 100-hour, conditional & pre-buy inspections. Rotax Independent Repair Centre. SLSA maintenance and repair.</p>
           <div className="grid grid-cols-2 gap-3 mb-6 text-xs">
@@ -791,17 +792,18 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
               {/* ── Step 1: Dual / Solo / Ground / Checkride ── */}
               <div className="flex gap-1 mb-5 bg-surface-card border border-surface-border rounded-xl p-1">
                 {[
-                  { id: 'dual', label: '👨‍✈️ Dual', desc: 'With CFI' },
-                  { id: 'solo', label: '🧑‍✈️ Solo', desc: 'Endorsed' },
-                  { id: 'ground', label: '📚 Ground', desc: 'No aircraft' },
-                  { id: 'checkride', label: '✅ Check', desc: 'Eval / Currency' },
+                  { id: 'dual', label: 'Dual', desc: 'With CFI', Icon: IcDual },
+                  { id: 'solo', label: 'Solo', desc: 'Endorsed', Icon: IcSolo },
+                  { id: 'ground', label: 'Ground', desc: 'No aircraft', Icon: IcGround },
+                  { id: 'checkride', label: 'Check', desc: 'Eval / Currency', Icon: IcShield },
                 ].map((t) => (
                   <button key={t.id} onClick={() => { setFlightMode(t.id); setSessionType(''); if (t.id === 'ground') setAcMode('ground'); else setAcMode('fleet') }}
-                    className={`flex-1 py-3 rounded-lg text-xs sm:text-sm font-semibold transition-all ${
-                      flightMode === t.id ? (t.id === 'solo' ? 'bg-amber-500/20 text-amber-400' : t.id === 'ground' ? 'bg-purple-500/20 text-purple-400' : t.id === 'checkride' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-sky-500/20 text-sky-400') : 'text-slate-500 hover:text-slate-300'
+                    className={`flex-1 py-3 rounded-lg text-xs sm:text-sm font-medium transition-all flex flex-col items-center gap-1 ${
+                      flightMode === t.id ? 'bg-white/[0.07] text-slate-100 border border-white/10' : 'text-slate-500 hover:text-slate-300'
                     }`}>
+                    <t.Icon size={18} stroke={1.25} className={flightMode === t.id ? 'text-slate-200' : 'text-slate-500'} />
                     {t.label}
-                    <div className="text-[10px] font-normal opacity-60">{t.desc}</div>
+                    <div className="text-[10px] font-normal text-slate-600">{t.desc}</div>
                   </button>
                 ))}
               </div>
@@ -875,7 +877,7 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                         ) : (
                           <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0 ${
                             selected ? 'bg-emerald-400/20 text-emerald-400' : 'bg-surface border border-surface-border text-slate-500'
-                          }`}>{lesson.type === 'ground' ? '📚' : '✅'}</span>
+                          }`}>{lesson.type === 'ground' ? 'G' : '—'}</span>
                         )}
                         <div className="flex-1 min-w-0">
                           <div className={`text-xs font-semibold truncate ${done ? 'text-green-400/80' : selected ? 'text-sky-400' : 'text-slate-200'}`}>{lesson.title}</div>
@@ -1212,9 +1214,10 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                           const top = bsi * ROW_H
                           const height = spanHalfHours * ROW_H - 2
                           const cfi = cfiList.find((c) => c.id === bk.cfiId)
-                          // bk.title has the full topic (e.g. "Dual — Soaring Techniques"); extract the topic part after "—"
                           const topicPart = bk.title?.includes('—') ? bk.title.split('—').slice(1).join('—').trim() : bk.title
                           const isShort = spanHalfHours <= 2
+                          const isDual = bk.flightMode === 'dual' || bk.cfiId
+                          const isBkSolo = bk.flightMode === 'solo' && !bk.cfiId
 
                           const isStandby = bk.standby
                           const blockBg = isStandby ? 'bg-amber-500/20 border-2 border-amber-400/40' : 'bg-green-500/20 border-2 border-green-400/40'
@@ -1223,18 +1226,35 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                           const textSecondary = isStandby ? 'text-amber-300/80' : 'text-green-300/80'
                           const textTertiary = isStandby ? 'text-amber-400/60' : 'text-green-400/60'
 
+                          // Aircraft type photo for underlay
+                          const bkAc = fleet.find((a) => a.id === bk.aircraftId) || mockAircraft.find((a) => a.tailNumber === bk.aircraftLabel)
+                          const bkPhoto = getAircraftPhoto(bkAc?.makeModel || bk.aircraftLabel)
+
                           return (
                             <button key={bk.id} onClick={() => setEditingBooking(bk.id)}
-                              className={`absolute left-0.5 right-0.5 rounded-lg ${blockBg} text-left px-2.5 hover:brightness-125 transition-all z-10 overflow-hidden flex flex-col justify-center animate-[fadeIn_0.3s_ease] shadow-lg ${blockShadow}`}
+                              className={`absolute left-0.5 right-0.5 rounded-lg ${blockBg} text-left hover:brightness-125 transition-all z-10 overflow-hidden animate-[fadeIn_0.3s_ease] shadow-lg ${blockShadow}`}
                               style={{ top, height }}>
-                              {isStandby && <div className="text-amber-400 text-[8px] font-bold uppercase tracking-wider">STANDBY</div>}
-                              {topicPart && <div className={`${textPrimary} text-[9px] sm:text-xs font-bold leading-tight truncate`}>{topicPart}</div>}
-                              <div className={`${topicPart ? textSecondary : textPrimary} text-[9px] sm:text-xs leading-tight truncate`}>
-                                {bk.aircraftLabel || 'GND'}{cfi ? ` · ${cfi.name.split(' ')[0]}` : bk.flightMode === 'solo' ? ' · SOLO' : ''}
+                              {/* Aircraft photo underlay */}
+                              {bkPhoto && (
+                                <img src={bkPhoto} alt="" loading="lazy"
+                                  className="absolute inset-0 w-full h-full object-cover opacity-[0.12] pointer-events-none" />
+                              )}
+                              <div className="relative z-[1] px-2 py-1 flex flex-col justify-center h-full">
+                              {isStandby && <div className="text-amber-400 text-[9px] font-bold uppercase tracking-wider">STANDBY</div>}
+                              <div className="flex items-center gap-1.5">
+                                {isDual && <IcDual size={12} stroke={1.5} className={isStandby ? 'text-amber-300/70' : 'text-green-300/70'} />}
+                                {isBkSolo && <IcSolo size={12} stroke={1.5} className={isStandby ? 'text-amber-300/70' : 'text-green-300/70'} />}
+                                <span className={`${textPrimary} text-xs sm:text-sm font-bold leading-snug ${isShort ? 'truncate' : ''}`}>
+                                  {topicPart || bk.title || (bk.aircraftLabel || 'GND')}
+                                </span>
+                              </div>
+                              <div className={`${textSecondary} text-[10px] sm:text-xs leading-snug ${isShort ? 'truncate' : ''}`}>
+                                {bk.aircraftLabel || 'GND'}{cfi ? ` · ${cfi.name}` : isBkSolo ? ' · Solo' : ''}
                               </div>
                               {!isShort && (
-                                <div className={`${textTertiary} text-[8px] sm:text-[9px] mt-0.5`}>{slotLabel(bk.slot)} · {bk.duration} hr</div>
+                                <div className={`${textTertiary} text-[9px] sm:text-[10px] mt-0.5`}>{slotLabel(bk.slot)} · {bk.duration} hr</div>
                               )}
+                              </div>
                             </button>
                           )
                         })}
@@ -1257,12 +1277,18 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                           const spanH = Math.round((rec.template.durationHr || 1) * 2)
                           const top = rsi * ROW_H
                           const height = Math.max(spanH * ROW_H - 2, 60) // min height for buttons
+                          const propPhoto = rec.aircraft ? getAircraftPhoto(rec.aircraft.makeModel) : null
+                          const propIsDual = rec.template.type === 'dual_lesson'
                           return (
                             <div key={`prop-${ri}`}
-                              className="absolute left-0.5 right-0.5 rounded-lg bg-sky-400/8 border border-dashed border-sky-400/30 text-left px-2 py-1 z-[5] animate-breathe overflow-hidden flex flex-col justify-between"
+                              className="absolute left-0.5 right-0.5 rounded-lg bg-sky-400/8 border border-dashed border-sky-400/30 text-left z-[5] animate-breathe overflow-hidden flex flex-col justify-between"
                               style={{ top, height }}>
-                              <div>
-                                <div className="text-sky-300/80 text-[10px] font-semibold truncate">{rec.template.title}</div>
+                              {propPhoto && <img src={propPhoto} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-[0.08] pointer-events-none" />}
+                              <div className="relative z-[1] px-2 py-1">
+                                <div className="flex items-center gap-1 text-sky-300/80 text-[10px] font-semibold truncate">
+                                  {propIsDual ? <IcDual size={10} stroke={1.5} /> : <IcSolo size={10} stroke={1.5} />}
+                                  {rec.template.title}
+                                </div>
                                 <div className="text-sky-400/40 text-[8px]">{rec.cfi?.name?.split(' ')[0] || 'CFI'} · {rec.aircraft?.tailNumber || ''} · {rec.template.durationHr}hr</div>
                               </div>
                               <div className="flex gap-1 mt-0.5">
@@ -1349,8 +1375,8 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                 return (
                   <details key={cat.id} className="mb-2 group">
                     <summary className="flex items-center justify-between bg-surface-card border border-surface-border rounded-xl px-4 py-3 cursor-pointer hover:border-slate-500 transition-colors list-none">
-                      <div className="flex items-center gap-2">
-                        <span className="text-base">{cat.icon}</span>
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-slate-400"><PortalIcon emoji={cat.icon} size={18} /></span>
                         <span className="text-white text-sm font-semibold">{cat.label}</span>
                         <span className="text-slate-500 text-xs">({catFlights.length} flights)</span>
                       </div>
@@ -1367,11 +1393,17 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                         const billedLabel = pf?.billingMode === 'real_hour' ? 'real hr' : pf?.billingMode === 'tach' ? 'tach' : 'hr'
                         const rating = pf?.rating ? '★'.repeat(pf.rating) + '☆'.repeat(5 - pf.rating) : null
                         const acsCount = pf?.acsResults ? Object.values(pf.acsResults).filter(Boolean).length : 0
-                        // Extract topic from _sessionLabel (e.g. "Dual — Soaring Techniques" → "Soaring Techniques")
                         const topic = f._sessionLabel?.includes('—') ? f._sessionLabel.split('—').slice(1).join('—').trim() : null
                         const launches = pf?.numLaunches || f.towInfo?.numTows
+                        const fAc = mockAircraft.find((a) => a.tailNumber === f.tailNumber)
+                        const fPhoto = getAircraftPhoto(fAc?.makeModel)
                         return (
-                          <div key={f.id} className="bg-surface/30 rounded-lg px-3 py-2 text-xs">
+                          <div key={f.id} className="bg-surface/30 rounded-lg px-3 py-2 text-xs flex gap-3">
+                            {/* Aircraft thumb */}
+                            <div className="w-10 h-10 rounded-lg overflow-hidden bg-surface-card flex-shrink-0 mt-0.5">
+                              {fPhoto ? <img src={fPhoto} alt={f.tailNumber} loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-600 text-[10px]">✈</div>}
+                            </div>
+                            <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <span className={`w-2 h-2 rounded-full ${f.status === 'closed' ? 'bg-green-400' : f.status === 'planned' ? 'bg-sky-400' : 'bg-slate-500'}`} />
@@ -1398,6 +1430,7 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                             {f.waypoints?.length > 1 && (
                               <div className="text-[10px] text-sky-400/60 mt-0.5">{f.waypoints.join(' → ')}</div>
                             )}
+                            </div>{/* close flex-1 */}
                           </div>
                         )
                       })}
@@ -1863,7 +1896,7 @@ export function MyFleetSection({ user, onSquawk, operator = 'journeys' }) {
                   <div className="flex gap-2">
                     <button onClick={() => { onSquawk?.(ac.tail); setTimeout(() => document.getElementById('sec-squawk')?.scrollIntoView({ behavior: 'smooth' }), 100) }}
                       className="flex-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 py-2 rounded-xl text-[10px] font-medium transition-all border border-amber-500/20">
-                      🔧 Squawk
+                      Squawk
                     </button>
                     <button onClick={() => {
                         addServiceRequest({ id: `sr-mx-${Date.now()}`, type: 'annual_inspection', tailNumber: ac.tail, requestedBy: user.name, requestedDate: new Date().toISOString().split('T')[0], status: 'requested', operator, notes: `Annual inspection for ${ac.tail} (${ac.type})` })
@@ -2165,7 +2198,7 @@ export function FleetSection({ user, onBookAircraft, onSquawk, squawkVersion, op
                     {user && (
                       <button onClick={(e) => { e.stopPropagation(); onSquawk?.(ac.tailNumber); setTimeout(() => document.getElementById('sec-squawk')?.scrollIntoView({ behavior: 'smooth' }), 100) }}
                         className="mt-2 w-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 py-2 rounded-xl text-xs transition-all border border-amber-500/20">
-                        🔧 Report Squawk — {ac.tailNumber}
+                        Report Squawk — {ac.tailNumber}
                       </button>
                     )}
                   </div>
@@ -2459,6 +2492,12 @@ export function RecentFlightCard({ flight, user, squawks, operator = 'journeys' 
   const [safetyNarrative, setSafetyNarrative] = useState('')
   const [safetyItems, setSafetyItems] = useState({})
   const [safetySubmitted, setSafetySubmitted] = useState(false)
+  const [pirepTurb, setPirepTurb] = useState('') // NEG, LGT, MOD, SEV
+  const [pirepAlt, setPirepAlt] = useState('')
+  const [pirepIcing, setPirepIcing] = useState('')
+  const [pirepVis, setPirepVis] = useState(false)
+  const [pirepWind, setPirepWind] = useState(false)
+  const [pirepOther, setPirepOther] = useState('')
   const [closed, setClosed] = useState(false)
 
   const depTime = new Date(flight.plannedDepartureUtc)
@@ -2517,6 +2556,7 @@ export function RecentFlightCard({ flight, user, squawks, operator = 'journeys' 
         noSquawks,
         acsResults: acsChecks,
         acsAllMet: allAcsChecked,
+        pirep: (pirepTurb || pirepIcing || pirepVis || pirepWind || pirepOther) ? { turbulence: pirepTurb || null, altitude: pirepAlt || null, icing: pirepIcing || null, restrictedVis: pirepVis, shearOrGusts: pirepWind, remarks: pirepOther || null } : null,
         safetyReport: safetySubmitted ? { category: safetyCategory, items: safetyItems, narrative: safetyNarrative } : null,
         closedBy: user.name,
         closedAt: new Date().toISOString(),
@@ -2529,7 +2569,11 @@ export function RecentFlightCard({ flight, user, squawks, operator = 'journeys' 
     const wasCancelled = flight.status === 'cancelled' || (!isPast && closed)
     return (
       <div className={`${wasCancelled ? 'bg-slate-400/8 border-slate-400/20' : 'bg-green-400/8 border-green-400/20'} border rounded-2xl p-4 flex items-center gap-3 animate-[fadeIn_0.3s_ease]`}>
-        <span className="text-xl">{wasCancelled ? '🚫' : '✅'}</span>
+        {(() => { const photo = getAircraftPhoto(ac?.makeModel); return photo ? (
+          <div className="w-10 h-10 rounded-lg overflow-hidden bg-surface-card flex-shrink-0">
+            <img src={photo} alt={flight.tailNumber} loading="lazy" className="w-full h-full object-cover" />
+          </div>
+        ) : <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center text-[10px] font-bold ${wasCancelled ? 'border-slate-500 text-slate-500' : 'border-green-400/50 text-green-400'}`}>{wasCancelled ? '—' : '✓'}</span> })()}
         <div>
           <div className={`${wasCancelled ? 'text-slate-400' : 'text-green-400'} font-semibold text-sm`}>{wasCancelled ? 'Cancelled' : 'Flight closed'} — {flight.tailNumber || flight._sessionLabel}</div>
           <div className={`${wasCancelled ? 'text-slate-500' : 'text-green-400/60'} text-xs`}>{flight._sessionLabel || flight.callsign}{billableTime && !wasCancelled ? ` · ${billableTime} ${billingLabel}` : ''}</div>
@@ -2543,7 +2587,13 @@ export function RecentFlightCard({ flight, user, squawks, operator = 'journeys' 
       {/* Header */}
       <div className="flex items-center justify-between mb-3 cursor-pointer" onClick={() => setExpanded(!expanded)}>
         <div className="flex items-center gap-3">
-          <span className={`w-3 h-3 rounded-full ${isPast ? 'bg-amber-400 animate-pulse' : 'bg-sky-400'}`} />
+          {(() => { const photo = getAircraftPhoto(ac?.makeModel); return photo ? (
+            <div className="w-12 h-12 rounded-xl overflow-hidden bg-surface-card flex-shrink-0">
+              <img src={photo} alt={flight.tailNumber} loading="lazy" className="w-full h-full object-cover" />
+            </div>
+          ) : (
+            <span className={`w-3 h-3 rounded-full ${isPast ? 'bg-amber-400 animate-pulse' : 'bg-sky-400'}`} />
+          ) })()}
           <div>
             <div className="text-white font-bold text-base">{flight._sessionLabel || `${flight.tailNumber} — ${flight.missionType}`}</div>
             <div className="text-slate-400 text-xs">
@@ -2666,7 +2716,7 @@ export function RecentFlightCard({ flight, user, squawks, operator = 'journeys' 
               <div className="flex flex-wrap gap-2">
                 {[
                   { reason: 'weather', label: '🌧️ Weather', color: 'sky' },
-                  { reason: 'aircraft', label: '🔧 Aircraft Unavailable', color: 'amber' },
+                  { reason: 'aircraft', label: 'Aircraft Unavailable', color: 'amber' },
                   { reason: 'personal', label: '👤 Personal / Schedule', color: 'slate' },
                   { reason: 'instructor', label: '👨‍✈️ Instructor Unavailable', color: 'purple' },
                 ].map((opt) => (
@@ -2765,6 +2815,60 @@ export function RecentFlightCard({ flight, user, squawks, operator = 'journeys' 
               </div>
             )}
           </div>
+
+          {/* PIREP — lightweight pilot report */}
+          {isPast && (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-slate-500 text-[10px] uppercase tracking-wide w-full mb-0.5">PIREP</span>
+              {/* Turbulence */}
+              <div className="flex items-center gap-1">
+                <span className="text-slate-500 text-[10px]">Turb:</span>
+                {[
+                  { v: 'NEG', l: '−', tip: 'Negative' },
+                  { v: 'LGT', l: 'L', tip: 'Light' },
+                  { v: 'MOD', l: 'M', tip: 'Moderate' },
+                  { v: 'SEV', l: 'S', tip: 'Severe' },
+                ].map((t) => (
+                  <button key={t.v} title={t.tip} onClick={() => setPirepTurb(pirepTurb === t.v ? '' : t.v)}
+                    className={`w-6 h-6 rounded text-[10px] font-bold transition-all ${
+                      pirepTurb === t.v
+                        ? t.v === 'SEV' ? 'bg-red-400/25 text-red-400 ring-1 ring-red-400/40'
+                          : t.v === 'MOD' ? 'bg-amber-400/25 text-amber-400 ring-1 ring-amber-400/40'
+                          : t.v === 'LGT' ? 'bg-sky-400/25 text-sky-400 ring-1 ring-sky-400/40'
+                          : 'bg-green-400/25 text-green-400 ring-1 ring-green-400/40'
+                        : 'bg-surface border border-surface-border text-slate-600 hover:text-slate-300'
+                    }`}>{t.l}</button>
+                ))}
+              </div>
+              {/* Altitude */}
+              {pirepTurb && pirepTurb !== 'NEG' && (
+                <input type="text" placeholder="Alt (e.g. 8500)" value={pirepAlt} onChange={(e) => setPirepAlt(e.target.value)}
+                  className="w-20 bg-surface border border-surface-border rounded px-1.5 py-1 text-[10px] text-slate-200 placeholder:text-slate-700 focus:border-sky-400 focus:outline-none" />
+              )}
+              {/* Icing */}
+              <div className="flex items-center gap-1">
+                <span className="text-slate-500 text-[10px]">Ice:</span>
+                {['NEG', 'TRC', 'LGT', 'MOD'].map((v) => (
+                  <button key={v} onClick={() => setPirepIcing(pirepIcing === v ? '' : v)}
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-medium transition-all ${
+                      pirepIcing === v ? 'bg-cyan-400/25 text-cyan-400 ring-1 ring-cyan-400/40' : 'bg-surface border border-surface-border text-slate-600 hover:text-slate-300'
+                    }`}>{v}</button>
+                ))}
+              </div>
+              {/* Vis / Wind */}
+              <button onClick={() => setPirepVis(!pirepVis)}
+                className={`px-2 py-0.5 rounded text-[10px] transition-all ${pirepVis ? 'bg-amber-400/20 text-amber-400 ring-1 ring-amber-400/30' : 'bg-surface border border-surface-border text-slate-600 hover:text-slate-300'}`}>
+                🌫️ Vis
+              </button>
+              <button onClick={() => setPirepWind(!pirepWind)}
+                className={`px-2 py-0.5 rounded text-[10px] transition-all ${pirepWind ? 'bg-amber-400/20 text-amber-400 ring-1 ring-amber-400/30' : 'bg-surface border border-surface-border text-slate-600 hover:text-slate-300'}`}>
+                💨 Shear
+              </button>
+              {/* Other */}
+              <input type="text" placeholder="Other..." value={pirepOther} onChange={(e) => setPirepOther(e.target.value)}
+                className="flex-1 min-w-[80px] bg-surface border border-surface-border rounded px-1.5 py-1 text-[10px] text-slate-200 placeholder:text-slate-700 focus:border-sky-400 focus:outline-none" />
+            </div>
+          )}
 
           {/* NASA Report / Airport Issue */}
           {isPast && (
@@ -3488,7 +3592,9 @@ export function StudentDashboard({ user, operator = 'journeys' }) {
                           accepted ? 'bg-green-400/8 border-green-400/20' : 'bg-sky-400/[0.04] border-sky-400/15 animate-breathe-slow'
                         }`}>
                           <div className="flex items-center gap-3 min-w-0">
-                            <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${accepted ? 'bg-green-400' : 'bg-sky-400/50'}`} />
+                            {(() => { const ph = rec.aircraft ? getAircraftPhoto(rec.aircraft.makeModel) : null; return ph ? (
+                              <div className="w-10 h-10 rounded-lg overflow-hidden bg-surface-card flex-shrink-0"><img src={ph} alt="" loading="lazy" className="w-full h-full object-cover" /></div>
+                            ) : <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${accepted ? 'bg-green-400' : 'bg-sky-400/50'}`} /> })()}
                             <div className="min-w-0">
                               <div className={`text-sm font-medium truncate ${accepted ? 'text-green-400' : 'text-slate-200'}`}>
                                 {rec.template.title}
@@ -3528,13 +3634,13 @@ export function StudentDashboard({ user, operator = 'journeys' }) {
             <div className="bg-surface-card border border-surface-border rounded-2xl overflow-hidden">
               <div className="flex border-b border-surface-border">
                 {[
-                  { id: 'dual', label: 'Dual', icon: '👨‍✈️' },
-                  { id: 'solo', label: 'Solo', icon: '🧑‍✈️' },
-                  { id: 'ground', label: 'Ground', icon: '📚' },
+                  { id: 'dual', label: 'Dual', emoji: '👨‍✈️' },
+                  { id: 'solo', label: 'Solo', emoji: '🧑‍✈️' },
+                  { id: 'ground', label: 'Ground', emoji: '📚' },
                 ].map((t) => (
                   <button key={t.id} onClick={() => setAcsTab(t.id)}
                     className={`flex-1 py-2.5 text-xs font-medium transition-colors ${acsTab === t.id ? 'text-sky-400 border-b-2 border-sky-400 bg-sky-400/5' : 'text-slate-500 hover:text-slate-300'}`}>
-                    {t.icon} {t.label}
+                    <PortalIcon emoji={t.emoji} size={14} className="inline-block mr-1" />{t.label}
                   </button>
                 ))}
               </div>

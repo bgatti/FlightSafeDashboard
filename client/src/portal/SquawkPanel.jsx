@@ -38,7 +38,7 @@ export function SquawkPanel({ tailNumber, user, aircraftLabel, onClose }) {
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h2 className="text-2xl font-bold text-white">🔧 Squawk — {tailNumber}</h2>
+            <h2 className="text-2xl font-bold text-white">Squawk — {tailNumber}</h2>
             <p className="text-slate-400 text-sm">{aircraftLabel || 'Aircraft'} · Report an issue or review squawks</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl leading-none transition-colors">×</button>
@@ -78,7 +78,7 @@ export function SquawkPanel({ tailNumber, user, aircraftLabel, onClose }) {
 
         {submitted ? (
           <div className="bg-green-400/10 border border-green-400/20 rounded-2xl p-6 text-center animate-[fadeIn_0.3s_ease]">
-            <div className="text-2xl mb-2">✅</div>
+            <div className="w-6 h-6 rounded-full border-2 border-green-400/50 flex items-center justify-center text-green-400 text-xs font-bold mb-2 mx-auto">✓</div>
             <div className="text-green-400 font-semibold">Squawk submitted for {tailNumber}</div>
             <div className="text-slate-500 text-xs mt-1">Maintenance will review within 24 hours</div>
           </div>

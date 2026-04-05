@@ -5,7 +5,7 @@ import { Header } from './Header'
 import { AppRoutes } from '../../router'
 
 /** Routes that render as full-screen portals (no sidebar / header) */
-const PORTAL_ROUTES = ['/mile-high-gliding', '/journeys-boulder']
+const PORTAL_ROUTES = ['/mile-high-gliding', '/journeys-boulder', '/mile-hi-skydiving']
 
 export function Layout() {
   const sidebarOpen = useUiStore((s) => s.sidebarOpen)

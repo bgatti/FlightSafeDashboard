@@ -17,6 +17,7 @@ import { Leases } from './leases/Leases'
 import { Training } from './training/Training'
 import { GliderOps } from './glider/GliderOps'
 import { SkydivingOps } from './skydiving/SkydivingOps'
+import { MileHiSkydiving } from './skydiving/MileHiSkydiving'
 import { MileHighGliding } from './glider/MileHighGliding'
 import { JourneysBoulder } from './glider/JourneysBoulder'
 import { Clients } from './pages/Clients'
@@ -40,6 +41,7 @@ export function AppRoutes() {
       <Route path="/training"    element={<Training />} />
       <Route path="/glider-ops"  element={<GliderOps />} />
       <Route path="/skydiving"   element={<SkydivingOps />} />
+      <Route path="/mile-hi-skydiving" element={<MileHiSkydiving />} />
       <Route path="/mile-high-gliding" element={<MileHighGliding />} />
       <Route path="/journeys-boulder" element={<JourneysBoulder />} />
       <Route path="/clients"     element={<Navigate to="/management" replace />} />
