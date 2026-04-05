@@ -5,11 +5,11 @@ import {
 } from './mhgData'
 import {
   PortalNav, PortalLoginModal, MiniGalleryStrip, GalleryGrid,
-  AirportOps, PortalFooter, SquawkPanel, STATUS_COLOR, fmt$,
+  AirportOps, PortalFooter, SquawkPanel, STATUS_COLOR, fmt$, getAircraftPhoto,
 } from '../portal'
 import {
   ScheduleSection, FleetSection as JBFleetSection, StudentDashboard,
-  RecentFlightBox, MyFleetSection,
+  MyFleetSection,
 } from './JourneysBoulder'
 
 /* ═══════════════════════════════════════════════════════════
@@ -347,7 +347,13 @@ function FleetSection({ user, onSquawk }) {
             const open = expanded === ac.id
             return (
               <div key={ac.id} onClick={() => setExpanded(open ? null : ac.id)}
-                className={`${s.bg} border ${s.border} rounded-2xl p-5 cursor-pointer transition-all hover:scale-[1.01]`}>
+                className={`${s.bg} border ${s.border} rounded-2xl overflow-hidden cursor-pointer transition-all hover:scale-[1.01]`}>
+                {(() => { const photo = getAircraftPhoto(ac.type); return photo ? (
+                  <div className="h-32 bg-surface">
+                    <img src={photo} alt={ac.type} loading="lazy" className="w-full h-full object-cover" />
+                  </div>
+                ) : null })()}
+                <div className="p-5">
                 <div className="flex items-start justify-between mb-2">
                   <div>
                     <div className="text-white text-base font-bold">{ac.type}</div>
@@ -380,6 +386,7 @@ function FleetSection({ user, onSquawk }) {
                     )}
                   </div>
                 )}
+                </div>{/* close p-5 wrapper */}
               </div>
             )
           })}
@@ -677,7 +684,7 @@ export function MileHighGliding() {
       {isStudent ? (
         <>
           <StudentDashboard user={user} operator="mhg" />
-          <div className="px-4 sm:px-6 pb-6"><div className="max-w-6xl mx-auto"><RecentFlightBox user={user} operator="mhg" /></div></div>
+
           <ScheduleSection user={user} selectedAircraft={bookingAircraft} onSelectAircraft={setBookingAircraft} onClearAircraft={() => setBookingAircraft(null)} operator="mhg" />
           <MiniGalleryStrip gallery={MHG_GALLERY} category="flights" />
           <JBFleetSection user={user} onBookAircraft={setBookingAircraft} onSquawk={(tail) => { setSquawkTail(tail); setSquawkVersion((v) => v + 1) }} squawkVersion={squawkVersion} operator="mhg" />
@@ -691,7 +698,7 @@ export function MileHighGliding() {
         <>
           {/* ── Logged-in renter/CFI view: recent flights + schedule + full fleet ── */}
           <HeroSection onBook={setBooking} />
-          <div className="px-4 sm:px-6 pb-6"><div className="max-w-6xl mx-auto"><RecentFlightBox user={user} operator="mhg" /></div></div>
+
           <ScheduleSection user={user} selectedAircraft={bookingAircraft} onSelectAircraft={setBookingAircraft} onClearAircraft={() => setBookingAircraft(null)} operator="mhg" />
           <MiniGalleryStrip gallery={MHG_GALLERY} category="flights" />
           <JBFleetSection user={user} onBookAircraft={setBookingAircraft} onSquawk={(tail) => { setSquawkTail(tail); setSquawkVersion((v) => v + 1) }} squawkVersion={squawkVersion} operator="mhg" />

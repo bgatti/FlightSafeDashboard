@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   JB_INFO, JB_STAFF, JB_MEMBERSHIP, JB_INSTRUCTION_RATES,
   JB_INSURANCE, JB_FUEL, JB_FBO_SERVICES, JB_TRAINING, JB_GALLERY,
-  JB_RESOURCES, getJBTodayOps, getAircraftPhoto,
+  JB_RESOURCES, getJBTodayOps,
 } from './journeysBoulderData'
 import { getAircraftByOperator } from '../mocks/aircraft'
 import { mockAircraft } from '../mocks/aircraft'
@@ -21,7 +21,7 @@ import {
 import {
   PortalNav, PortalLoginModal, MiniGalleryStrip, GalleryGrid,
   AirportOps, PortalFooter, SquawkPanel as SharedSquawkPanel,
-  GALLERY_GRADIENTS, STATUS_COLOR, fmt$,
+  GALLERY_GRADIENTS, STATUS_COLOR, fmt$, getAircraftPhoto,
 } from '../portal'
 import { towDeficiencyMin, towCycleMin, TOW_SETTINGS } from './gliderUtils'
 
@@ -592,16 +592,19 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
   const buildLabel = (cfiId) => {
     const cfi = cfiList.find((c) => c.id === cfiId)
     const parts = []
-    const autoAc = getAutoPick()
-    if (selectedAircraft) parts.push(selectedAircraft.tailNumber)
-    else if (acMode === 'own' && ownTail) parts.push(ownTail)
-    else if (acMode === 'ground') parts.push('Ground')
-    else if (autoAc) parts.push(autoAc.tailNumber)
-    if (session) parts.push(session.label)
+    // Flight mode prefix
     if (isSolo && !cfiId) parts.push('Solo')
-    else if (!session && cfiId) parts.push('Dual')
-    else if (!session && !cfiId) parts.push('Solo')
-    if (cfi) parts.push(`w/ ${cfi.name}`)
+    else if (cfiId) parts.push('Dual')
+    else parts.push('Solo')
+    // Lesson topic — check CFI_SESSION_TYPES first, then curriculum lesson templates
+    if (session) {
+      parts.push(session.label)
+    } else if (sessionType) {
+      const templates = LESSON_TEMPLATES[user.program] || {}
+      const allT = Object.values(templates).flat()
+      const tmpl = allT.find((t) => t.id === sessionType)
+      if (tmpl) parts.push(tmpl.title)
+    }
     return parts.join(' — ')
   }
 
@@ -672,6 +675,8 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
         _bookingId: booking.id,
         _duration: actualHrs,
         _sessionLabel: label,
+        _lessonTemplateId: sessionType || null,
+        _lessonTitle: session?.label || (sessionType ? (Object.values(LESSON_TEMPLATES[user.program] || {}).flat().find((t) => t.id === sessionType)?.title) : null) || null,
         // Glider tow info: derive from lesson template towProfile or defaults
         ...(ac?.glider || ac?.needs_tow ? (() => {
           const tp = activeSession?.towProfile || session?.towProfile
@@ -1207,7 +1212,8 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                           const top = bsi * ROW_H
                           const height = spanHalfHours * ROW_H - 2
                           const cfi = cfiList.find((c) => c.id === bk.cfiId)
-                          const sessionLabel = CFI_SESSION_TYPES.find((s) => s.id === bk.type)?.label
+                          // bk.title has the full topic (e.g. "Dual — Soaring Techniques"); extract the topic part after "—"
+                          const topicPart = bk.title?.includes('—') ? bk.title.split('—').slice(1).join('—').trim() : bk.title
                           const isShort = spanHalfHours <= 2
 
                           const isStandby = bk.standby
@@ -1222,17 +1228,12 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                               className={`absolute left-0.5 right-0.5 rounded-lg ${blockBg} text-left px-2.5 hover:brightness-125 transition-all z-10 overflow-hidden flex flex-col justify-center animate-[fadeIn_0.3s_ease] shadow-lg ${blockShadow}`}
                               style={{ top, height }}>
                               {isStandby && <div className="text-amber-400 text-[8px] font-bold uppercase tracking-wider">STANDBY</div>}
-                              <div className={`${textPrimary} text-xs sm:text-sm font-bold leading-tight truncate`}>
-                                {bk.aircraftLabel || 'GND'}
-                              </div>
-                              <div className={`${textSecondary} text-[10px] sm:text-xs leading-tight truncate`}>
-                                {cfi ? cfi.name : 'SOLO'}
+                              {topicPart && <div className={`${textPrimary} text-[9px] sm:text-xs font-bold leading-tight truncate`}>{topicPart}</div>}
+                              <div className={`${topicPart ? textSecondary : textPrimary} text-[9px] sm:text-xs leading-tight truncate`}>
+                                {bk.aircraftLabel || 'GND'}{cfi ? ` · ${cfi.name.split(' ')[0]}` : bk.flightMode === 'solo' ? ' · SOLO' : ''}
                               </div>
                               {!isShort && (
-                                <>
-                                  {sessionLabel && <div className={`${textTertiary} text-[9px] sm:text-[10px] leading-tight truncate`}>{sessionLabel}</div>}
-                                  <div className={`${textTertiary} text-[8px] sm:text-[9px] mt-0.5`}>{slotLabel(bk.slot)} · {bk.duration} hr</div>
-                                </>
+                                <div className={`${textTertiary} text-[8px] sm:text-[9px] mt-0.5`}>{slotLabel(bk.slot)} · {bk.duration} hr</div>
                               )}
                             </button>
                           )
@@ -1362,22 +1363,31 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                       {catFlights.map((f) => {
                         const dep = new Date(f.plannedDepartureUtc)
                         const pf = f._postFlight
-                        const hrs = pf?.hobbsTime || f._duration || '—'
+                        const billedHrs = pf?.hobbsTime || pf?.realHours || f._duration || '—'
+                        const billedLabel = pf?.billingMode === 'real_hour' ? 'real hr' : pf?.billingMode === 'tach' ? 'tach' : 'hr'
                         const rating = pf?.rating ? '★'.repeat(pf.rating) + '☆'.repeat(5 - pf.rating) : null
                         const acsCount = pf?.acsResults ? Object.values(pf.acsResults).filter(Boolean).length : 0
+                        // Extract topic from _sessionLabel (e.g. "Dual — Soaring Techniques" → "Soaring Techniques")
+                        const topic = f._sessionLabel?.includes('—') ? f._sessionLabel.split('—').slice(1).join('—').trim() : null
+                        const launches = pf?.numLaunches || f.towInfo?.numTows
                         return (
                           <div key={f.id} className="bg-surface/30 rounded-lg px-3 py-2 text-xs">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <span className={`w-2 h-2 rounded-full ${f.status === 'closed' ? 'bg-green-400' : f.status === 'planned' ? 'bg-sky-400' : 'bg-slate-500'}`} />
-                                <span className="text-slate-200 font-medium">{f._sessionLabel || f.tailNumber}</span>
+                                {topic ? (
+                                  <span className="text-slate-100 font-semibold">{topic}</span>
+                                ) : (
+                                  <span className="text-slate-200 font-medium">{f._sessionLabel || f.tailNumber}</span>
+                                )}
                               </div>
                               <span className="text-slate-500">{dep.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                             </div>
-                            <div className="flex items-center gap-3 mt-1 text-[10px] text-slate-500">
+                            <div className="flex items-center gap-3 mt-1 text-[10px] text-slate-500 flex-wrap">
                               <span>{f.tailNumber}</span>
                               {f.pic && <span>PIC: {f.pic}</span>}
-                              <span className="text-sky-400 font-medium">{hrs} hr</span>
+                              <span className="text-sky-400 font-medium">{billedHrs} {billedLabel}</span>
+                              {launches && <span className="text-indigo-400">{launches} tow{launches > 1 ? 's' : ''}</span>}
                               {pf?.tachStart && pf?.tachEnd && <span>Tach: {pf.tachStart}→{pf.tachEnd}</span>}
                               {acsCount > 0 && <span className="text-green-400">{acsCount} ACS ✓</span>}
                               {rating && <span className="text-amber-400">{rating}</span>}
@@ -1404,6 +1414,10 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
           const bk = bookings.find((b) => b.id === editingBooking)
           if (!bk) { setEditingBooking(null); return null }
           const cfi = cfiList.find((c) => c.id === bk.cfiId)
+          // Look up lesson template for tow info + full title
+          const bkTemplates = LESSON_TEMPLATES[user.program] || {}
+          const bkLesson = Object.values(bkTemplates).flat().find((t) => t.id === bk.type) || null
+          const bkTopic = bk.title?.includes('—') ? bk.title.split('—').slice(1).join('—').trim() : bk.title
           return (
             <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setEditingBooking(null)}>
               <div className="bg-surface-card border border-surface-border rounded-2xl p-6 w-full max-w-md mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -1415,13 +1429,24 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                   <button onClick={() => setEditingBooking(null)} className="text-slate-400 hover:text-white text-xl leading-none">×</button>
                 </div>
 
+                {bk.standby && (
+                  <div className="bg-amber-400/10 border border-amber-400/20 rounded-xl px-3 py-2 mb-4 text-amber-400 text-xs font-medium">
+                    ⚠ Standby — tow capacity not confirmed for this slot
+                  </div>
+                )}
+
                 <div className="space-y-4">
                   {/* Summary */}
                   <div className="bg-surface border border-surface-border rounded-xl p-3 space-y-1 text-sm">
+                    {bkTopic && <div className="flex justify-between"><span className="text-slate-500">Lesson</span><span className="text-white font-semibold">{bkTopic}</span></div>}
                     {bk.aircraftLabel && <div className="flex justify-between"><span className="text-slate-500">Aircraft</span><span className="text-slate-200">{bk.aircraftLabel}</span></div>}
-                    <div className="flex justify-between"><span className="text-slate-500">Type</span><span className="text-slate-200 capitalize">{bk.type.replace(/_/g, ' ')}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Type</span><span className="text-slate-200 capitalize">{bk.flightMode || bk.type.replace(/_/g, ' ')}</span></div>
                     {cfi && <div className="flex justify-between"><span className="text-slate-500">Instructor</span><span className="text-sky-400">{cfi.name}</span></div>}
                     <div className="flex justify-between"><span className="text-slate-500">When</span><span className="text-slate-200">{SCHEDULE_DAYS[bk.dayIdx]} {slotLabel(bk.slot)}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Duration</span><span className="text-slate-200">{bk.duration} hr</span></div>
+                    {bkLesson?.towProfile && (
+                      <div className="flex justify-between"><span className="text-slate-500">Tows</span><span className="text-indigo-400">{bkLesson.towProfile.numTows} × {bkLesson.towProfile.heights.map((h) => `${(h / 1000).toFixed(0)}k`).join(', ')} ft</span></div>
+                    )}
                   </div>
 
                   {/* Duration adjuster */}
@@ -1804,6 +1829,34 @@ export function MyFleetSection({ user, onSquawk, operator = 'journeys' }) {
                 {totalItems === 0 && closedSquawks.length === 0 && completed.length === 0 && (
                   <p className="text-slate-600 text-[10px]">No maintenance history</p>
                 )}
+
+                {/* Annual recommendation */}
+                {(() => {
+                  const annuals = reqs.filter((r) => r.type === 'annual_inspection')
+                  const lastAnnual = annuals.find((r) => r.status === 'completed')
+                  const pendingAnnual = annuals.find((r) => r.status === 'requested' || r.status === 'scheduled' || r.status === 'in_progress')
+                  const lastDate = lastAnnual?.requestedDate ? new Date(lastAnnual.requestedDate) : null
+                  const monthsSince = lastDate ? Math.round((Date.now() - lastDate.getTime()) / (30 * 86400000)) : 999
+                  const needsAnnual = monthsSince >= 9 && !pendingAnnual
+                  if (!needsAnnual) return null
+                  return (
+                    <div className="mt-2 bg-sky-400/8 border border-sky-400/20 rounded-xl p-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">📋</span>
+                        <div>
+                          <div className="text-sky-400 text-xs font-semibold">Annual inspection recommended</div>
+                          <div className="text-slate-500 text-[10px]">{lastDate ? `Last: ${lastDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} (${monthsSince} months ago)` : 'No annual on record'}</div>
+                        </div>
+                      </div>
+                      <button onClick={() => {
+                          addServiceRequest({ id: `sr-ann-${Date.now()}`, type: 'annual_inspection', tailNumber: ac.tail, requestedBy: user.name, requestedDate: new Date().toISOString().split('T')[0], status: 'requested', operator, notes: `Annual inspection recommended — ${monthsSince >= 12 ? 'OVERDUE' : 'due soon'}. ${ac.tail} (${ac.type})` })
+                        }}
+                        className="text-[10px] text-sky-400 bg-sky-400/15 border border-sky-400/25 px-3 py-1.5 rounded-lg hover:bg-sky-400/25 transition-colors font-medium flex-shrink-0">
+                        Schedule
+                      </button>
+                    </div>
+                  )
+                })()}
 
                 {/* Action buttons + quick services */}
                 <div className="mt-3 space-y-2">
@@ -2400,6 +2453,12 @@ export function RecentFlightCard({ flight, user, squawks, operator = 'journeys' 
   const [showSquawkForm, setShowSquawkForm] = useState(false)
   const [squawkDesc, setSquawkDesc] = useState('')
   const [squawkSeverity, setSquawkSeverity] = useState('monitoring')
+  const [acsChecks, setAcsChecks] = useState({})
+  const [showSafetyReport, setShowSafetyReport] = useState(false)
+  const [safetyCategory, setSafetyCategory] = useState('')
+  const [safetyNarrative, setSafetyNarrative] = useState('')
+  const [safetyItems, setSafetyItems] = useState({})
+  const [safetySubmitted, setSafetySubmitted] = useState(false)
   const [closed, setClosed] = useState(false)
 
   const depTime = new Date(flight.plannedDepartureUtc)
@@ -2409,6 +2468,12 @@ export function RecentFlightCard({ flight, user, squawks, operator = 'journeys' 
   // Detect glider
   const ac = mockAircraft.find((a) => a.tailNumber === flight.tailNumber || a.tailNumber === flight.callsign)
   const isGlider = ac?.glider || ac?.fboCategory === 'glider' || operator === 'mhg'
+
+  // ACS items for this lesson — check _lessonTitle first, then _sessionLabel
+  const lessonTitle = flight._lessonTitle || flight._sessionLabel || ''
+  const acsMap = isGlider ? GLIDER_LESSON_ACS_MAP : LESSON_ACS_MAP
+  const acsItems = acsMap[lessonTitle] || acsMap[Object.keys(acsMap).find((k) => lessonTitle.includes(k))] || GENERIC_ACS
+  const allAcsChecked = acsItems.every((item) => acsChecks[item])
   const getBillableTime = () => {
     if (billingMode === 'hobbs' && hobbsStart && hobbsEnd) return (parseFloat(hobbsEnd) - parseFloat(hobbsStart)).toFixed(1)
     if (billingMode === 'tach' && tachStart && tachEnd) return (parseFloat(tachEnd) - parseFloat(tachStart)).toFixed(1)
@@ -2450,6 +2515,9 @@ export function RecentFlightCard({ flight, user, squawks, operator = 'journeys' 
         towHeight: isGlider ? towHeight : null,
         rating,
         noSquawks,
+        acsResults: acsChecks,
+        acsAllMet: allAcsChecked,
+        safetyReport: safetySubmitted ? { category: safetyCategory, items: safetyItems, narrative: safetyNarrative } : null,
         closedBy: user.name,
         closedAt: new Date().toISOString(),
       },
@@ -2458,12 +2526,13 @@ export function RecentFlightCard({ flight, user, squawks, operator = 'journeys' 
   }
 
   if (closed) {
+    const wasCancelled = flight.status === 'cancelled' || (!isPast && closed)
     return (
-      <div className="bg-green-400/8 border border-green-400/20 rounded-2xl p-4 flex items-center gap-3 animate-[fadeIn_0.3s_ease]">
-        <span className="text-xl">✅</span>
+      <div className={`${wasCancelled ? 'bg-slate-400/8 border-slate-400/20' : 'bg-green-400/8 border-green-400/20'} border rounded-2xl p-4 flex items-center gap-3 animate-[fadeIn_0.3s_ease]`}>
+        <span className="text-xl">{wasCancelled ? '🚫' : '✅'}</span>
         <div>
-          <div className="text-green-400 font-semibold text-sm">Flight closed — {flight.tailNumber}</div>
-          <div className="text-green-400/60 text-xs">{flight._sessionLabel || flight.callsign} · {billableTime ? `${billableTime} ${billingLabel}` : 'No times logged'}{isGlider && numLaunches ? ` · ${numLaunches} launch${numLaunches > 1 ? 'es' : ''}` : ''}</div>
+          <div className={`${wasCancelled ? 'text-slate-400' : 'text-green-400'} font-semibold text-sm`}>{wasCancelled ? 'Cancelled' : 'Flight closed'} — {flight.tailNumber || flight._sessionLabel}</div>
+          <div className={`${wasCancelled ? 'text-slate-500' : 'text-green-400/60'} text-xs`}>{flight._sessionLabel || flight.callsign}{billableTime && !wasCancelled ? ` · ${billableTime} ${billingLabel}` : ''}</div>
         </div>
       </div>
     )
@@ -2476,11 +2545,12 @@ export function RecentFlightCard({ flight, user, squawks, operator = 'journeys' 
         <div className="flex items-center gap-3">
           <span className={`w-3 h-3 rounded-full ${isPast ? 'bg-amber-400 animate-pulse' : 'bg-sky-400'}`} />
           <div>
-            <div className="text-white font-bold text-base">{flight.tailNumber} — {flight._sessionLabel || flight.missionType}</div>
+            <div className="text-white font-bold text-base">{flight._sessionLabel || `${flight.tailNumber} — ${flight.missionType}`}</div>
             <div className="text-slate-400 text-xs">
-              {depTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at {depTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+              {flight.tailNumber} · {depTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at {depTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
               {flight.pic && ` · PIC: ${flight.pic}`}
               {flight._duration && ` · ${flight._duration} hr`}
+              {flight.towInfo?.numTows && ` · ${flight.towInfo.numTows} tow${flight.towInfo.numTows > 1 ? 's' : ''}`}
             </div>
           </div>
         </div>
@@ -2549,6 +2619,65 @@ export function RecentFlightCard({ flight, user, squawks, operator = 'journeys' 
                   className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:border-sky-400 focus:outline-none">
                   {[1000, 1500, 2000, 2500, 3000, 4000].map((h) => <option key={h} value={h}>{h.toLocaleString()} ft</option>)}
                 </select>
+              </div>
+            </div>
+          )}
+
+          {/* ACS Standards checklist */}
+          {acsItems.length > 0 && isPast && (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-slate-400 text-xs font-semibold">ACS Standards</label>
+                <button onClick={() => { const all = {}; acsItems.forEach((t) => { all[t] = !allAcsChecked }); setAcsChecks(all) }}
+                  className="text-[10px] text-sky-400 hover:text-sky-300 transition-colors">{allAcsChecked ? 'Uncheck all' : 'Check all'}</button>
+              </div>
+              <div className="space-y-0.5">
+                {acsItems.map((item) => (
+                  <label key={item} className="flex items-center gap-2 cursor-pointer group">
+                    <input type="checkbox" checked={!!acsChecks[item]}
+                      onChange={(e) => setAcsChecks((prev) => ({ ...prev, [item]: e.target.checked }))}
+                      className="w-3.5 h-3.5 rounded border-slate-600 bg-surface text-sky-500 focus:ring-sky-400/30" />
+                    <span className={`text-xs ${acsChecks[item] ? 'text-green-400' : 'text-slate-400 group-hover:text-slate-200'}`}>{item}</span>
+                  </label>
+                ))}
+              </div>
+              <div className={`text-[10px] mt-1 ${allAcsChecked ? 'text-green-400' : 'text-slate-600'}`}>
+                {Object.values(acsChecks).filter(Boolean).length}/{acsItems.length} meets standards
+              </div>
+            </div>
+          )}
+
+          {/* ACS items preview (when not past — show what will be evaluated) */}
+          {acsItems.length > 0 && !isPast && (
+            <div>
+              <label className="text-slate-500 text-[10px] uppercase tracking-wide">ACS Topics for this lesson</label>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {acsItems.map((item) => (
+                  <span key={item} className="text-[10px] bg-sky-400/10 text-sky-400/70 px-1.5 py-0.5 rounded">{item}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Scrub / Cancel (upcoming flights only) */}
+          {!isPast && !closed && (
+            <div>
+              <label className="text-slate-500 text-[10px] uppercase tracking-wide mb-1.5 block">Cancel Reservation</label>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { reason: 'weather', label: '🌧️ Weather', color: 'sky' },
+                  { reason: 'aircraft', label: '🔧 Aircraft Unavailable', color: 'amber' },
+                  { reason: 'personal', label: '👤 Personal / Schedule', color: 'slate' },
+                  { reason: 'instructor', label: '👨‍✈️ Instructor Unavailable', color: 'purple' },
+                ].map((opt) => (
+                  <button key={opt.reason} onClick={() => {
+                      updateStoreFlight(flight.id, { status: 'cancelled', _cancelReason: opt.reason, _cancelledBy: user.name, _cancelledAt: new Date().toISOString() })
+                      setClosed(true)
+                    }}
+                    className={`text-xs border rounded-xl px-3 py-2 transition-all hover:bg-${opt.color}-400/10 border-${opt.color}-400/20 text-${opt.color}-400`}>
+                    {opt.label}
+                  </button>
+                ))}
               </div>
             </div>
           )}
@@ -2636,6 +2765,112 @@ export function RecentFlightCard({ flight, user, squawks, operator = 'journeys' 
               </div>
             )}
           </div>
+
+          {/* NASA Report / Airport Issue */}
+          {isPast && (
+            <div className="border-t border-white/10 pt-4">
+              <button onClick={() => setShowSafetyReport(!showSafetyReport)}
+                className={`w-full flex items-center justify-between py-2.5 px-4 rounded-xl text-xs font-medium transition-all border ${
+                  showSafetyReport || safetySubmitted ? 'bg-red-400/10 border-red-400/25 text-red-400' : 'bg-surface border-surface-border text-slate-400 hover:border-red-400/30 hover:text-red-400'
+                }`}>
+                <span>🛡️ {safetySubmitted ? 'Safety Report Filed' : 'NASA Report / Airport Safety Issue'}</span>
+                <span className="text-[10px] opacity-60">{showSafetyReport ? '▾' : '▸'}</span>
+              </button>
+
+              {showSafetyReport && !safetySubmitted && (
+                <div className="mt-3 bg-red-400/[0.03] border border-red-400/15 rounded-xl p-4 space-y-3 animate-[fadeIn_0.3s_ease]">
+                  <p className="text-slate-400 text-[10px]">Report safety-related events per FAA AC 00-46F. NASA ASRS reports provide immunity from FAA certificate action for inadvertent violations reported within 10 days.</p>
+
+                  {/* Category */}
+                  <div>
+                    <label className="text-slate-400 text-[10px] uppercase tracking-wide block mb-1.5">Event Category</label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                      {[
+                        { id: 'airspace', label: 'Airspace Deviation / Violation' },
+                        { id: 'separation', label: 'Loss of Separation / NMAC' },
+                        { id: 'runway', label: 'Runway Incursion / Excursion' },
+                        { id: 'atc', label: 'ATC Issue / Communication' },
+                        { id: 'weather', label: 'Weather Encounter / Windshear' },
+                        { id: 'equipment', label: 'Equipment Malfunction In-Flight' },
+                        { id: 'bird', label: 'Bird / Wildlife Strike' },
+                        { id: 'airport', label: 'Airport Facility / NAVAID Issue' },
+                        { id: 'other', label: 'Other Safety Concern' },
+                      ].map((cat) => (
+                        <button key={cat.id} onClick={() => setSafetyCategory(cat.id)}
+                          className={`text-left p-2 rounded-lg text-[10px] transition-all border ${
+                            safetyCategory === cat.id ? 'bg-red-400/15 border-red-400/30 text-red-300' : 'bg-surface border-surface-border text-slate-400 hover:border-red-400/20'
+                          }`}>{cat.label}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Common items — quick checkboxes */}
+                  <div>
+                    <label className="text-slate-400 text-[10px] uppercase tracking-wide block mb-1.5">Observed Issues (check all that apply)</label>
+                    <div className="space-y-1">
+                      {[
+                        { id: 'papi', label: 'PAPI / VASI light malfunction or discrepancy' },
+                        { id: 'reil', label: 'REIL / approach lighting inoperative' },
+                        { id: 'windsock', label: 'Wind indicator / windsock not visible or damaged' },
+                        { id: 'rwycond', label: 'Runway condition (FOD, standing water, ice, cracks)' },
+                        { id: 'taxicond', label: 'Taxiway marking / signage faded or missing' },
+                        { id: 'congestion', label: 'Traffic congestion / pattern conflict' },
+                        { id: 'noise', label: 'Noise abatement procedure concern' },
+                        { id: 'freq', label: 'CTAF / frequency congestion or blocked transmission' },
+                        { id: 'terrain', label: 'Obstacle / terrain concern on approach or departure' },
+                        { id: 'wildlife', label: 'Wildlife on or near runway / movement area' },
+                        { id: 'tfrnotam', label: 'TFR / NOTAM discrepancy or not published' },
+                        { id: 'uas', label: 'UAS / drone sighting near airport' },
+                      ].map((item) => (
+                        <label key={item.id} className="flex items-start gap-2 cursor-pointer group">
+                          <input type="checkbox" checked={!!safetyItems[item.id]}
+                            onChange={(e) => setSafetyItems((prev) => ({ ...prev, [item.id]: e.target.checked }))}
+                            className="w-3.5 h-3.5 rounded border-slate-600 bg-surface text-red-500 focus:ring-red-400/30 mt-0.5" />
+                          <span className={`text-xs ${safetyItems[item.id] ? 'text-red-300' : 'text-slate-400 group-hover:text-slate-200'}`}>{item.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Narrative */}
+                  <div>
+                    <label className="text-slate-400 text-[10px] uppercase tracking-wide block mb-1.5">Narrative (describe what happened)</label>
+                    <textarea rows={3} value={safetyNarrative} onChange={(e) => setSafetyNarrative(e.target.value)}
+                      placeholder="Describe the event: what happened, where, when, contributing factors, and corrective action taken. Include altitude, heading, weather conditions, and phase of flight."
+                      className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:border-red-400 focus:outline-none resize-none" />
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="text-slate-600 text-[10px] max-w-[60%]">
+                      Filed by {user.name} · {flight.tailNumber} · KBDU · {new Date().toISOString().split('T')[0]}
+                    </div>
+                    <button onClick={() => {
+                        setSafetySubmitted(true)
+                        setShowSafetyReport(false)
+                        // Also create a service request for the airport manager
+                        addServiceRequest({
+                          id: `sr-safety-${Date.now()}`, type: 'safety_report',
+                          tailNumber: flight.tailNumber,
+                          requestedBy: user.name, requestedDate: new Date().toISOString().split('T')[0],
+                          description: safetyNarrative,
+                          notes: `Category: ${safetyCategory}. Items: ${Object.keys(safetyItems).filter((k) => safetyItems[k]).join(', ')}. Flight: ${flight._sessionLabel || flight.tailNumber}. Filed per FAA AC 00-46F.`,
+                          status: 'requested', operator,
+                        })
+                      }}
+                      disabled={!safetyCategory && !safetyNarrative.trim() && Object.values(safetyItems).filter(Boolean).length === 0}
+                      className="bg-red-500 hover:bg-red-400 disabled:bg-slate-700 text-white font-semibold text-xs px-5 py-2.5 rounded-xl transition-colors">
+                      File Safety Report
+                    </button>
+                  </div>
+
+                  <p className="text-slate-600 text-[10px]">
+                    For NASA ASRS submission: <a href="https://asrs.arc.nasa.gov/report/electronic.html" target="_blank" rel="noopener noreferrer" className="text-sky-400 hover:text-sky-300">asrs.arc.nasa.gov ↗</a>
+                    {' · '}FSDO reporting: <a href="https://www.faa.gov/about/office_org/field_offices/fsdo" target="_blank" rel="noopener noreferrer" className="text-sky-400 hover:text-sky-300">faa.gov/fsdo ↗</a>
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Close flight button */}
           <button onClick={handleClose}
@@ -3059,49 +3294,75 @@ export function StudentDashboard({ user, operator = 'journeys' }) {
   const [acceptedIds, setAcceptedIds] = useState(new Set())
 
   const allBookings = [...mockBookings, ...acceptedBookings]
-  // Keep all recommendations visible (accepted ones show as "Scheduled")
-  const allRecommendations = recommendLessons(student, mockPersonnel, mockAircraft, allBookings, skippedSlots)
+  // Build past-slot skip set so recommendations are always in the future
+  const pastSkipSet = useMemo(() => {
+    const s = new Set(skippedSlots)
+    const d = new Date()
+    const dow = d.getDay()
+    const todayIdx = dow === 0 ? 6 : dow - 1
+    const nowHour = d.getHours()
+    const SLOTS = ['0700','0800','0900','1000','1100','1200','1300','1400','1500','1600','1700']
+    for (let di = 0; di <= 12; di++) {
+      if (di === 6) continue
+      const mapped = di >= 7 ? di - 7 : di
+      if (di < 7 && mapped < todayIdx) { SLOTS.forEach((sl) => s.add(`${di}:${sl}`)); continue }
+      if (di < 7 && mapped === todayIdx) { SLOTS.filter((sl) => parseInt(sl.slice(0, 2), 10) <= nowHour).forEach((sl) => s.add(`${di}:${sl}`)) }
+    }
+    return s
+  }, [skippedSlots])
+  const allRecommendations = recommendLessons(student, mockPersonnel, mockAircraft, allBookings, pastSkipSet)
 
-  // Active / upcoming lessons from all flights
+  // Active / upcoming lessons from all flights + squawks for close-out
   const [flights, setFlights] = useState(() => getAllFlights())
-  useEffect(() => { const u = subscribe((f) => setFlights(f)); return u }, [])
+  const [squawksForClose, setSquawksForClose] = useState(() => getSquawks())
+  useEffect(() => {
+    const u1 = subscribe((f) => setFlights(f))
+    const u2 = subscribeSquawks((s) => setSquawksForClose(s))
+    return () => { u1(); u2() }
+  }, [])
 
   // Collect ACS "meets standards" from all closed flights for this user
+  // Collect ACS "meets standards" from closed flights — check BOTH acsResults and _postFlight.acsResults
   const acsMet = useMemo(() => {
     const met = new Set()
     flights.forEach((f) => {
       if (f.status !== 'closed') return
-      const isMine = f.picId === user.id || f.sicId === user.id || f._bookingId
+      const isMine = f.picId === user.id || f.sicId === user.id
       if (!isMine) return
+      // Check _postFlight.acsResults (from RecentFlightCard close)
       const results = f._postFlight?.acsResults
       if (results) {
         Object.entries(results).forEach(([task, passed]) => { if (passed) met.add(task) })
       }
     })
+    // Also check flights closed via LessonClosePanel (same field path)
     return met
   }, [flights, user.id])
 
   const now = Date.now()
   const ACTIVE_WINDOW = 60 * 60_000 // 1 hour
-  const activeFlights = flights.filter((f) => {
+  // All my flights from the portal (past 7 days + future 14 days)
+  const PAST_WINDOW = 7 * 24 * 3600_000
+  const FUTURE_WINDOW = 14 * 24 * 3600_000
+  const myFlights = flights.filter((f) => {
     if (f.status === 'closed' || f.status === 'cancelled') return false
     if (f._source !== `${operator}_portal` && f.operator !== operator) return false
-    const isMine = f.picId === user.id || f.sicId === user.id || f._bookingId
+    // Match by persona ID (picId for solo, sicId for dual) OR by _source match for this operator
+    const isMine = f.picId === user.id || f.sicId === user.id || (f._source === `${operator}_portal` && f.sic === user.name) || (f._source === `${operator}_portal` && f.pic === user.name)
     if (!isMine) return false
+    const dep = new Date(f.plannedDepartureUtc).getTime()
+    return dep > now - PAST_WINDOW && dep < now + FUTURE_WINDOW
+  }).sort((a, b) => new Date(a.plannedDepartureUtc) - new Date(b.plannedDepartureUtc))
+
+  const activeFlights = myFlights.filter((f) => {
     const dep = new Date(f.plannedDepartureUtc).getTime()
     const end = dep + (f._duration || 1) * 3600_000
-    return dep <= now + ACTIVE_WINDOW && end >= now - 30 * 60_000 // starting within 1hr or not yet finished
+    return dep <= now + ACTIVE_WINDOW && end >= now - 30 * 60_000
   })
-
-  // Scheduled (upcoming, not active)
-  const scheduledFlights = flights.filter((f) => {
-    if (f.status !== 'planned') return false
-    if (f._source !== `${operator}_portal` && f.operator !== operator) return false
-    const isMine = f.picId === user.id || f.sicId === user.id || f._bookingId
-    if (!isMine) return false
+  const scheduledFlights = myFlights.filter((f) => {
     const dep = new Date(f.plannedDepartureUtc).getTime()
     return dep > now + ACTIVE_WINDOW
-  }).sort((a, b) => new Date(a.plannedDepartureUtc) - new Date(b.plannedDepartureUtc))
+  })
 
   const handleAccept = (rec) => {
     if (!rec.slot) return
@@ -3186,45 +3447,79 @@ export function StudentDashboard({ user, operator = 'journeys' }) {
           {/* ══ LEFT: Lessons ══ */}
           <div className="lg:col-span-2 space-y-4">
 
-            {/* Proposed next lessons — show as cards with accept/skip */}
-            <h2 className="text-white font-bold text-base">Proposed Lessons</h2>
-            {allRecommendations.slice(0, 3).map((rec, i) => {
-              const isAccepted = acceptedIds.has(rec.template.id)
-              return (
-                <div key={`prop-${i}`} className={`rounded-xl p-3 flex items-center justify-between transition-all border ${
-                  isAccepted ? 'bg-green-400/8 border-green-400/20' : 'bg-surface-card/50 border-surface-border/50 animate-breathe'
-                }`}>
-                  <div className="flex items-center gap-3">
-                    <span className={`w-2.5 h-2.5 rounded-full ${isAccepted ? 'bg-green-400' : 'bg-sky-400/60 animate-pulse'}`} />
-                    <div>
-                      <div className={`text-sm font-medium ${isAccepted ? 'text-green-400' : 'text-slate-200'}`}>{rec.template.title}</div>
-                      <div className="text-slate-500 text-xs">
-                        {rec.template.durationHr} hr · {rec.cfi?.name || 'TBD'}
-                        {rec.slot && ` · ${SCHEDULE_DAYS[rec.slot.dayIdx]} ${rec.slot.slot}`}
-                        {rec.aircraft && ` · ${rec.aircraft.tailNumber}`}
-                      </div>
-                    </div>
-                  </div>
-                  {isAccepted ? (
-                    <span className="text-green-400 text-[10px] font-semibold">✓ Scheduled</span>
-                  ) : (
-                    <div className="flex gap-1.5">
-                      <button onClick={() => handleSkip(rec)} className="text-[10px] text-slate-500 hover:text-white border border-surface-border px-2 py-1 rounded-lg transition-colors">Skip</button>
-                      <button onClick={() => handleAccept(rec)} className="text-[10px] text-sky-400 bg-sky-400/10 border border-sky-400/20 px-2 py-1 rounded-lg hover:bg-sky-400/20 transition-colors font-medium">Accept</button>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-            {allRecommendations.length === 0 && (
-              <div className="bg-surface-card border border-surface-border rounded-xl p-4 text-center text-slate-500 text-xs">No lessons to propose right now</div>
-            )}
+            {/* ── Unified Reservations: recent + upcoming + proposed, sorted by date ── */}
+            {(() => {
+              const todayDow = new Date().getDay()
+              const mondayOff = todayDow === 0 ? -6 : 1 - todayDow
 
-            {/* + Schedule button */}
-            <button onClick={() => document.getElementById('sec-schedule')?.scrollIntoView({ behavior: 'smooth' })}
-              className="w-full border-2 border-dashed border-slate-700 hover:border-sky-400/40 rounded-xl py-3 text-slate-400 hover:text-sky-400 text-sm font-medium transition-colors">
-              + Schedule a Lesson
-            </button>
+              // Proposed → date-sortable
+              const proposedItems = allRecommendations.slice(0, 3).map((rec, i) => {
+                if (!rec.slot) return null
+                const d = new Date()
+                const di = rec.slot.dayIdx
+                d.setDate(d.getDate() + mondayOff + (di >= 7 ? di - 7 + 7 : di))
+                const slotStr = rec.slot.slot || '0900'
+                d.setHours(parseInt(slotStr.slice(0, 2)), parseInt(slotStr.slice(2) || '0'), 0, 0)
+                if (d.getTime() < now) return null // never show past proposals
+                return { _kind: 'proposed', _t: d.getTime(), rec, i, accepted: acceptedIds.has(rec.template.id) }
+              }).filter(Boolean)
+
+              // Real flights (all my unclosed flights — past, active, and upcoming)
+              const flightItems = myFlights.map((f) => ({
+                _kind: new Date(f.plannedDepartureUtc).getTime() <= now ? 'active' : 'upcoming',
+                _t: new Date(f.plannedDepartureUtc).getTime(), flight: f,
+              }))
+
+              const all = [...flightItems, ...proposedItems].sort((a, b) => a._t - b._t)
+
+              return (
+                <>
+                  <h2 className="text-white font-bold text-base">Reservations</h2>
+                  {all.length === 0 && <div className="bg-surface-card border border-surface-border rounded-xl p-4 text-center text-slate-500 text-xs">No reservations</div>}
+
+                  {all.map((item, idx) => {
+                    const dt = new Date(item._t)
+                    const dateStr = `${dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} ${dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+
+                    if (item._kind === 'proposed') {
+                      const { rec, accepted } = item
+                      return (
+                        <div key={`p-${item.i}`} className={`rounded-xl p-3 flex items-center justify-between transition-all border ${
+                          accepted ? 'bg-green-400/8 border-green-400/20' : 'bg-sky-400/[0.04] border-sky-400/15 animate-breathe-slow'
+                        }`}>
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${accepted ? 'bg-green-400' : 'bg-sky-400/50'}`} />
+                            <div className="min-w-0">
+                              <div className={`text-sm font-medium truncate ${accepted ? 'text-green-400' : 'text-slate-200'}`}>
+                                {rec.template.title}
+                                {!accepted && <span className="text-sky-400/40 text-[10px] ml-1">Suggested</span>}
+                              </div>
+                              <div className="text-slate-500 text-xs truncate">{dateStr} · {rec.template.durationHr} hr{rec.cfi ? ` · ${rec.cfi.name}` : ''}{rec.aircraft ? ` · ${rec.aircraft.tailNumber}` : ''}</div>
+                            </div>
+                          </div>
+                          {accepted ? (
+                            <span className="text-green-400 text-[10px] font-semibold flex-shrink-0 ml-2">✓ Booked</span>
+                          ) : (
+                            <div className="flex gap-1.5 flex-shrink-0 ml-2">
+                              <button onClick={() => handleSkip(rec)} className="text-[10px] text-slate-500 hover:text-white border border-surface-border px-2 py-1 rounded-lg transition-colors">Skip</button>
+                              <button onClick={() => handleAccept(rec)} className="text-[10px] text-sky-400 bg-sky-400/10 border border-sky-400/20 px-2 py-1 rounded-lg hover:bg-sky-400/20 transition-colors font-medium">Accept</button>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    }
+
+                    // Real flight — use RecentFlightCard for full close-out capability
+                    return <RecentFlightCard key={item.flight.id} flight={item.flight} user={user} squawks={squawksForClose} />
+                  })}
+
+                  <button onClick={() => document.getElementById('sec-schedule')?.scrollIntoView({ behavior: 'smooth' })}
+                    className="w-full border-2 border-dashed border-slate-700 hover:border-sky-400/40 rounded-xl py-3 text-slate-400 hover:text-sky-400 text-sm font-medium transition-colors">
+                    + Schedule a Lesson
+                  </button>
+                </>
+              )
+            })()}
           </div>
 
           {/* ══ RIGHT: ACS + Hours + Docs ══ */}
@@ -3416,7 +3711,6 @@ export function JourneysBoulder() {
       {isStudent ? (
         <>
           <StudentDashboard user={user} />
-          {user && <div className="px-4 sm:px-6 pb-6"><div className="max-w-6xl mx-auto"><RecentFlightBox user={user} /></div></div>}
           {user && <ScheduleSection user={user} selectedAircraft={bookingAircraft} onSelectAircraft={setBookingAircraft} onClearAircraft={() => setBookingAircraft(null)} />}
           {user && <MyFleetSection key={squawkVersion} user={user} onSquawk={setSquawkTail} />}
           <MiniGalleryStrip gallery={JB_GALLERY} category="fleet" />
@@ -3429,7 +3723,6 @@ export function JourneysBoulder() {
       ) : (
         <>
           <HeroSection />
-          {user && <div className="px-4 sm:px-6 pb-6"><div className="max-w-6xl mx-auto"><RecentFlightBox user={user} /></div></div>}
           {user && <MyFleetSection key={squawkVersion} user={user} onSquawk={setSquawkTail} />}
           <MiniGalleryStrip gallery={JB_GALLERY} category="fleet" />
           <FleetSection user={user} onBookAircraft={setBookingAircraft} onSquawk={setSquawkTail} squawkVersion={squawkVersion} />

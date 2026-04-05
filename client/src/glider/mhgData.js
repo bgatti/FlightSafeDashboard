@@ -190,19 +190,35 @@ export const MHG_RESTRICTIONS = {
   minHeight: '4\'10"',
 }
 
+const MHG_CDN = 'https://4d7a9580e910a5227ad3.cdn6.editmysite.com/uploads/b/4d7a9580e910a5227ad31b8f17f245e444d0c04f822164dcfd300a7e2f96ba78'
+
 export const MHG_GALLERY = [
-  { id: 1, alt: 'Schweizer 2-32 soaring over the Flatirons', category: 'flights' },
-  { id: 2, alt: 'Discovery flight student at the controls', category: 'instruction' },
-  { id: 3, alt: 'Pawnee tow plane launching a 2-33', category: 'operations' },
-  { id: 4, alt: 'Continental Divide panorama from 10,600 ft', category: 'scenery' },
-  { id: 5, alt: 'Sunset over the Indian Peaks from glider cockpit', category: 'scenery' },
-  { id: 6, alt: 'Flatirons close-up from Mountain Top flight', category: 'scenery' },
-  { id: 7, alt: 'Ground crew prepping the 2-32 for launch', category: 'operations' },
-  { id: 8, alt: 'Student solo in the SGS 1-34', category: 'instruction' },
-  { id: 9, alt: 'Longs Peak and the Divide in winter', category: 'scenery' },
-  { id: 10, alt: 'Aerobatic loop in the 2-32 over Boulder', category: 'flights' },
-  { id: 11, alt: 'Mile High Gliding ramp on a bluebird day', category: 'operations' },
-  { id: 12, alt: 'Bear Peak and Green Mountain from 9,000 ft', category: 'scenery' },
+  { id: 1, img: `${MHG_CDN}/PJBJ4573%20Edit-5_1643401088.jpg`, alt: 'Schweizer 2-32 soaring over the Flatirons', category: 'flights' },
+  { id: 2, img: `${MHG_CDN}/Jordon%20Cockpit_1647014738.jpg`, alt: 'Discovery flight student at the controls', category: 'instruction' },
+  { id: 3, img: `${MHG_CDN}/PJBJ4468%20Edit-5_1643401078.jpg`, alt: 'Glider on the ramp ready for launch', category: 'operations' },
+  { id: 4, img: `${MHG_CDN}/Natalie%20big%20smile%20flying_1648157237.jpg`, alt: 'Happy passenger soaring over Boulder', category: 'flights' },
+  { id: 5, img: `${MHG_CDN}/20210904_MileHighGlider_KristinaRusch-12_1647018370.jpg`, alt: 'Aerial view of the Rocky Mountain Front Range', category: 'scenery' },
+  { id: 6, img: `${MHG_CDN}/44883675304_f76c720546_o_1592667961_1643401058.jpg`, alt: 'Glider silhouette against sunset sky', category: 'scenery' },
+  { id: 7, img: `${MHG_CDN}/s658900642949356718_p15_i12_w1200_1643401087.jpeg`, alt: 'Soaring above the Flatirons', category: 'scenery' },
+  { id: 8, img: `${MHG_CDN}/48400283806_af4fef99bb_k_1643401059.jpg`, alt: 'Continental Divide panorama from altitude', category: 'scenery' },
+  { id: 9, img: `${MHG_CDN}/64832050_10216758199981866_7200207939519381504_o_1592667960_1643401058.jpg`, alt: 'Glider cockpit view over the mountains', category: 'flights' },
+  { id: 10, img: `${MHG_CDN}/48058599958_8c0c5c9409_4k_1643401058.jpg`, alt: 'Longs Peak and the Divide in winter', category: 'scenery' },
+  { id: 11, img: `${MHG_CDN}/48140484142_7ab4ab8391_k_1643401058.jpg`, alt: 'Sunset over the Indian Peaks from glider', category: 'scenery' },
+  { id: 12, img: `${MHG_CDN}/IMG-7914%5B596%5D_1647014740.jpg`, alt: 'Ground crew and glider on a bluebird day', category: 'operations' },
+  { id: 13, img: `${MHG_CDN}/5FE3F2E2-6D98-44E9-864B-F504D445244C_1_201_a_1646946794.jpeg`, alt: 'Boulder Valley from the air', category: 'scenery' },
+  { id: 14, img: `${MHG_CDN}/20210904_MileHighGlider_KristinaRusch-45_1646945626.jpg`, alt: 'Pre-flight briefing with instructor', category: 'instruction' },
+  { id: 15, img: `${MHG_CDN}/IMG-6137_1644166450.jpg`, alt: 'Tow plane launching a glider', category: 'operations' },
+  { id: 16, img: `${MHG_CDN}/IMG-4747%5B539%5D_1646407974.jpg`, alt: 'Mountain soaring adventure flight', category: 'flights' },
+  { id: 17, img: `${MHG_CDN}/48164221391_b2d980ddb1_4k_1643401058.jpg`, alt: 'Flatirons close-up from Mountain Top flight', category: 'scenery' },
+  { id: 18, img: `${MHG_CDN}/20210904_MileHighGlider_KristinaRusch-10_1647018370.jpg`, alt: 'Glider wing over green meadows', category: 'flights' },
+  { id: 19, img: `${MHG_CDN}/48458417706_3a107aa439_k_1643401059.jpg`, alt: 'Bear Peak and Green Mountain from 9,000 ft', category: 'scenery' },
+  { id: 20, img: `${MHG_CDN}/20210904_MileHighGlider_KristinaRusch-36_1647018465.jpg`, alt: 'Student at the controls during training', category: 'instruction' },
+  { id: 21, img: `${MHG_CDN}/20210904_MileHighGlider_KristinaRusch-2_1647018465.jpg`, alt: 'Mile High Gliding ramp operations', category: 'operations' },
+  { id: 22, img: `${MHG_CDN}/natalie%20and%20david_1648157237.jpg`, alt: 'Pilot and passenger after a scenic flight', category: 'flights' },
+  { id: 23, img: `${MHG_CDN}/IMG_0637_1685451271.jpg`, alt: 'Glider ready on the runway', category: 'operations' },
+  { id: 24, img: `${MHG_CDN}/2023-02-07_21-12-38_1675829590.jpg`, alt: 'Winter soaring over snow-capped peaks', category: 'scenery' },
+  { id: 25, img: `${MHG_CDN}/IMG_7897_1675829535.jpg`, alt: 'Aerobatic maneuver over Boulder', category: 'flights' },
+  { id: 26, img: `${MHG_CDN}/2022-03-24_15-17-18_1648156652.jpg`, alt: 'Spring launch day at Boulder Municipal', category: 'operations' },
 ]
 
 // Personas map to actual mock students/personnel so the training system works.
