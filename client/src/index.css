@@ -25,6 +25,15 @@
   100% { transform: translateX(110%); }
 }
 
+/* Slow breathe for proposed reservations (3.5s period) */
+@keyframes breathe-slow {
+  0%, 100% { opacity: 0.6; }
+  50%       { opacity: 0.25; }
+}
+.animate-breathe-slow {
+  animation: breathe-slow 3.5s ease-in-out infinite;
+}
+
 /* Crossfade for mini-gallery strips */
 @keyframes fadeIn {
   0%   { opacity: 0; transform: scale(1.05); }

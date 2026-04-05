@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   JB_INFO, JB_STAFF, JB_MEMBERSHIP, JB_INSTRUCTION_RATES,
   JB_INSURANCE, JB_FUEL, JB_FBO_SERVICES, JB_TRAINING, JB_GALLERY,
-  JB_RESOURCES, getJBTodayOps,
+  JB_RESOURCES, getJBTodayOps, getAircraftPhoto,
 } from './journeysBoulderData'
 import { getAircraftByOperator } from '../mocks/aircraft'
 import { mockAircraft } from '../mocks/aircraft'
@@ -18,17 +18,17 @@ import {
   BOOKING_TYPE_COLORS, BOOKING_TYPE_LABELS, WEATHER_FIT_COLORS, WEATHER_FIT_LABELS,
   calcTrainingWB, wbStatusLevel, WB_STATUS, LESSON_TEMPLATES,
 } from '../training/trainingUtils'
+import {
+  PortalNav, PortalLoginModal, MiniGalleryStrip, GalleryGrid,
+  AirportOps, PortalFooter, SquawkPanel as SharedSquawkPanel,
+  GALLERY_GRADIENTS, STATUS_COLOR, fmt$,
+} from '../portal'
+import { towDeficiencyMin, towCycleMin, TOW_SETTINGS } from './gliderUtils'
 
 /* ═══════════════════════════════════════════════════════════
    Journeys Aviation — Full-Screen Client-Facing Portal
+   Uses shared portal components from ../portal/
    ═══════════════════════════════════════════════════════════ */
-
-const fmt$ = (n) => n != null ? `$${n}` : 'Call'
-const STATUS_COLOR = {
-  airworthy:   { bg: 'bg-green-400/15', border: 'border-green-400/30', text: 'text-green-400', dot: 'bg-green-400', label: 'Airworthy' },
-  maintenance: { bg: 'bg-amber-400/15', border: 'border-amber-400/30', text: 'text-amber-400', dot: 'bg-amber-400', label: 'In Maintenance' },
-  grounded:    { bg: 'bg-red-400/15',   border: 'border-red-400/30',   text: 'text-red-400',   dot: 'bg-red-400',   label: 'Grounded' },
-}
 
 // Normalize route separators: space, comma, dash, >, period → arrow
 function normalizeRoute(raw) {
@@ -249,74 +249,7 @@ function LoginModal({ onClose, onLogin }) {
 }
 
 /* ─── MINI-GALLERY STRIP (3 rotating images with crossfade) ─── */
-const GALLERY_GRADIENTS = [
-  'from-sky-600 to-blue-800', 'from-amber-500 to-orange-700', 'from-emerald-500 to-teal-700',
-  'from-purple-500 to-indigo-700', 'from-rose-500 to-pink-700', 'from-cyan-500 to-sky-700',
-  'from-blue-500 to-indigo-800', 'from-teal-400 to-emerald-700', 'from-indigo-500 to-purple-800',
-  'from-sky-400 to-blue-700', 'from-amber-400 to-red-600', 'from-green-500 to-teal-800',
-  'from-blue-400 to-sky-800', 'from-violet-500 to-purple-700', 'from-orange-400 to-amber-700',
-  'from-cyan-400 to-blue-700',
-]
-
-// Track which image IDs are currently shown across all strips to avoid dupes
-let _activeStripImages = new Set()
-
-function MiniGalleryStrip({ category }) {
-  // Seeded shuffle unique to this category so each strip shows different images
-  const seed = useRef(Math.floor(Math.random() * 100))
-  const items = useMemo(() => {
-    let pool = category ? JB_GALLERY.filter((g) => g.category === category) : [...JB_GALLERY]
-    if (pool.length < 3) pool = [...JB_GALLERY]
-    // Deterministic-ish shuffle based on seed so different strips diverge
-    pool.sort((a, b) => ((a.id * 7 + seed.current) % 13) - ((b.id * 7 + seed.current) % 13))
-    return pool
-  }, [category])
-
-  const [offset, setOffset] = useState(() => seed.current % Math.max(items.length - 2, 1))
-  useEffect(() => {
-    const id = setInterval(() => setOffset((o) => (o + 1) % Math.max(items.length - 2, 1)), 5000 + seed.current * 50) // stagger timing
-    return () => clearInterval(id)
-  }, [items.length])
-
-  // Pick 3 that aren't already shown in another strip
-  const candidates = []
-  for (let i = 0; candidates.length < 3 && i < items.length; i++) {
-    const img = items[(offset + i) % items.length]
-    if (!_activeStripImages.has(img.id) || candidates.length + (items.length - i) <= 3) candidates.push(img)
-  }
-  // Update active tracker
-  useEffect(() => {
-    const ids = candidates.map((c) => c.id)
-    ids.forEach((id) => _activeStripImages.add(id))
-    return () => ids.forEach((id) => _activeStripImages.delete(id))
-  })
-  const visible = candidates
-
-  return (
-    <div className="py-6 px-6">
-      <div className="max-w-6xl mx-auto grid grid-cols-3 gap-3">
-        {visible.map((img, i) => (
-          <div key={`${img.id}-${offset}-${i}`} className="relative aspect-[16/7] rounded-xl overflow-hidden animate-[fadeIn_1s_ease-in-out]">
-            {img.img ? (
-              <img src={img.img} alt={img.alt} loading="lazy" className="absolute inset-0 w-full h-full object-cover" />
-            ) : (
-              <div className={`absolute inset-0 bg-gradient-to-br ${GALLERY_GRADIENTS[(img.id - 1 + offset) % GALLERY_GRADIENTS.length]} transition-all duration-1000`}>
-                <div className="absolute inset-0 opacity-25">
-                  <div className="absolute top-[25%] left-[15%] w-[50%] h-[2px] bg-white/40 rounded-full rotate-[-3deg]" />
-                  <div className="absolute top-[45%] left-[25%] w-[35%] h-[1.5px] bg-white/25 rounded-full rotate-[1deg]" />
-                </div>
-              </div>
-            )}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-            <div className="absolute bottom-0 left-0 right-0 p-3">
-              <p className="text-white text-[10px] font-medium leading-tight">{img.alt}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
+/* MiniGalleryStrip now from ../portal — pass gallery={JB_GALLERY} at call sites */
 
 /* ─── MAINTENANCE SECTION (logged-in only) ─── */
 function MaintenanceSection({ user }) {
@@ -354,11 +287,11 @@ function MaintenanceSection({ user }) {
 
 /* ─── SCHEDULE SECTION (inline, below fleet, full-width, mobile-first) ─── */
 
-// Half-hour slot grid
+// Half-hour slot grid — 6 AM to 7 PM local (expanded for glider ops)
 const HALF_HOUR_SLOTS = []
-for (let h = 7; h <= 17; h++) {
+for (let h = 6; h <= 19; h++) {
   HALF_HOUR_SLOTS.push(`${String(h).padStart(2,'0')}:00`)
-  if (h < 17) HALF_HOUR_SLOTS.push(`${String(h).padStart(2,'0')}:30`)
+  if (h < 19) HALF_HOUR_SLOTS.push(`${String(h).padStart(2,'0')}:30`)
 }
 
 function slotLabel(slot) {
@@ -384,9 +317,9 @@ function slotOccupied(bookings, dayIdx, slot, field, id) {
   })
 }
 
-function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAircraft, proposedLessons = [] }) {
+export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAircraft, proposedLessons = [], operator = 'journeys' }) {
   const cfiList = mockPersonnel.filter((p) => p.cfiCert)
-  const fleet = getAircraftByOperator('journeys')
+  const fleet = getAircraftByOperator(operator)
   const preferredCfis = user.preferredCfis || []
   // Merge persona owned aircraft with any added via localStorage
   const [extraOwned, setExtraOwned] = useState(() => { try { return JSON.parse(localStorage.getItem(`journeys_owned_${user.id}`) || '[]') } catch { return [] } })
@@ -437,8 +370,7 @@ function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAirc
     // Block all past slots in the training module's search space
     const pastSkips = new Set()
     const SLOTS = ['0700','0800','0900','1000','1100','1200','1300','1400','1500','1600','1700']
-    for (let d = 0; d <= 12; d++) {
-      if (d === 6) continue
+    for (let d = 0; d <= 13; d++) {
       const mappedDay = d >= 7 ? d - 7 : d
       if (d < 7 && mappedDay < todayIdx) { SLOTS.forEach((s) => pastSkips.add(`${d}:${s}`)); continue }
       if (d < 7 && mappedDay === todayIdx) { SLOTS.filter((s) => parseInt(s.slice(0, 2), 10) <= nowHour).forEach((s) => pastSkips.add(`${d}:${s}`)) }
@@ -491,7 +423,7 @@ function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAirc
   const flightBookings = useMemo(() => {
     return getAllFlights()
       .filter((f) => f.status === 'planned' || f.status === 'active')
-      .filter((f) => f._source === 'journeys_portal' || f.operator === 'journeys')
+      .filter((f) => f._source === `${operator}_portal` || f.operator === operator)
       .map((f) => {
         const dt = new Date(f.plannedDepartureUtc)
         const dow = dt.getDay() // 0=Sun..6=Sat
@@ -520,9 +452,40 @@ function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAirc
 
   const adjustDuration = (delta) => setDurationHalfHours((d) => Math.max(2, Math.min(8, d + delta))) // 1–4 hrs
 
+  // ── Tow capacity cache for glider ops ──────────────────────────────
+  // Uses towDeficiencyMin from gliderUtils — same logic as GliderOps page.
+  // Green = excess capacity, yellow = balanced/tight, red = standby needed.
+  // Outside tow pilot hours (before 8 AM / after 6 PM): no capacity.
+  const isGliderOp = operator === 'mhg' || operator === 'ssb'
+  const towCapacity = useMemo(() => {
+    if (!isGliderOp) return null
+    const allFlights = getAllFlights()
+    const airport = 'KBDU'
+    const cap = {}
+    for (let d = 0; d < 14; d++) {
+      const dayDate = new Date()
+      dayDate.setDate(dayDate.getDate() + (d < 7 ? d : d + (weekOffset * 7)))
+      dayDate.setHours(0, 0, 0, 0)
+      for (let si = 0; si < HALF_HOUR_SLOTS.length; si++) {
+        const [h, m] = HALF_HOUR_SLOTS[si].split(':').map(Number)
+        const winStart = dayDate.getTime() + h * 3600_000 + m * 60_000
+        const winEnd = winStart + 30 * 60_000
+        // Tow pilots operate 8 AM – 6 PM
+        if (h < 8 || h >= 18) {
+          cap[`${d}-${si}`] = { color: 'red', hasTow: false, isStandby: true, demandMin: 0, supplyMin: 0 }
+          continue
+        }
+        const td = towDeficiencyMin(allFlights, airport, winStart, winEnd)
+        cap[`${d}-${si}`] = { ...td, hasTow: td.color === 'green' }
+      }
+    }
+    return cap
+  }, [isGliderOp, weekOffset])
+
   // Availability check per half-hour cell.
-  // Returns { free, cfis[], soloOk, effectiveDur } where effectiveDur is the
-  // max half-hours available (may be < requested duration if a booking cuts it short).
+  // Returns { free, cfis[], soloOk, effectiveDur, towOk, towStandby } where
+  // effectiveDur is the max half-hours available (may be < requested duration if a booking cuts it short).
+  // For glider ops: towOk = tow plane capacity exists, towStandby = instructor+glider ok but no tow.
   const getSlotInfo = useCallback((dayIdx, slot) => {
     const si0 = HALF_HOUR_SLOTS.indexOf(slot)
     const requestedDur = durationHalfHours
@@ -537,7 +500,7 @@ function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAirc
         if (slotOccupied(allBookings, dayIdx, HALF_HOUR_SLOTS[si], 'aircraftId', activeAircraftId)) break
         acFreeSlots++
       }
-      if (acFreeSlots === 0) return { free: false, cfis: [], reason: 'aircraft', effectiveDur: 0 }
+      if (acFreeSlots === 0) return { free: false, cfis: [], reason: 'aircraft', effectiveDur: 0, towOk: false, towStandby: false }
     }
 
     // Find CFIs free for at least 1 half-hour from this slot (up to acFreeSlots)
@@ -571,10 +534,26 @@ function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAirc
       available.sort((a, b) => (preferredCfis.includes(a.id) ? 0 : 1) - (preferredCfis.includes(b.id) ? 0 : 1))
       const bestDur = available.length > 0 ? Math.max(...available.map((c) => c._freeSlots)) : maxDur
       const canSolo = (acMode === 'fleet' && isSolo) || (acMode === 'fleet' && !sessionType && flightMode === 'solo')
-      return { free: true, cfis: available, soloOk: canSolo, effectiveDur: Math.min(bestDur, maxDur) }
+
+      // ── Glider tow capacity check (uses towDeficiencyMin color: green/yellow/red) ──
+      const needsTow = isGliderOp && selectedAircraft?.needs_tow
+      let towOk = true
+      let towStandby = false
+      let towColor = 'green'
+      if (needsTow && towCapacity) {
+        const tc = towCapacity[`${dayIdx}-${si0}`]
+        towColor = tc?.color ?? 'green'
+        // green = excess capacity, yellow = balanced/tight, red = overloaded / outside hours
+        towOk = towColor === 'green'
+        if (towColor !== 'green' && (available.length > 0 || canSolo)) {
+          towStandby = true // instructor + glider ready, but tow capacity tight or gone
+        }
+      }
+
+      return { free: true, cfis: available, soloOk: canSolo, effectiveDur: Math.min(bestDur, maxDur), towOk, towStandby, towColor }
     }
-    return { free: true, cfis: [], soloOk: isSolo && acMode === 'fleet', effectiveDur: maxDur }
-  }, [activeAircraftId, allBookings, cfiList, durationHalfHours, selectedCfi, preferredCfis, acMode, sessionType, selectedAircraft])
+    return { free: true, cfis: [], soloOk: isSolo && acMode === 'fleet', effectiveDur: maxDur, towOk: true, towStandby: false, towColor: 'green' }
+  }, [activeAircraftId, allBookings, cfiList, durationHalfHours, selectedCfi, preferredCfis, acMode, sessionType, selectedAircraft, isGliderOp, towCapacity])
 
   const isSolo = flightMode === 'solo' || session?.solo
   const activeSession = CFI_SESSION_TYPES.find((s) => s.id === sessionType)
@@ -626,7 +605,7 @@ function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAirc
     return parts.join(' — ')
   }
 
-  const handleBook = (dayIdx, slot, cfiId, effectiveDur) => {
+  const handleBook = (dayIdx, slot, cfiId, effectiveDur, standbyOverride = false) => {
     // Use effective duration if available (shorter when blocked), else requested
     const actualHalfHours = effectiveDur || durationHalfHours
     const actualHrs = actualHalfHours / 2
@@ -646,7 +625,7 @@ function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAirc
       title: label,
       studentId: user.id,
       notes: '',
-      standby: acMode === 'fleet' && selectedAircraft && !selectedAircraft.airworthy,
+      standby: standbyOverride || (acMode === 'fleet' && selectedAircraft && !selectedAircraft.airworthy),
       xcRoute: session?.xc ? normalizeRoute(xcRoute) : null,
       xcFuelGal: session?.xc ? (xcFuelGal || (selectedAircraft?.fuelCapacityGal ?? 'Full')) : null,
     }
@@ -685,14 +664,21 @@ function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAirc
         passengers: 0,
         missionType: booking.type === 'solo' ? 'training_solo' : booking.type === 'dual_lesson' ? 'training_dual' : booking.type,
         part: '61',
-        operator: 'journeys',
+        operator,
         riskScore: null,
         riskP: null, riskA: null, riskV: null, riskE: null,
         riskSnapshot: null,
-        _source: 'journeys_portal',
+        _source: `${operator}_portal`,
         _bookingId: booking.id,
         _duration: actualHrs,
         _sessionLabel: label,
+        // Glider tow info: derive from lesson template towProfile or defaults
+        ...(ac?.glider || ac?.needs_tow ? (() => {
+          const tp = activeSession?.towProfile || session?.towProfile
+          const heights = tp?.heights || [2000]
+          const numTows = tp?.numTows || 1
+          return { towInfo: { numTows, towHeights: heights, isStandby: !!standbyOverride }, airport: 'KBDU' }
+        })() : {}),
       }
       addFlight(flightRecord)
     }
@@ -1018,7 +1004,7 @@ function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAirc
                             tailNumber: tail, aircraftType: type,
                             requestedBy: user.name, requestedDate: new Date().toISOString().split('T')[0],
                             notes: `New: ${tail} (${type}). Fuel: ${newOwnFuel}. Services: ${services.join(', ') || 'none'}. Owner: ${user.name}.`,
-                            status: 'requested', operator: 'journeys',
+                            status: 'requested', operator,
                           })
                           setOwnTail(tail)
                           setNewOwnTail(''); setNewOwnType(''); setNewOwnFuel('100LL'); setNewOwnServices({})
@@ -1084,19 +1070,19 @@ function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAirc
           const mondayOffset = todayDow === 0 ? -6 : 1 - todayDow
           const weekMonday = new Date(now)
           weekMonday.setDate(now.getDate() + mondayOffset + weekOffset * 7)
-          const weekDays = Array.from({ length: 6 }, (_, i) => {
+          const weekDays = Array.from({ length: 7 }, (_, i) => {
             const d = new Date(weekMonday)
             d.setDate(weekMonday.getDate() + i)
             return { date: d, label: d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' }) }
           })
-          const todayDayIdx = weekOffset === 0 ? (todayDow === 0 ? -1 : todayDow - 1) : -1
+          const todayDayIdx = weekOffset === 0 ? (todayDow === 0 ? 6 : todayDow - 1) : -1
 
           // Current time line (only for current week)
           const nowH = now.getHours()
           const nowM = now.getMinutes()
           const nowMinutes = nowH * 60 + nowM
-          const gridStartMin = 7 * 60
-          const gridEndMin = 17.5 * 60
+          const gridStartMin = 6 * 60
+          const gridEndMin = 19 * 60
           const nowPx = weekOffset === 0 && nowMinutes >= gridStartMin && nowMinutes <= gridEndMin
             ? ((nowMinutes - gridStartMin) / 30) * ROW_H : null
 
@@ -1107,12 +1093,12 @@ function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAirc
                 <div className="flex items-center justify-between mb-2">
                   <button onClick={() => setWeekOffset((w) => w - 1)} className="text-slate-400 hover:text-white text-sm px-2 py-1 rounded transition-colors">← Prev</button>
                   <div className="text-slate-300 text-xs font-semibold">
-                    {weekDays[0].date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — {weekDays[5].date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    {weekDays[0].date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — {weekDays[6].date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     {weekOffset === 0 && <span className="text-sky-400 ml-1">(This week)</span>}
                   </div>
                   <button onClick={() => setWeekOffset((w) => w + 1)} className="text-slate-400 hover:text-white text-sm px-2 py-1 rounded transition-colors">Next →</button>
                 </div>
-                <div className="grid gap-0.5" style={{ gridTemplateColumns: '60px repeat(6, 1fr)', height: HEADER_H }}>
+                <div className="grid gap-0.5" style={{ gridTemplateColumns: '60px repeat(7, 1fr)', height: HEADER_H }}>
                   <div />
                   {weekDays.map((d, i) => (
                     <div key={i} className={`flex items-center justify-center text-xs sm:text-sm font-semibold rounded-lg ${
@@ -1122,7 +1108,7 @@ function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAirc
                 </div>
 
                 {/* Grid body */}
-                <div className="grid gap-0.5" style={{ gridTemplateColumns: '60px repeat(6, 1fr)' }}>
+                <div className="grid gap-0.5" style={{ gridTemplateColumns: '60px repeat(7, 1fr)' }}>
                   {/* Time labels column */}
                   <div className="relative" style={{ height: gridH }}>
                     {/* Current time marker on time axis */}
@@ -1185,9 +1171,19 @@ function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAirc
                                 <div className="w-full h-[calc(100%-2px)] rounded-md text-center flex items-center justify-center text-[10px] bg-red-400/6 text-red-400/25">
                                   {info.reason === 'aircraft' ? '✗' : ''}
                                 </div>
+                              ) : info.towStandby && info.towColor === 'red' ? (
+                                /* Red-ish: outside tow hours or completely overloaded → standby only */
+                                <button onClick={() => handleBook(dayIdx, slot, preferred?.id || info.cfis[0]?.id, info.effectiveDur, true)}
+                                  title={`Standby — no tow capacity · ${info.cfis.map((c) => c.name).join(', ')} · ${info.effectiveDur / 2} hr`}
+                                  className="w-full h-[calc(100%-2px)] rounded-md transition-all cursor-pointer bg-red-400/10 hover:bg-red-400/20 border border-dashed border-red-400/30" />
+                              ) : info.towStandby ? (
+                                /* Yellow: tow queue tight but some capacity — standby reservation */
+                                <button onClick={() => handleBook(dayIdx, slot, preferred?.id || info.cfis[0]?.id, info.effectiveDur, true)}
+                                  title={`Standby — tow queue tight · ${info.cfis.map((c) => c.name).join(', ')} · ${info.effectiveDur / 2} hr`}
+                                  className="w-full h-[calc(100%-2px)] rounded-md transition-all cursor-pointer bg-amber-400/15 hover:bg-amber-400/30 border border-dashed border-amber-400/40" />
                               ) : info.cfis.length > 0 ? (
                                 <button onClick={() => handleBook(dayIdx, slot, preferred?.id || info.cfis[0]?.id, info.effectiveDur)}
-                                  title={`${info.cfis.map((c) => c.name).join(', ')} · ${info.effectiveDur / 2} hr avail`}
+                                  title={`${info.cfis.map((c) => c.name).join(', ')} · ${info.effectiveDur / 2} hr avail${isGliderOp && info.towOk ? ' · Tow ✓' : ''}`}
                                   className={`w-full h-[calc(100%-2px)] rounded-md transition-all cursor-pointer ${
                                     preferred ? 'bg-green-400/12 hover:bg-green-400/25 border border-green-400/20'
                                               : 'bg-sky-400/10 hover:bg-sky-400/20 border border-sky-400/15'
@@ -1288,9 +1284,11 @@ function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAirc
 
         {/* Legend */}
         <div className="flex flex-wrap gap-3 sm:gap-5 justify-center mb-8 text-[10px] sm:text-xs text-slate-500">
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-green-400/20 border border-green-400/30" /> Preferred</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-green-400/20 border border-green-400/30" /> {isGliderOp ? 'CFI + Glider + Tow' : 'Preferred'}</span>
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-sky-400/15 border border-sky-400/15" /> CFI</span>
-          {acMode === 'fleet' && <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-amber-400/15 border border-amber-400/15" /> Solo</span>}
+          {isGliderOp && <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-amber-400/15 border border-dashed border-amber-400/40" /> Tow tight (standby)</span>}
+          {isGliderOp && <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-red-400/10 border border-dashed border-red-400/30" /> No tow (standby)</span>}
+          {acMode === 'fleet' && !isGliderOp && <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-amber-400/15 border border-amber-400/15" /> Solo</span>}
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-red-400/10" /> Busy</span>
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-green-500/25 border border-green-400/30" /> Yours</span>
         </div>
@@ -1300,8 +1298,8 @@ function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAirc
           // Gather all flights for this user from the store
           const allFlights = getAllFlights()
           const myFlights = allFlights.filter((f) =>
-            (f.picId === user.id || f.sicId === user.id || f._source === 'journeys_portal') &&
-            (f.operator === 'journeys' || f._source === 'journeys_portal')
+            (f.picId === user.id || f.sicId === user.id || f._source === `${operator}_portal`) &&
+            (f.operator === operator || f._source === `${operator}_portal`)
           ).sort((a, b) => new Date(b.plannedDepartureUtc) - new Date(a.plannedDepartureUtc))
 
           if (myFlights.length === 0 && bookings.length === 0) return null
@@ -1662,133 +1660,9 @@ function useAircraftStars(userId) {
   return [stars, setStar]
 }
 
-/* ─── MY FLEET (for owners — shows above Journeys fleet) ─── */
-/* ─── SQUAWK PANEL (full-width, inline, mobile-friendly) ─── */
-function SquawkPanel({ tailNumber, user, onClose }) {
-  const [severity, setSeverity] = useState('monitoring')
-  const [description, setDescription] = useState('')
-  const [submitted, setSubmitted] = useState(false)
-  const allSquawks = getSquawks()
-  const recentSquawks = allSquawks.filter((s) => s.tailNumber === tailNumber).slice(0, 8)
-  const openSquawks = recentSquawks.filter((s) => s.status !== 'closed')
-  const closedSquawks = recentSquawks.filter((s) => s.status === 'closed').slice(0, 3)
+/* SquawkPanel now from ../portal (SharedSquawkPanel) — see usage in main component */
 
-  const handleSubmit = () => {
-    if (!description.trim()) return
-    addSquawk({
-      id: `sqk-${Date.now()}`, tailNumber,
-      reportedBy: user.name,
-      reportedDate: new Date().toISOString().split('T')[0],
-      reportedAt: new Date().toISOString(),
-      description: description.trim(), severity, status: 'open',
-      melReference: null, melExpiryDate: null, airframeHours: null,
-      resolvedDate: null, resolvedBy: null, resolutionNotes: null, workOrderId: null,
-    })
-    setSubmitted(true)
-    setTimeout(() => { setSubmitted(false); setDescription(''); setSeverity('monitoring') }, 2000)
-  }
-
-  return (
-    <section id="sec-squawk" className="py-10 px-4 sm:px-6 bg-gradient-to-b from-amber-950/20 via-surface to-surface animate-[fadeIn_0.3s_ease]">
-      <div className="max-w-3xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-bold text-white">🔧 Squawk — {tailNumber}</h2>
-            <p className="text-slate-400 text-sm">
-              {(getAircraftByOperator('journeys').find((a) => a.tailNumber === tailNumber) || mockAircraft.find((a) => a.tailNumber === tailNumber))?.makeModel || 'Aircraft'}
-              {' '}· Report an issue or review squawks
-            </p>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl leading-none transition-colors">×</button>
-        </div>
-
-        {/* Recent squawks for this aircraft */}
-        {openSquawks.length > 0 && (
-          <div className="mb-6">
-            <h3 className="text-amber-400 text-xs font-bold uppercase tracking-wide mb-2">Open ({openSquawks.length})</h3>
-            <div className="space-y-1.5">
-              {openSquawks.map((s) => (
-                <div key={s.id} className={`flex items-start gap-3 text-sm rounded-xl px-4 py-3 border ${
-                  s.severity === 'grounding' ? 'bg-red-400/8 border-red-400/20' : s.severity === 'ops_limiting' ? 'bg-amber-400/8 border-amber-400/20' : 'bg-surface border-surface-border'
-                }`}>
-                  <span className={`w-2.5 h-2.5 rounded-full mt-1 flex-shrink-0 ${
-                    s.severity === 'grounding' ? 'bg-red-400' : s.severity === 'ops_limiting' ? 'bg-amber-400' : s.severity === 'deferred' ? 'bg-yellow-400' : 'bg-slate-400'
-                  }`} />
-                  <div className="flex-1">
-                    <div className="text-slate-200">{s.description}</div>
-                    <div className="text-slate-500 text-xs mt-0.5">{s.reportedDate} · {s.severity} · {s.reportedBy}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {closedSquawks.length > 0 && (
-          <details className="mb-6">
-            <summary className="text-green-400/60 text-xs cursor-pointer mb-1">Recent resolved ({closedSquawks.length})</summary>
-            {closedSquawks.map((s) => (
-              <div key={s.id} className="text-xs text-slate-600 px-4 py-1 flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400/40" />
-                {s.description} — {s.resolvedDate || s.reportedDate}
-              </div>
-            ))}
-          </details>
-        )}
-
-        {/* Submit form */}
-        {submitted ? (
-          <div className="bg-green-400/10 border border-green-400/20 rounded-2xl p-6 text-center animate-[fadeIn_0.3s_ease]">
-            <div className="text-2xl mb-2">✅</div>
-            <div className="text-green-400 font-semibold">Squawk submitted for {tailNumber}</div>
-            <div className="text-slate-500 text-xs mt-1">Maintenance will review within 24 hours</div>
-          </div>
-        ) : (
-          <div className="bg-surface-card border border-surface-border rounded-2xl p-5 space-y-4">
-            <h3 className="text-white font-bold text-base">New Squawk</h3>
-
-            {/* Severity */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {[
-                { v: 'grounding', l: 'Grounding', color: 'red' },
-                { v: 'ops_limiting', l: 'Ops Limiting', color: 'amber' },
-                { v: 'deferred', l: 'Deferred / MEL', color: 'yellow' },
-                { v: 'monitoring', l: 'Monitoring', color: 'slate' },
-              ].map((s) => (
-                <button key={s.v} onClick={() => setSeverity(s.v)}
-                  className={`py-3 rounded-xl text-sm font-medium transition-all border ${
-                    severity === s.v
-                      ? `bg-${s.color}-400/20 border-${s.color}-400/40 text-${s.color}-400`
-                      : 'bg-surface border-surface-border text-slate-400 hover:border-slate-500'
-                  }`}>
-                  {s.l}
-                </button>
-              ))}
-            </div>
-
-            {/* Description */}
-            <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe the issue — what did you observe? When? During what phase of flight?"
-              className="w-full bg-surface border border-surface-border rounded-xl px-4 py-3 text-sm text-slate-200 placeholder:text-slate-600 focus:border-amber-400 focus:outline-none resize-none" />
-
-            {/* Submit */}
-            <div className="flex items-center justify-between">
-              <span className="text-slate-500 text-xs">Reporting as {user.name}</span>
-              <div className="flex gap-2">
-                <button onClick={onClose} className="text-slate-400 hover:text-white text-sm px-4 py-2.5 rounded-xl border border-surface-border transition-colors">Cancel</button>
-                <button onClick={handleSubmit} disabled={!description.trim()}
-                  className="bg-amber-500 hover:bg-amber-400 disabled:bg-slate-700 text-white font-semibold text-sm px-6 py-2.5 rounded-xl transition-colors">
-                  Submit Squawk
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </section>
-  )
-}
-
-function MyFleetSection({ user, onSquawk }) {
+export function MyFleetSection({ user, onSquawk, operator = 'journeys' }) {
   const extraOwned = (() => { try { return JSON.parse(localStorage.getItem(`journeys_owned_${user?.id}`) || '[]') } catch { return [] } })()
   const owned = [...(user?.ownedAircraft || []), ...extraOwned.filter((a) => !(user?.ownedAircraft || []).some((o) => o.tail === a.tail))]
   if (owned.length === 0) return null
@@ -1939,14 +1813,14 @@ function MyFleetSection({ user, onSquawk }) {
                       🔧 Squawk
                     </button>
                     <button onClick={() => {
-                        addServiceRequest({ id: `sr-mx-${Date.now()}`, type: 'annual_inspection', tailNumber: ac.tail, requestedBy: user.name, requestedDate: new Date().toISOString().split('T')[0], status: 'requested', operator: 'journeys', notes: `Annual inspection for ${ac.tail} (${ac.type})` })
+                        addServiceRequest({ id: `sr-mx-${Date.now()}`, type: 'annual_inspection', tailNumber: ac.tail, requestedBy: user.name, requestedDate: new Date().toISOString().split('T')[0], status: 'requested', operator, notes: `Annual inspection for ${ac.tail} (${ac.type})` })
                         alert('Annual inspection requested for ' + ac.tail)
                       }}
                       className="flex-1 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 py-2 rounded-xl text-[10px] font-medium transition-all border border-sky-500/20">
                       📋 Annual
                     </button>
                     <button onClick={() => {
-                        addServiceRequest({ id: `sr-mx-${Date.now()}`, type: '100hr_inspection', tailNumber: ac.tail, requestedBy: user.name, requestedDate: new Date().toISOString().split('T')[0], status: 'requested', operator: 'journeys', notes: `100-hour inspection for ${ac.tail} (${ac.type})` })
+                        addServiceRequest({ id: `sr-mx-${Date.now()}`, type: '100hr_inspection', tailNumber: ac.tail, requestedBy: user.name, requestedDate: new Date().toISOString().split('T')[0], status: 'requested', operator, notes: `100-hour inspection for ${ac.tail} (${ac.type})` })
                         alert('100-hr inspection requested for ' + ac.tail)
                       }}
                       className="flex-1 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 py-2 rounded-xl text-[10px] font-medium transition-all border border-sky-500/20">
@@ -1971,7 +1845,7 @@ function MyFleetSection({ user, onSquawk }) {
                         const isDefault = (ac.defaultServices || []).includes(svc.id)
                         return (
                           <button key={svc.id} onClick={() => {
-                              addServiceRequest({ id: `sr-svc-${Date.now()}-${svc.id}`, type: svc.id, tailNumber: ac.tail, requestedBy: user.name, requestedDate: new Date().toISOString().split('T')[0], status: 'requested', operator: 'journeys', notes: `${svc.label} for ${ac.tail}` })
+                              addServiceRequest({ id: `sr-svc-${Date.now()}-${svc.id}`, type: svc.id, tailNumber: ac.tail, requestedBy: user.name, requestedDate: new Date().toISOString().split('T')[0], status: 'requested', operator, notes: `${svc.label} for ${ac.tail}` })
                             }}
                             className={`px-2 py-1 rounded text-[10px] transition-all border ${isDefault ? 'bg-purple-400/15 border-purple-400/30 text-purple-300' : 'bg-surface border-surface-border text-slate-500 hover:border-slate-400 hover:text-slate-200'}`}>
                             {svc.label}
@@ -1990,8 +1864,8 @@ function MyFleetSection({ user, onSquawk }) {
   )
 }
 
-function FleetSection({ user, onBookAircraft, onSquawk, squawkVersion }) {
-  const fleet = getAircraftByOperator('journeys')
+export function FleetSection({ user, onBookAircraft, onSquawk, squawkVersion, operator = 'journeys' }) {
+  const fleet = getAircraftByOperator(operator)
   const [expanded, setExpanded] = useState(null)
   const [stars, setStar] = useAircraftStars(user?.id)
   // Live squawk data for each aircraft
@@ -2109,6 +1983,13 @@ function FleetSection({ user, onBookAircraft, onSquawk, squawkVersion }) {
             return (
               <div key={ac.id} onClick={() => setExpanded(open ? null : ac.id)}
                 className={`${cardBg} border ${cardBorder} ${cardRing} rounded-2xl p-5 cursor-pointer transition-all hover:scale-[1.01]`}>
+
+                {/* Type photo */}
+                {(() => { const photo = getAircraftPhoto(ac.makeModel); return photo ? (
+                  <div className="h-32 -mx-5 -mt-5 mb-3 rounded-t-2xl overflow-hidden bg-surface">
+                    <img src={photo} alt={ac.makeModel} loading="lazy" className="w-full h-full object-cover" />
+                  </div>
+                ) : null })()}
 
                 {/* Header */}
                 <div className="flex items-start justify-between mb-2">
@@ -2388,104 +2269,29 @@ function FBOSection() {
 }
 
 /* ─── OPERATIONS ─── */
-function OperationsSection() {
-  const [ops, setOps] = useState(getJBTodayOps)
-  useEffect(() => { const id = setInterval(() => setOps(getJBTodayOps()), 60000); return () => clearInterval(id) }, [])
+/* OperationsSection and GallerySection now use shared portal components — see JB_OPS_* constants and inline usage below */
 
-  return (
-    <section id="sec-operations" className="py-20 px-6 bg-gradient-to-b from-surface to-surface-card/30">
-      <div className="max-w-6xl mx-auto">
-        <div className="text-center mb-12">
-          <h2 className="text-3xl md:text-4xl font-bold text-white mb-3 flex items-center justify-center gap-3">
-            <span className={`w-3 h-3 rounded-full ${ops.isOpen ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`} />
-            Field Conditions
-          </h2>
-          <p className="text-slate-400">{ops.isOpen ? 'FBO open — aircraft available' : 'FBO closed — check back during business hours'}</p>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          {[
-            { label: 'Field', value: ops.fieldElevation, icon: '⛰️' },
-            { label: 'Runway', value: ops.runwayInUse, icon: '🛬' },
-            { label: 'Wind', value: `${ops.windDir} @ ${ops.windSpeed}`, icon: '💨' },
-            { label: 'Temp', value: ops.temp, icon: '🌡️' },
-            { label: 'Density Alt', value: ops.densityAltitude, icon: '📏' },
-            { label: 'Visibility', value: ops.visibility, icon: '👁️' },
-            { label: 'Cloud Base', value: ops.cloudBase, icon: '☁️' },
-            { label: 'Sunset', value: ops.nextSunset, icon: '🌅' },
-          ].map((item) => (
-            <div key={item.label} className="bg-surface-card border border-surface-border rounded-xl p-4 text-center">
-              <div className="text-2xl mb-1">{item.icon}</div>
-              <div className="text-slate-500 text-[10px] uppercase tracking-wide">{item.label}</div>
-              <div className="text-white text-sm font-bold mt-1">{item.value}</div>
-            </div>
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-3 justify-center">
-          {[
-            { label: 'METAR / TAF', url: JB_INFO.metarUrl },
-            { label: 'FAA WeatherCam', url: JB_INFO.webcamUrl },
-            { label: 'Windy Forecast', url: JB_INFO.windyUrl },
-            { label: 'AirNav (KBDU)', url: JB_INFO.airnav },
-          ].map((l) => (
-            <a key={l.label} href={l.url} target="_blank" rel="noopener noreferrer"
-              className="text-sm text-sky-400 hover:text-sky-300 border border-sky-400/30 rounded-xl px-4 py-2 transition-colors hover:bg-sky-400/10">
-              {l.label} ↗
-            </a>
-          ))}
-        </div>
-      </div>
-    </section>
-  )
-}
+const JB_OPS_FIELDS = [
+  { label: 'Field', key: 'fieldElevation', icon: '⛰️' },
+  { label: 'Runway', key: 'runwayInUse', icon: '🛬' },
+  { label: 'Wind', key: '_wind', icon: '💨' },
+  { label: 'Temp', key: 'temp', icon: '🌡️' },
+  { label: 'Density Alt', key: 'densityAltitude', icon: '📏' },
+  { label: 'Visibility', key: 'visibility', icon: '👁️' },
+  { label: 'Cloud Base', key: 'cloudBase', icon: '☁️' },
+  { label: 'Sunset', key: 'nextSunset', icon: '🌅' },
+]
 
-/* ─── GALLERY ─── */
-function GallerySection() {
-  const [filter, setFilter] = useState('all')
-  const cats = ['all', ...new Set(JB_GALLERY.map((g) => g.category))]
-  const filtered = filter === 'all' ? JB_GALLERY : JB_GALLERY.filter((g) => g.category === filter)
-  const gradients = [
-    'from-sky-600 to-blue-800', 'from-amber-500 to-orange-700', 'from-emerald-500 to-teal-700',
-    'from-purple-500 to-indigo-700', 'from-rose-500 to-pink-700', 'from-cyan-500 to-sky-700',
-    'from-blue-500 to-indigo-800', 'from-teal-400 to-emerald-700', 'from-indigo-500 to-purple-800',
-    'from-sky-400 to-blue-700', 'from-amber-400 to-red-600', 'from-green-500 to-teal-800',
-    'from-blue-400 to-sky-800', 'from-violet-500 to-purple-700', 'from-orange-400 to-amber-700',
-    'from-cyan-400 to-blue-700',
-  ]
+const JB_WEATHER_LINKS = [
+  { label: 'METAR / TAF', url: JB_INFO.metarUrl },
+  { label: 'FAA WeatherCam', url: JB_INFO.webcamUrl },
+  { label: 'Windy Forecast', url: JB_INFO.windyUrl },
+  { label: 'AirNav (KBDU)', url: JB_INFO.airnav },
+]
 
-  return (
-    <section id="sec-gallery" className="py-20 px-6 bg-surface">
-      <div className="max-w-6xl mx-auto">
-        <div className="text-center mb-8">
-          <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">Gallery</h2>
-        </div>
-        <div className="flex gap-2 justify-center mb-6">
-          {cats.map((c) => (
-            <button key={c} onClick={() => setFilter(c)}
-              className={`text-xs px-4 py-1.5 rounded-full transition-colors capitalize ${filter === c ? 'bg-sky-500 text-white' : 'bg-surface-card border border-surface-border text-slate-400 hover:text-white'}`}>
-              {c}
-            </button>
-          ))}
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filtered.map((img) => (
-            <div key={img.id} className="group relative aspect-[4/3] rounded-2xl overflow-hidden cursor-pointer">
-              {img.img ? (
-                <img src={img.img} alt={img.alt} loading="lazy"
-                  className="absolute inset-0 w-full h-full object-cover transition-transform group-hover:scale-110 duration-500" />
-              ) : (
-                <div className={`absolute inset-0 bg-gradient-to-br ${gradients[(img.id - 1) % gradients.length]} transition-transform group-hover:scale-110 duration-500`} />
-              )}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-              <div className="absolute bottom-0 left-0 right-0 p-4">
-                <p className="text-white text-xs font-medium">{img.alt}</p>
-                <span className="text-white/50 text-[10px] capitalize">{img.category}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  )
+function getJBOps() {
+  const ops = getJBTodayOps()
+  return { ...ops, _wind: `${ops.windDir} @ ${ops.windSpeed}` }
 }
 
 /* ─── TEAM ─── */
@@ -2545,7 +2351,7 @@ function TeamSection() {
 /* ─── STUDENT DASHBOARD (shown first when student logged in) ─── */
 
 /* ─── RECENT FLIGHT BOX (unclosed flights — post-flight logging) ─── */
-function RecentFlightBox({ user }) {
+export function RecentFlightBox({ user, operator = 'journeys' }) {
   const [flights, setFlights] = useState(() => getAllFlights())
   const [squawks, setSquawks] = useState(() => getSquawks())
 
@@ -2560,7 +2366,7 @@ function RecentFlightBox({ user }) {
   const recentWindow = 24 * 3600_000
   const myFlights = flights.filter((f) => {
     if (f.status === 'closed' || f.status === 'cancelled') return false
-    if (f._source !== 'journeys_portal' && f.operator !== 'journeys') return false
+    if (f._source !== `${operator}_portal` && f.operator !== operator) return false
     const isMyFlight = f.picId === user.id || f.sicId === user.id || f._bookingId
     if (!isMyFlight) return false
     const depTime = new Date(f.plannedDepartureUtc).getTime()
@@ -2573,18 +2379,22 @@ function RecentFlightBox({ user }) {
     <div className="space-y-3">
       <h2 className="text-2xl sm:text-3xl font-bold text-white">Recent & Upcoming Reservations</h2>
       {myFlights.map((f) => (
-        <RecentFlightCard key={f.id} flight={f} user={user} squawks={squawks} />
+        <RecentFlightCard key={f.id} flight={f} user={user} squawks={squawks} operator={operator} />
       ))}
     </div>
   )
 }
 
-function RecentFlightCard({ flight, user, squawks }) {
+export function RecentFlightCard({ flight, user, squawks, operator = 'journeys' }) {
   const [expanded, setExpanded] = useState(false)
   const [tachStart, setTachStart] = useState('')
   const [tachEnd, setTachEnd] = useState('')
   const [hobbsStart, setHobbsStart] = useState('')
   const [hobbsEnd, setHobbsEnd] = useState('')
+  const [billingMode, setBillingMode] = useState('hobbs')
+  const [realHours, setRealHours] = useState('')
+  const [numLaunches, setNumLaunches] = useState(flight.towInfo?.numTows || 1)
+  const [towHeight, setTowHeight] = useState(flight.towInfo?.towHeights?.[0] || 2000)
   const [rating, setRating] = useState(0) // 1-5 stars
   const [noSquawks, setNoSquawks] = useState(false)
   const [showSquawkForm, setShowSquawkForm] = useState(false)
@@ -2595,6 +2405,18 @@ function RecentFlightCard({ flight, user, squawks }) {
   const depTime = new Date(flight.plannedDepartureUtc)
   const isPast = depTime.getTime() < Date.now()
   const acSquawks = squawks.filter((s) => s.tailNumber === flight.tailNumber && s.status !== 'closed').slice(0, 5)
+
+  // Detect glider
+  const ac = mockAircraft.find((a) => a.tailNumber === flight.tailNumber || a.tailNumber === flight.callsign)
+  const isGlider = ac?.glider || ac?.fboCategory === 'glider' || operator === 'mhg'
+  const getBillableTime = () => {
+    if (billingMode === 'hobbs' && hobbsStart && hobbsEnd) return (parseFloat(hobbsEnd) - parseFloat(hobbsStart)).toFixed(1)
+    if (billingMode === 'tach' && tachStart && tachEnd) return (parseFloat(tachEnd) - parseFloat(tachStart)).toFixed(1)
+    if (billingMode === 'real_hour' && realHours) return parseFloat(realHours).toFixed(1)
+    return null
+  }
+  const billableTime = getBillableTime()
+  const billingLabel = billingMode === 'hobbs' ? 'Hobbs' : billingMode === 'tach' ? 'Tach' : 'Real hr'
 
   const handleSquawkSubmit = () => {
     if (!squawkDesc.trim()) return
@@ -2619,9 +2441,13 @@ function RecentFlightCard({ flight, user, squawks }) {
     updateStoreFlight(flight.id, {
       status: 'closed',
       _postFlight: {
+        billingMode,
         tachStart: tachStart || null, tachEnd: tachEnd || null,
         hobbsStart: hobbsStart || null, hobbsEnd: hobbsEnd || null,
-        hobbsTime: hobbsStart && hobbsEnd ? (parseFloat(hobbsEnd) - parseFloat(hobbsStart)).toFixed(1) : null,
+        hobbsTime: billableTime,
+        realHours: realHours || null,
+        numLaunches: isGlider ? numLaunches : null,
+        towHeight: isGlider ? towHeight : null,
         rating,
         noSquawks,
         closedBy: user.name,
@@ -2637,7 +2463,7 @@ function RecentFlightCard({ flight, user, squawks }) {
         <span className="text-xl">✅</span>
         <div>
           <div className="text-green-400 font-semibold text-sm">Flight closed — {flight.tailNumber}</div>
-          <div className="text-green-400/60 text-xs">{flight._sessionLabel || flight.callsign} · {hobbsStart && hobbsEnd ? `${(parseFloat(hobbsEnd) - parseFloat(hobbsStart)).toFixed(1)} Hobbs` : 'No times logged'}</div>
+          <div className="text-green-400/60 text-xs">{flight._sessionLabel || flight.callsign} · {billableTime ? `${billableTime} ${billingLabel}` : 'No times logged'}{isGlider && numLaunches ? ` · ${numLaunches} launch${numLaunches > 1 ? 'es' : ''}` : ''}</div>
         </div>
       </div>
     )
@@ -2668,31 +2494,63 @@ function RecentFlightCard({ flight, user, squawks }) {
 
       {expanded && (
         <div className="space-y-4 animate-[fadeIn_0.3s_ease]">
-          {/* Tach & Hobbs */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {/* Billing mode (gliders) */}
+          {isGlider && (
             <div>
-              <label className="text-slate-500 text-xs block mb-1">Tach Start</label>
-              <input type="number" step="0.1" placeholder="e.g. 4521.3" value={tachStart} onChange={(e) => setTachStart(e.target.value)}
+              <label className="text-slate-500 text-xs block mb-1.5">Billing Method</label>
+              <div className="flex gap-2">
+                {[{ id: 'real_hour', l: 'Real Hour' }, { id: 'tach', l: 'Tach' }, { id: 'hobbs', l: 'Hobbs' }].map((m) => (
+                  <button key={m.id} onClick={() => setBillingMode(m.id)}
+                    className={`flex-1 py-2 rounded-xl text-xs font-medium transition-all border ${billingMode === m.id ? 'bg-sky-500 text-white border-sky-500' : 'bg-surface border-surface-border text-slate-400 hover:border-slate-500'}`}>
+                    {m.l}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Time inputs */}
+          {billingMode === 'real_hour' && isGlider ? (
+            <div>
+              <label className="text-slate-500 text-xs block mb-1">Flight Time (hours)</label>
+              <input type="number" step="0.1" min="0" placeholder="e.g. 0.8" value={realHours} onChange={(e) => setRealHours(e.target.value)}
                 className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:border-sky-400 focus:outline-none" />
             </div>
-            <div>
-              <label className="text-slate-500 text-xs block mb-1">Tach End</label>
-              <input type="number" step="0.1" placeholder="e.g. 4523.1" value={tachEnd} onChange={(e) => setTachEnd(e.target.value)}
-                className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:border-sky-400 focus:outline-none" />
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {(!isGlider || billingMode === 'tach' ? [
+                { label: 'Tach Start', val: tachStart, set: setTachStart, ph: '4521.3' },
+                { label: 'Tach End', val: tachEnd, set: setTachEnd, ph: '4523.1' },
+              ] : []).concat(!isGlider || billingMode === 'hobbs' ? [
+                { label: 'Hobbs Start', val: hobbsStart, set: setHobbsStart, ph: '1120.5' },
+                { label: 'Hobbs End', val: hobbsEnd, set: setHobbsEnd, ph: '1122.3' },
+              ] : []).map((f) => (
+                <div key={f.label}>
+                  <label className="text-slate-500 text-xs block mb-1">{f.label}</label>
+                  <input type="number" step="0.1" placeholder={`e.g. ${f.ph}`} value={f.val} onChange={(e) => f.set(e.target.value)}
+                    className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:border-sky-400 focus:outline-none" />
+                </div>
+              ))}
             </div>
-            <div>
-              <label className="text-slate-500 text-xs block mb-1">Hobbs Start</label>
-              <input type="number" step="0.1" placeholder="e.g. 1120.5" value={hobbsStart} onChange={(e) => setHobbsStart(e.target.value)}
-                className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:border-sky-400 focus:outline-none" />
+          )}
+          {billableTime && <div className="text-sky-400 text-sm font-medium">{billingLabel}: {billableTime} hrs</div>}
+
+          {/* Glider launch tracking */}
+          {isGlider && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-slate-500 text-xs block mb-1">Launches</label>
+                <input type="number" min="1" max="10" value={numLaunches} onChange={(e) => setNumLaunches(parseInt(e.target.value) || 1)}
+                  className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:border-sky-400 focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-slate-500 text-xs block mb-1">Tow Height (ft AGL)</label>
+                <select value={towHeight} onChange={(e) => setTowHeight(parseInt(e.target.value))}
+                  className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 focus:border-sky-400 focus:outline-none">
+                  {[1000, 1500, 2000, 2500, 3000, 4000].map((h) => <option key={h} value={h}>{h.toLocaleString()} ft</option>)}
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="text-slate-500 text-xs block mb-1">Hobbs End</label>
-              <input type="number" step="0.1" placeholder="e.g. 1122.3" value={hobbsEnd} onChange={(e) => setHobbsEnd(e.target.value)}
-                className="w-full bg-surface border border-surface-border rounded-xl px-3 py-2.5 text-sm text-slate-200 placeholder:text-slate-600 focus:border-sky-400 focus:outline-none" />
-            </div>
-          </div>
-          {hobbsStart && hobbsEnd && parseFloat(hobbsEnd) > parseFloat(hobbsStart) && (
-            <div className="text-sky-400 text-sm font-medium">Hobbs time: {(parseFloat(hobbsEnd) - parseFloat(hobbsStart)).toFixed(1)} hrs</div>
           )}
 
           {/* Rate the flight */}
@@ -2782,12 +2640,40 @@ function RecentFlightCard({ flight, user, squawks }) {
           {/* Close flight button */}
           <button onClick={handleClose}
             className="w-full bg-sky-500 hover:bg-sky-400 text-white font-semibold py-3 rounded-xl text-sm transition-colors mt-2">
-            Close Flight{hobbsStart && hobbsEnd ? ` — ${(parseFloat(hobbsEnd) - parseFloat(hobbsStart)).toFixed(1)} Hobbs` : ''}
+            Close Flight{billableTime ? ` — ${billableTime} ${billingLabel}` : ''}{isGlider && numLaunches ? ` · ${numLaunches} tow${numLaunches > 1 ? 's' : ''}` : ''}
           </button>
         </div>
       )}
     </div>
   )
+}
+
+/* ─── Glider ACS task areas (FAA-S-ACS-8B) ─── */
+const GLIDER_ACS = {
+  dual: [
+    { id: 'gacs-preflight', area: 'I', label: 'Preflight Preparation', tasks: ['Pilot Qualifications', 'Airworthiness Requirements', 'Weather Information', 'Performance & Limitations', 'Operation of Systems', 'Aeromedical Factors', 'Aeronautical Decision Making'] },
+    { id: 'gacs-preflight-proc', area: 'II', label: 'Preflight Procedures', tasks: ['Assembly & Rigging', 'Ground Handling', 'Preflight Inspection', 'Cockpit Management', 'Tow Equipment Check'] },
+    { id: 'gacs-airport-ops', area: 'III', label: 'Airport Operations', tasks: ['Communications', 'Traffic Patterns', 'Runway Incursion Avoidance'] },
+    { id: 'gacs-launches', area: 'IV', label: 'Launches & Landings', tasks: ['Normal Aerotow Launch', 'Abnormal Aerotow Procedures', 'Aerotow Boxcar Position', 'Normal Landing', 'Slips to Landing', 'Downwind Landing'] },
+    { id: 'gacs-performance', area: 'V', label: 'Performance Maneuvers', tasks: ['Steep Turns', 'Minimum Sink Airspeed', 'Speed-to-Fly'] },
+    { id: 'gacs-soaring', area: 'VI', label: 'Soaring Techniques', tasks: ['Thermal Soaring', 'Ridge Soaring', 'Wave Recognition', 'Thermaling Entry & Centering'] },
+    { id: 'gacs-slow', area: 'VII', label: 'Slow Flight & Stalls', tasks: ['Maneuvering During Slow Flight', 'Stalls — Straight Ahead', 'Stalls — Turning', 'Spin Awareness'] },
+    { id: 'gacs-emergency', area: 'VIII', label: 'Emergency Operations', tasks: ['Rope / Tow Failure — Low Altitude', 'Rope / Tow Failure — High Altitude', 'Off-Field Landing Selection', 'Emergency Equipment & Signals', 'Inadvertent Cloud Entry'] },
+    { id: 'gacs-postflight', area: 'IX', label: 'Postflight Procedures', tasks: ['After Landing & Securing', 'Logbook & Documentation'] },
+  ],
+  solo: [
+    { id: 'gsolo-pattern', label: 'Pattern Solo', tasks: ['3 pattern tows to landing', 'Accuracy landings within 200 ft'], minFlights: 1 },
+    { id: 'gsolo-soaring', label: 'Solo Soaring', tasks: ['Thermaling solo flight', 'Maintain altitude ≥15 min'], minFlights: 2 },
+    { id: 'gsolo-xc', label: 'Solo Cross-Country', tasks: ['Turnpoint XC ≥25 nm', 'Pre-declared goal flight'], minFlights: 1 },
+  ],
+  ground: [
+    { id: 'goral-regs', label: 'Regulations (14 CFR)', tasks: ['Part 61 — Pilot Certificates', 'Part 91 — General Operating Rules', 'NTSB 830 — Accident Reporting'] },
+    { id: 'goral-weather', label: 'Soaring Weather', tasks: ['Thermal formation & triggers', 'Ridge lift & wave conditions', 'METAR/TAF interpretation', 'Soaring forecasts (SkySight / RASP)', 'Density altitude effects'] },
+    { id: 'goral-performance', label: 'Glider Performance', tasks: ['Polar curves & L/D ratio', 'Weight & balance calculations', 'Speed-to-fly theory', 'Ballast considerations'] },
+    { id: 'goral-systems', label: 'Glider Systems', tasks: ['Flight controls & spoilers/dive brakes', 'Release mechanisms', 'Variometer & total energy', 'Pitot-static system', 'Emergency parachute'] },
+    { id: 'goral-airspace', label: 'Airspace & Navigation', tasks: ['Airspace classification', 'VFR cloud clearance & visibility', 'Sectional chart reading', 'GPS & turnpoint navigation'] },
+    { id: 'goral-adm', label: 'ADM & Human Factors', tasks: ['Aeronautical decision making', 'Risk management (PAVE, IMSAFE)', 'CRM in tow operations', 'Spatial disorientation', 'Hypoxia at altitude'] },
+  ],
 }
 
 /* ─── PPL ACS task areas (FAA-S-ACS-6B) ─── */
@@ -2840,14 +2726,56 @@ const LESSON_ACS_MAP = {
   'Mock Oral Exam':                    ['Pilot Qualifications', 'Weather Information', 'Performance & Limitations', 'National Airspace System', 'Aeronautical Decision Making'],
   'Mock Practical — Full Maneuvers':   ['Steep Turns', 'Power-Off Stalls', 'Power-On Stalls', 'Short-Field Approach & Landing', 'Soft-Field Takeoff & Climb', 'Forward Slip to Landing'],
 }
+// Glider lesson → ACS task mappings
+const GLIDER_LESSON_ACS_MAP = {
+  'Glider Intro — Controls & Straight-&-Level':    ['Preflight Inspection', 'Cockpit Management', 'Normal Aerotow Launch', 'Normal Landing'],
+  'Aerotow Procedures & Traffic Pattern':           ['Normal Aerotow Launch', 'Abnormal Aerotow Procedures', 'Traffic Patterns', 'Communications'],
+  'Stalls & Spin Awareness':                        ['Maneuvering During Slow Flight', 'Stalls — Straight Ahead', 'Stalls — Turning', 'Spin Awareness'],
+  'Soaring Techniques — Ridge & Thermal':           ['Thermal Soaring', 'Ridge Soaring', 'Thermaling Entry & Centering', 'Minimum Sink Airspeed'],
+  'Pattern & Off-Field Landing Planning':           ['Traffic Patterns', 'Off-Field Landing Selection', 'Slips to Landing', 'Accuracy landings within 200 ft'],
+  'Pre-Solo Ground — Regulations & Weather':        ['Pilot Qualifications', 'Airworthiness Requirements', 'Thermal formation & triggers', 'Aeronautical Decision Making'],
+  'First Solo — Pattern Tows':                      ['Normal Aerotow Launch', 'Normal Landing', 'Traffic Patterns', 'Communications'],
+  'Solo Soaring Practice':                          ['Thermal Soaring', 'Thermaling Entry & Centering', 'Maintain altitude ≥15 min'],
+  'Glider Systems & Aerotow Orientation':           ['Preflight Inspection', 'Tow Equipment Check', 'Normal Aerotow Launch', 'Cockpit Management'],
+  'Pattern Work & Spot Landings':                   ['Traffic Patterns', 'Normal Landing', 'Slips to Landing', 'Accuracy landings within 200 ft'],
+  'Soaring Skills — Thermal Centering':             ['Thermal Soaring', 'Thermaling Entry & Centering', 'Speed-to-Fly'],
+  'Emergency Off-Field Procedures':                 ['Rope / Tow Failure — Low Altitude', 'Rope / Tow Failure — High Altitude', 'Off-Field Landing Selection', 'Emergency Equipment & Signals'],
+  'Mock Oral Exam — Glider ACS':                    ['Pilot Qualifications', 'Airworthiness Requirements', 'Performance & Limitations', 'Aeronautical Decision Making'],
+  'Mock Practical — Add-On Checkride':              ['Steep Turns', 'Stalls — Straight Ahead', 'Slips to Landing', 'Off-Field Landing Selection', 'Thermaling Entry & Centering'],
+}
+
 // Fallback: generic items for any lesson not in the map
 const GENERIC_ACS = ['Preflight Assessment', 'Normal T&L', 'Communications', 'After Landing', 'Parking & Securing']
+const GLIDER_GENERIC_ACS = ['Preflight Inspection', 'Normal Aerotow Launch', 'Normal Landing', 'Communications', 'After Landing & Securing']
 
-function LessonClosePanel({ flight, user, onClose }) {
+/** Pick ACS constant set based on program */
+function getAcsForProgram(programId) {
+  if (programId?.startsWith('glider_')) return GLIDER_ACS
+  return PPL_ACS
+}
+
+/** Pick lesson-ACS map based on program */
+function getLessonAcsMap(programId) {
+  if (programId?.startsWith('glider_')) return GLIDER_LESSON_ACS_MAP
+  return LESSON_ACS_MAP
+}
+
+/** Pick generic fallback ACS tasks based on program */
+function getGenericAcs(programId) {
+  if (programId?.startsWith('glider_')) return GLIDER_GENERIC_ACS
+  return GENERIC_ACS
+}
+
+export function LessonClosePanel({ flight, user, onClose, operator = 'journeys' }) {
   const [tachStart, setTachStart] = useState('')
   const [tachEnd, setTachEnd] = useState('')
   const [hobbsStart, setHobbsStart] = useState('')
   const [hobbsEnd, setHobbsEnd] = useState('')
+  // Glider billing: real hour (clock), tach, or no meter
+  const [billingMode, setBillingMode] = useState('hobbs') // 'hobbs' | 'tach' | 'real_hour'
+  const [realHours, setRealHours] = useState('')
+  const [numLaunches, setNumLaunches] = useState(flight.towInfo?.numTows || 1)
+  const [towHeight, setTowHeight] = useState(flight.towInfo?.towHeights?.[0] || 2000)
   const [rating, setRating] = useState(0)
   const [acsChecks, setAcsChecks] = useState({})
   const [noSquawks, setNoSquawks] = useState(false)
@@ -2858,9 +2786,27 @@ function LessonClosePanel({ flight, user, onClose }) {
   const [flightNotes, setFlightNotes] = useState('')
   const [closed, setClosed] = useState(false)
 
-  // Find ACS items for this lesson
+  // Detect glider aircraft (no hobbs on many gliders)
+  const ac = mockAircraft.find((a) => a.tailNumber === flight.tailNumber || a.tailNumber === flight.callsign)
+  const isGlider = ac?.glider || ac?.fboCategory === 'glider' || operator === 'mhg'
+
+  // Computed billable time
+  const getBillableTime = () => {
+    if (billingMode === 'hobbs' && hobbsStart && hobbsEnd) return (parseFloat(hobbsEnd) - parseFloat(hobbsStart)).toFixed(1)
+    if (billingMode === 'tach' && tachStart && tachEnd) return (parseFloat(tachEnd) - parseFloat(tachStart)).toFixed(1)
+    if (billingMode === 'real_hour' && realHours) return parseFloat(realHours).toFixed(1)
+    return null
+  }
+  const billableTime = getBillableTime()
+  const billingLabel = billingMode === 'hobbs' ? 'Hobbs' : billingMode === 'tach' ? 'Tach' : 'Real hr'
+
+  // Find ACS items for this lesson — use program-appropriate map
+  const lessonStudent = mockStudents.find((s) => s.name.toLowerCase().includes(user?.name?.split(' ')[0]?.toLowerCase()))
+  const lessonProgramId = lessonStudent?.program
+  const lessonAcsMap = getLessonAcsMap(lessonProgramId)
+  const lessonGenericAcs = getGenericAcs(lessonProgramId)
   const lessonTitle = flight._sessionLabel?.split('—')[1]?.trim() || flight._sessionLabel || ''
-  const acsItems = LESSON_ACS_MAP[lessonTitle] || LESSON_ACS_MAP[Object.keys(LESSON_ACS_MAP).find((k) => lessonTitle.includes(k))] || GENERIC_ACS
+  const acsItems = lessonAcsMap[lessonTitle] || lessonAcsMap[Object.keys(lessonAcsMap).find((k) => lessonTitle.includes(k))] || lessonGenericAcs
 
   const allChecked = acsItems.every((item) => acsChecks[item])
 
@@ -2884,9 +2830,13 @@ function LessonClosePanel({ flight, user, onClose }) {
     updateStoreFlight(flight.id, {
       status: 'closed',
       _postFlight: {
+        billingMode,
         tachStart: tachStart || null, tachEnd: tachEnd || null,
         hobbsStart: hobbsStart || null, hobbsEnd: hobbsEnd || null,
-        hobbsTime: hobbsStart && hobbsEnd ? (parseFloat(hobbsEnd) - parseFloat(hobbsStart)).toFixed(1) : null,
+        hobbsTime: billableTime,
+        realHours: realHours || null,
+        numLaunches: isGlider ? numLaunches : null,
+        towHeight: isGlider ? towHeight : null,
         rating, noSquawks,
         acsResults: acsChecks,
         acsAllMet: allChecked,
@@ -2902,7 +2852,7 @@ function LessonClosePanel({ flight, user, onClose }) {
   if (closed) {
     return (
       <div className="bg-green-400/10 border border-green-400/20 rounded-xl p-4 text-center animate-[fadeIn_0.3s_ease]">
-        <span className="text-green-400 font-semibold text-sm">✓ Lesson closed{hobbsStart && hobbsEnd ? ` — ${(parseFloat(hobbsEnd) - parseFloat(hobbsStart)).toFixed(1)} Hobbs` : ''}</span>
+        <span className="text-green-400 font-semibold text-sm">✓ Lesson closed{billableTime ? ` — ${billableTime} ${billingLabel}` : ''}{isGlider && numLaunches ? ` · ${numLaunches} launch${numLaunches > 1 ? 'es' : ''}` : ''}</span>
       </div>
     )
   }
@@ -2911,23 +2861,82 @@ function LessonClosePanel({ flight, user, onClose }) {
     <div className="bg-surface-card border border-surface-border rounded-xl p-4 space-y-4 animate-[fadeIn_0.3s_ease]">
       <h4 className="text-white font-bold text-sm">Close Lesson — {flight._sessionLabel || flight.tailNumber}</h4>
 
-      {/* Tach & Hobbs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        {[
-          { label: 'Tach Start', val: tachStart, set: setTachStart },
-          { label: 'Tach End', val: tachEnd, set: setTachEnd },
-          { label: 'Hobbs Start', val: hobbsStart, set: setHobbsStart },
-          { label: 'Hobbs End', val: hobbsEnd, set: setHobbsEnd },
-        ].map((f) => (
-          <div key={f.label}>
-            <label className="text-slate-600 text-[10px]">{f.label}</label>
-            <input type="number" step="0.1" placeholder="0.0" value={f.val} onChange={(e) => f.set(e.target.value)}
-              className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-700 focus:border-sky-400 focus:outline-none" />
+      {/* Billing mode selector (gliders show all options, powered defaults to hobbs) */}
+      {isGlider && (
+        <div>
+          <label className="text-slate-500 text-[10px] uppercase tracking-wide block mb-1">Billing Method</label>
+          <div className="flex gap-2">
+            {[
+              { id: 'real_hour', label: 'Real Hour (clock)' },
+              { id: 'tach', label: 'Tach Time' },
+              { id: 'hobbs', label: 'Hobbs' },
+            ].map((m) => (
+              <button key={m.id} onClick={() => setBillingMode(m.id)}
+                className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all border ${billingMode === m.id ? 'bg-sky-500 text-white border-sky-500' : 'bg-surface border-surface-border text-slate-400 hover:border-slate-500'}`}>
+                {m.label}
+              </button>
+            ))}
           </div>
-        ))}
-      </div>
-      {hobbsStart && hobbsEnd && parseFloat(hobbsEnd) > parseFloat(hobbsStart) && (
-        <div className="text-sky-400 text-xs">Hobbs: {(parseFloat(hobbsEnd) - parseFloat(hobbsStart)).toFixed(1)} hrs</div>
+        </div>
+      )}
+
+      {/* Time inputs — vary by billing mode */}
+      {billingMode === 'real_hour' ? (
+        <div>
+          <label className="text-slate-600 text-[10px]">Flight Time (hours)</label>
+          <input type="number" step="0.1" min="0" placeholder="e.g. 0.8" value={realHours} onChange={(e) => setRealHours(e.target.value)}
+            className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-700 focus:border-sky-400 focus:outline-none" />
+          {realHours && <div className="text-sky-400 text-xs mt-1">Billable: {parseFloat(realHours).toFixed(1)} real hrs</div>}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {billingMode === 'tach' || !isGlider ? [
+            { label: 'Tach Start', val: tachStart, set: setTachStart },
+            { label: 'Tach End', val: tachEnd, set: setTachEnd },
+          ] : []}
+          {billingMode === 'hobbs' || !isGlider ? [
+            { label: 'Hobbs Start', val: hobbsStart, set: setHobbsStart },
+            { label: 'Hobbs End', val: hobbsEnd, set: setHobbsEnd },
+          ] : []}
+          {/* For powered aircraft, show all 4 fields */}
+          {(!isGlider ? [
+            { label: 'Tach Start', val: tachStart, set: setTachStart },
+            { label: 'Tach End', val: tachEnd, set: setTachEnd },
+            { label: 'Hobbs Start', val: hobbsStart, set: setHobbsStart },
+            { label: 'Hobbs End', val: hobbsEnd, set: setHobbsEnd },
+          ] : billingMode === 'tach' ? [
+            { label: 'Tach Start', val: tachStart, set: setTachStart },
+            { label: 'Tach End', val: tachEnd, set: setTachEnd },
+          ] : billingMode === 'hobbs' ? [
+            { label: 'Hobbs Start', val: hobbsStart, set: setHobbsStart },
+            { label: 'Hobbs End', val: hobbsEnd, set: setHobbsEnd },
+          ] : []).map((f) => (
+            <div key={f.label}>
+              <label className="text-slate-600 text-[10px]">{f.label}</label>
+              <input type="number" step="0.1" placeholder="0.0" value={f.val} onChange={(e) => f.set(e.target.value)}
+                className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-700 focus:border-sky-400 focus:outline-none" />
+            </div>
+          ))}
+        </div>
+      )}
+      {billableTime && <div className="text-sky-400 text-xs">{billingLabel}: {billableTime} hrs</div>}
+
+      {/* Glider launch tracking */}
+      {isGlider && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-slate-600 text-[10px]">Launches</label>
+            <input type="number" min="1" max="10" value={numLaunches} onChange={(e) => setNumLaunches(parseInt(e.target.value) || 1)}
+              className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:border-sky-400 focus:outline-none" />
+          </div>
+          <div>
+            <label className="text-slate-600 text-[10px]">Tow Height (ft AGL)</label>
+            <select value={towHeight} onChange={(e) => setTowHeight(parseInt(e.target.value))}
+              className="w-full bg-surface border border-surface-border rounded-lg px-2 py-1.5 text-xs text-slate-200 focus:border-sky-400 focus:outline-none">
+              {[1000, 1500, 2000, 2500, 3000, 4000].map((h) => <option key={h} value={h}>{h.toLocaleString()} ft</option>)}
+            </select>
+          </div>
+        </div>
       )}
 
       {/* Route & Notes */}
@@ -3014,23 +3023,32 @@ function LessonClosePanel({ flight, user, onClose }) {
       {/* Close button */}
       <button onClick={handleClose}
         className="w-full bg-green-500 hover:bg-green-400 text-white font-semibold py-2.5 rounded-xl text-sm transition-colors">
-        Close Lesson{hobbsStart && hobbsEnd ? ` — ${(parseFloat(hobbsEnd) - parseFloat(hobbsStart)).toFixed(1)} Hobbs` : ''}
+        Close Lesson{billableTime ? ` — ${billableTime} ${billingLabel}` : ''}{isGlider && numLaunches ? ` · ${numLaunches} tow${numLaunches > 1 ? 's' : ''}` : ''}
       </button>
     </div>
   )
 }
 
-function StudentDashboard({ user }) {
+export function StudentDashboard({ user, operator = 'journeys' }) {
   const student = useMemo(() => {
+    // Match by studentId first (personas carry this), then by name
+    if (user.studentId) {
+      const byId = mockStudents.find((s) => s.id === user.studentId)
+      if (byId) return byId
+    }
     const byName = mockStudents.find((s) => s.name.toLowerCase().includes(user.name.split(' ')[0].toLowerCase()))
     return byName || mockStudents.find((s) => s.id === 'std-002') || mockStudents[0]
-  }, [user.name])
+  }, [user.name, user.studentId])
 
-  const program = PROGRAMS[student.program]
+  // Use user.program when persona specifies one (e.g. glider persona falling back to a PPL student record)
+  const effectiveProgram = user.program || student.program
+  const program = PROGRAMS[effectiveProgram]
+  const programAcs = getAcsForProgram(effectiveProgram)
+  const isGliderProgram = effectiveProgram?.startsWith('glider_')
   const cfi = mockPersonnel.find((p) => p.id === student.assignedCfiId)
-  const reqs = requirementProgress(student, student.program)
-  const metCount = metRequirementCount(student, student.program)
-  const progress = stageProgress(student, student.program)
+  const reqs = requirementProgress(student, effectiveProgram)
+  const metCount = metRequirementCount(student, effectiveProgram)
+  const progress = stageProgress(student, effectiveProgram)
   const [acsTab, setAcsTab] = useState('dual')
   const [closingFlightId, setClosingFlightId] = useState(null)
   const [toast, setToast] = useState(null)
@@ -3067,7 +3085,7 @@ function StudentDashboard({ user }) {
   const ACTIVE_WINDOW = 60 * 60_000 // 1 hour
   const activeFlights = flights.filter((f) => {
     if (f.status === 'closed' || f.status === 'cancelled') return false
-    if (f._source !== 'journeys_portal' && f.operator !== 'journeys') return false
+    if (f._source !== `${operator}_portal` && f.operator !== operator) return false
     const isMine = f.picId === user.id || f.sicId === user.id || f._bookingId
     if (!isMine) return false
     const dep = new Date(f.plannedDepartureUtc).getTime()
@@ -3078,7 +3096,7 @@ function StudentDashboard({ user }) {
   // Scheduled (upcoming, not active)
   const scheduledFlights = flights.filter((f) => {
     if (f.status !== 'planned') return false
-    if (f._source !== 'journeys_portal' && f.operator !== 'journeys') return false
+    if (f._source !== `${operator}_portal` && f.operator !== operator) return false
     const isMine = f.picId === user.id || f.sicId === user.id || f._bookingId
     if (!isMine) return false
     const dep = new Date(f.plannedDepartureUtc).getTime()
@@ -3105,7 +3123,7 @@ function StudentDashboard({ user }) {
   // Simulated completion counts (in real app would come from logbook)
   const completedLessons = useMemo(() => {
     const counts = {}
-    const templates = LESSON_TEMPLATES[student.program] || {}
+    const templates = LESSON_TEMPLATES[effectiveProgram] || {}
     Object.values(templates).flat().forEach((t) => {
       // Stages up to currentStage - 1 are "completed"
       counts[t.id] = 0
@@ -3114,7 +3132,7 @@ function StudentDashboard({ user }) {
       (templates[stage] || []).forEach((t) => { counts[t.id] = (counts[t.id] || 0) + 1 })
     }
     return counts
-  }, [student.program, student.currentStage])
+  }, [effectiveProgram, student.currentStage])
 
   const DOC_FIELDS = [
     { key: 'governmentId', label: 'Gov ID', showExpiry: true },
@@ -3148,7 +3166,7 @@ function StudentDashboard({ user }) {
               </span>
             )}
             <div className="text-right">
-              <div className="text-white font-bold text-lg">{student.hours.total} hrs</div>
+              <div className="text-white font-bold text-lg">{student.hours.total} hrs{isGliderProgram && student.hours.launches ? ` · ${student.hours.launches} launches` : ''}</div>
               <div className="text-slate-600 text-[10px]">{canSolo ? '✓ Solo endorsed' : 'Pre-solo'}</div>
             </div>
           </div>
@@ -3226,7 +3244,7 @@ function StudentDashboard({ user }) {
                 ))}
               </div>
               <div className="p-4 max-h-[400px] overflow-y-auto space-y-3">
-                {acsTab === 'dual' && PPL_ACS.dual.map((area) => {
+                {acsTab === 'dual' && programAcs.dual.map((area) => {
                   const areaDone = area.tasks.filter((t) => acsMet.has(t)).length
                   return (
                     <div key={area.id}>
@@ -3236,7 +3254,7 @@ function StudentDashboard({ user }) {
                       </div>
                       <div className="space-y-0.5">
                         {area.tasks.map((task) => {
-                          const done = acsMet.has(task) || student.currentStage > PPL_ACS.dual.indexOf(area) + 1
+                          const done = acsMet.has(task) || student.currentStage > programAcs.dual.indexOf(area) + 1
                           return (
                             <div key={task} className="flex items-center gap-2 text-xs py-0.5">
                               <span className={`w-3.5 h-3.5 rounded flex items-center justify-center text-[8px] ${done ? 'bg-green-400/20 text-green-400' : 'bg-surface border border-surface-border text-slate-600'}`}>
@@ -3255,7 +3273,7 @@ function StudentDashboard({ user }) {
                     <div className={`text-xs font-medium px-3 py-2 rounded-lg ${canSolo ? 'bg-green-400/10 text-green-400 border border-green-400/20' : 'bg-amber-400/10 text-amber-400 border border-amber-400/20'}`}>
                       {canSolo ? '✓ Solo endorsed — can fly solo' : '⏳ Pre-solo — complete Stage 3 dual requirements first'}
                     </div>
-                    {PPL_ACS.solo.map((item) => {
+                    {programAcs.solo.map((item) => {
                       const tasksDone = item.tasks.filter((t) => acsMet.has(t)).length
                       const done = tasksDone === item.tasks.length || (item.id === 'solo-pattern' && student.hours.soloPIC > 0)
                       return (
@@ -3280,7 +3298,7 @@ function StudentDashboard({ user }) {
                     })}
                   </>
                 )}
-                {acsTab === 'ground' && PPL_ACS.ground.map((area) => {
+                {acsTab === 'ground' && programAcs.ground.map((area) => {
                   const tasksDone = area.tasks.filter((t) => acsMet.has(t)).length
                   return (
                     <div key={area.id} className={`rounded-lg border p-3 ${tasksDone === area.tasks.length ? 'border-green-400/20 bg-green-400/5' : 'border-surface-border'}`}>
@@ -3307,7 +3325,7 @@ function StudentDashboard({ user }) {
 
             {/* Hour requirements — compact */}
             <div className="bg-surface-card border border-surface-border rounded-2xl p-4">
-              <h3 className="text-slate-400 text-[10px] uppercase tracking-wide mb-2">Hours ({metCount}/{reqs.length} met)</h3>
+              <h3 className="text-slate-400 text-[10px] uppercase tracking-wide mb-2">{isGliderProgram ? 'Requirements' : 'Hours'} ({metCount}/{reqs.length} met)</h3>
               <div className="space-y-1.5">
                 {reqs.map((r) => {
                   const pct = r.pct ?? Math.min(100, Math.round((r.actual / r.min) * 100))
@@ -3362,44 +3380,7 @@ function StudentDashboard({ user }) {
   )
 }
 
-/* ─── FOOTER ─── */
-function FooterSection() {
-  return (
-    <footer className="bg-surface-card border-t border-surface-border py-12 px-6">
-      <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
-        <div>
-          <h4 className="text-white font-bold text-lg mb-2">Journeys Aviation</h4>
-          <p className="text-slate-400 text-sm leading-relaxed">{JB_INFO.address}</p>
-          <p className="text-slate-400 text-sm">{JB_INFO.airport}</p>
-          <p className="text-slate-400 text-sm mt-2">{JB_INFO.hours}</p>
-        </div>
-        <div>
-          <h4 className="text-white font-bold mb-2">Contact</h4>
-          <p className="text-slate-300 text-sm">FBO: {JB_INFO.phone}</p>
-          <p className="text-slate-300 text-sm">Maintenance: {JB_INFO.maintenancePhone}</p>
-          <p className="text-slate-300 text-sm">{JB_INFO.email}</p>
-          <div className="flex gap-3 mt-3">
-            <a href={JB_INFO.facebook} target="_blank" rel="noopener noreferrer" className="text-sky-400 text-sm hover:text-sky-300">Facebook</a>
-            <a href={JB_INFO.linkedin} target="_blank" rel="noopener noreferrer" className="text-sky-400 text-sm hover:text-sky-300">LinkedIn</a>
-            <a href={JB_INFO.yelp} target="_blank" rel="noopener noreferrer" className="text-sky-400 text-sm hover:text-sky-300">Yelp</a>
-            <a href={JB_INFO.website} target="_blank" rel="noopener noreferrer" className="text-sky-400 text-sm hover:text-sky-300">Website</a>
-          </div>
-        </div>
-        <div>
-          <h4 className="text-white font-bold mb-2">Resources</h4>
-          <div className="space-y-1">
-            {JB_RESOURCES.slice(0, 6).map((r) => (
-              <a key={r.label} href={r.url} target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-sky-400 text-sm block transition-colors">{r.label} ↗</a>
-            ))}
-          </div>
-        </div>
-      </div>
-      <div className="max-w-6xl mx-auto mt-8 pt-6 border-t border-surface-border text-center text-slate-600 text-xs">
-        © {new Date().getFullYear()} Journeys Aviation, Inc. · Boulder, Colorado · KBDU
-      </div>
-    </footer>
-  )
-}
+/* FooterSection now from ../portal (PortalFooter) — see usage in main component */
 
 /* ═══════════════════════════════════════════════════════════
    MAIN PAGE — Full-screen client portal
@@ -3435,36 +3416,37 @@ export function JourneysBoulder() {
       {isStudent ? (
         <>
           <StudentDashboard user={user} />
+          {user && <div className="px-4 sm:px-6 pb-6"><div className="max-w-6xl mx-auto"><RecentFlightBox user={user} /></div></div>}
           {user && <ScheduleSection user={user} selectedAircraft={bookingAircraft} onSelectAircraft={setBookingAircraft} onClearAircraft={() => setBookingAircraft(null)} />}
           {user && <MyFleetSection key={squawkVersion} user={user} onSquawk={setSquawkTail} />}
-          <MiniGalleryStrip category="fleet" />
+          <MiniGalleryStrip gallery={JB_GALLERY} category="fleet" />
           <FleetSection user={user} onBookAircraft={setBookingAircraft} onSquawk={setSquawkTail} squawkVersion={squawkVersion} />
-          {squawkTail && user && <SquawkPanel tailNumber={squawkTail} user={user} onClose={() => setSquawkTail(null)} />}
-          <MiniGalleryStrip category="scenery" />
-          <OperationsSection />
-          <FooterSection />
+          {squawkTail && user && <SharedSquawkPanel tailNumber={squawkTail} user={user} aircraftLabel={(getAircraftByOperator('journeys').find((a) => a.tailNumber === squawkTail) || mockAircraft.find((a) => a.tailNumber === squawkTail))?.makeModel} onClose={() => setSquawkTail(null)} />}
+          <MiniGalleryStrip gallery={JB_GALLERY} category="scenery" />
+          <AirportOps getOps={getJBOps} title="Field Conditions" openLabel="FBO open — aircraft available" closedLabel="FBO closed — check back during business hours" weatherLinks={JB_WEATHER_LINKS} fields={JB_OPS_FIELDS} />
+          <PortalFooter brand="Journeys Aviation" address={JB_INFO.address} airport={JB_INFO.airport} hours={JB_INFO.hours} contactLines={[{label:'FBO', value:JB_INFO.phone},{label:'Maintenance', value:JB_INFO.maintenancePhone},{label:'', value:JB_INFO.email}]} socialLinks={[{label:'Facebook',url:JB_INFO.facebook},{label:'LinkedIn',url:JB_INFO.linkedin},{label:'Yelp',url:JB_INFO.yelp},{label:'Website',url:JB_INFO.website}]} resources={JB_RESOURCES.slice(0,6)} copyright={`© ${new Date().getFullYear()} Journeys Aviation, Inc. · Boulder, Colorado · KBDU`} />
         </>
       ) : (
         <>
           <HeroSection />
           {user && <div className="px-4 sm:px-6 pb-6"><div className="max-w-6xl mx-auto"><RecentFlightBox user={user} /></div></div>}
           {user && <MyFleetSection key={squawkVersion} user={user} onSquawk={setSquawkTail} />}
-          <MiniGalleryStrip category="fleet" />
+          <MiniGalleryStrip gallery={JB_GALLERY} category="fleet" />
           <FleetSection user={user} onBookAircraft={setBookingAircraft} onSquawk={setSquawkTail} squawkVersion={squawkVersion} />
-          {squawkTail && user && <SquawkPanel tailNumber={squawkTail} user={user} onClose={() => setSquawkTail(null)} />}
+          {squawkTail && user && <SharedSquawkPanel tailNumber={squawkTail} user={user} aircraftLabel={(getAircraftByOperator('journeys').find((a) => a.tailNumber === squawkTail) || mockAircraft.find((a) => a.tailNumber === squawkTail))?.makeModel} onClose={() => setSquawkTail(null)} />}
           {user && <ScheduleSection user={user} selectedAircraft={bookingAircraft} onSelectAircraft={setBookingAircraft} onClearAircraft={() => setBookingAircraft(null)} />}
-          <MiniGalleryStrip category="training" />
+          <MiniGalleryStrip gallery={JB_GALLERY} category="training" />
           <TrainingSection />
-          <MiniGalleryStrip category="fbo" />
+          <MiniGalleryStrip gallery={JB_GALLERY} category="fbo" />
           <MaintenanceSection user={user} />
-          <MiniGalleryStrip category="fbo" />
+          <MiniGalleryStrip gallery={JB_GALLERY} category="fbo" />
           <FBOSection />
-          <MiniGalleryStrip category="scenery" />
-          <OperationsSection />
-          <MiniGalleryStrip category="flights" />
-          <GallerySection />
+          <MiniGalleryStrip gallery={JB_GALLERY} category="scenery" />
+          <AirportOps getOps={getJBOps} title="Field Conditions" openLabel="FBO open — aircraft available" closedLabel="FBO closed — check back during business hours" weatherLinks={JB_WEATHER_LINKS} fields={JB_OPS_FIELDS} />
+          <MiniGalleryStrip gallery={JB_GALLERY} category="flights" />
+          <GalleryGrid gallery={JB_GALLERY} />
           <TeamSection />
-          <FooterSection />
+          <PortalFooter brand="Journeys Aviation" address={JB_INFO.address} airport={JB_INFO.airport} hours={JB_INFO.hours} contactLines={[{label:'FBO', value:JB_INFO.phone},{label:'Maintenance', value:JB_INFO.maintenancePhone},{label:'', value:JB_INFO.email}]} socialLinks={[{label:'Facebook',url:JB_INFO.facebook},{label:'LinkedIn',url:JB_INFO.linkedin},{label:'Yelp',url:JB_INFO.yelp},{label:'Website',url:JB_INFO.website}]} resources={JB_RESOURCES.slice(0,6)} copyright={`© ${new Date().getFullYear()} Journeys Aviation, Inc. · Boulder, Colorado · KBDU`} />
         </>
       )}
 

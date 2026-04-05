@@ -230,6 +230,7 @@ export function Flights() {
   const [flights,       setFlights]       = useState(() => getAllFlights())
   const [timeFilter,    setTimeFilter]    = useState('today')
   const [partFilter,    setPartFilter]    = useState(null)   // null = All
+  const [missionFilter, setMissionFilter] = useState(null)   // null = All, 'parachute_ops', 'glider_tow', 'charter', etc.
   const [flightTab,     setFlightTab]     = useState(null)
   const [selectedId,    setSelectedId]    = useState(null)
   const [currentUser,   setCurrentUser]   = useState(() => personnelToUser(mockPersonnel[0]))
@@ -298,7 +299,11 @@ export function Flights() {
     ? timeFiltered.filter((f) => (f.part ?? '135') === partFilter)
     : timeFiltered
 
-  const tabFiltered = partFiltered.filter((f) => {
+  const missionFiltered = missionFilter
+    ? partFiltered.filter((f) => f.missionType === missionFilter || f.part91Type === missionFilter)
+    : partFiltered
+
+  const tabFiltered = missionFiltered.filter((f) => {
     if (!flightTab) return true
     if (flightTab === 'mine')   return f.picId === currentUser?.id || f.sicId === currentUser?.id
     if (flightTab === 'others') return f.picId !== currentUser?.id && f.sicId !== currentUser?.id
@@ -325,8 +330,8 @@ export function Flights() {
   ].sort((a, b) => a._sortKey - b._sortKey)
 
   // ── Stats ──────────────────────────────────────────────────────────────────
-  const activeCount   = partFiltered.filter((f) => f.status === 'active').length
-  const criticalCount = partFiltered.filter((f) => {
+  const activeCount   = missionFiltered.filter((f) => f.status === 'active').length
+  const criticalCount = missionFiltered.filter((f) => {
     const r = f.riskSnapshot?.ratioToBaseline ?? (f.riskScore ? f.riskScore / 25 : 0)
     return r >= 2
   }).length
@@ -343,7 +348,7 @@ export function Flights() {
             {activeCount > 0     && <span className="text-green-400 font-medium">{activeCount} active · </span>}
             {criticalCount > 0   && <span className="text-red-400 font-medium">{criticalCount} elevated risk · </span>}
             {totalConflictCount > 0 && <span className="text-orange-400 font-medium">{totalConflictCount} conflict{totalConflictCount !== 1 ? 's' : ''} · </span>}
-            {partFiltered.length} flight{partFiltered.length !== 1 ? 's' : ''} in view
+            {missionFiltered.length} flight{missionFiltered.length !== 1 ? 's' : ''} in view
           </p>
         </div>
 
@@ -369,7 +374,7 @@ export function Flights() {
 
       {/* ── Route Map ── */}
       <RouteMap
-        flights={partFiltered}
+        flights={missionFiltered}
         selectedId={selectedId}
         onSelect={(id) => setSelectedId((prev) => prev === id ? null : id)}
       />
@@ -419,7 +424,7 @@ export function Flights() {
           </div>
         </div>
 
-        {/* Row 2: Part filter */}
+        {/* Row 2: Part filter + Mission filter */}
         <div className="flex items-center gap-1 flex-wrap">
           <span className="text-[10px] text-slate-600 uppercase tracking-wide mr-1">Reg</span>
           {[
@@ -434,6 +439,37 @@ export function Flights() {
               <button
                 key={String(val)}
                 onClick={() => setPartFilter(val)}
+                className={`px-3 py-1 rounded text-xs border transition-colors ${
+                  active
+                    ? (val ? colorMap[val] : 'bg-sky-500/20 border-sky-500/50 text-sky-300')
+                    : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500'
+                }`}
+              >
+                {label}
+              </button>
+            )
+          })}
+
+          <span className="text-slate-700 mx-1">|</span>
+          <span className="text-[10px] text-slate-600 uppercase tracking-wide mr-1">Ops</span>
+          {[
+            [null,             'All'],
+            ['parachute_ops',  '§105 Parachute'],
+            ['glider_tow',    'Glider Tow'],
+            ['charter',       'Charter'],
+            ['training',      'Training'],
+          ].map(([val, label]) => {
+            const active = missionFilter === val
+            const colorMap = {
+              parachute_ops: 'bg-pink-500/20 border-pink-500/50 text-pink-300',
+              glider_tow:    'bg-violet-500/20 border-violet-500/50 text-violet-300',
+              charter:       'bg-sky-500/20 border-sky-500/50 text-sky-300',
+              training:      'bg-emerald-500/20 border-emerald-500/50 text-emerald-300',
+            }
+            return (
+              <button
+                key={String(val)}
+                onClick={() => setMissionFilter(val)}
                 className={`px-3 py-1 rounded text-xs border transition-colors ${
                   active
                     ? (val ? colorMap[val] : 'bg-sky-500/20 border-sky-500/50 text-sky-300')

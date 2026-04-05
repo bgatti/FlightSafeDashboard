@@ -456,6 +456,8 @@ export const mockStudents = [
     },
     hours: {
       total: 8.5, dual: 7.0, soloPIC: 1.5,
+      total_glider: 8.5, dual_glider: 7.0, solo_glider: 1.5,
+      launches: 14, solo_launches: 3,
     },
     blockHoursPurchased: 15,
     blockHoursUsed:       8.5,
@@ -487,6 +489,8 @@ export const mockStudents = [
     },
     hours: {
       total: 195.0, dual: 12.0, soloPIC: 183.0,
+      dual_glider: 6.5, solo_glider: 3.0,
+      launches: 18, solo_launches: 8,
     },
     blockHoursPurchased: 10,
     blockHoursUsed:       9.5,
@@ -616,6 +620,41 @@ export const mockStudents = [
     clubMember:          false,
     dpe: { status: 'not_started', scheduledDate: null, dpeId: null, tasks: [] },
   },
+
+  // ── Anika Patel — Glider Private Pilot, Stage 2, club member ────────────────
+  {
+    id:              'std-010',
+    name:            'Anika Patel',
+    weightLbs:       130,
+    email:           'anika@example.com',
+    phone:           '303-555-0342',
+    enrolledDate:    '2026-01-15',
+    program:         'glider_private_pilot',
+    currentStage:    2,
+    status:          'active',
+    assignedCfiId:   'prs-017',               // Linda Foster — CFIG
+    assignedAircraftIds: ['ac-008', 'ac-009'], // SGS 2-33A + G103 Twin Astir
+    preferences: {
+      preferredSlots: ['0900', '1000', '1100'],
+      preferredDays:  [0, 5, 6],              // Mon, Sat, Sun
+      weatherMin:     'vmc',
+    },
+    docs: {
+      governmentId:     { type: 'drivers_license', expiry: '2029-06-15', uploaded: true, uploadDate: '2026-01-15' },
+      insurance:        { carrier: 'AVEMCO', policyNumber: 'AV-8823041', expiry: daysFrom(240), uploaded: true, uploadDate: '2026-01-15' },
+      medicalCert:      { class: 3, certNumber: 'MED-882304', expiry: '2028-06-30', uploaded: true, uploadDate: '2026-01-16' },
+      studentPilotCert: { certNumber: 'SPC-882304', issueDate: '2026-01-16', uploaded: true },
+    },
+    hours: {
+      total: 12.0, dual: 10.0, soloPIC: 2.0,
+      total_glider: 12.0, dual_glider: 10.0, solo_glider: 2.0,
+      launches: 18, solo_launches: 4,
+    },
+    blockHoursPurchased: 20,
+    blockHoursUsed:       12.0,
+    clubMember:           true,
+    dpe: { status: 'not_started', scheduledDate: null, dpeId: null, tasks: [] },
+  },
 ]
 
 // ── Weekly Schedule ───────────────────────────────────────────────────────────
@@ -625,7 +664,7 @@ export const mockStudents = [
 // Aircraft allocation: ac-002 (C172S) = IFR / glass primary; ac-003 (Cherokee) = VFR basics
 // type: dual_lesson | solo | ground | sim_lesson | club_flight
 
-export const SCHEDULE_DAYS  = ['Mon 3/30', 'Tue 3/31', 'Wed 4/1', 'Thu 4/2', 'Fri 4/3', 'Sat 4/4']
+export const SCHEDULE_DAYS  = ['Mon 3/30', 'Tue 3/31', 'Wed 4/1', 'Thu 4/2', 'Fri 4/3', 'Sat 4/4', 'Sun 4/5']
 export const SCHEDULE_SLOTS = ['0700', '0800', '0900', '1000', '1100', '1200', '1300', '1400', '1500', '1600', '1700']
 
 export const mockBookings = [

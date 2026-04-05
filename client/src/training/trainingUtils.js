@@ -83,6 +83,12 @@ export function requirementProgress(student, programId) {
     dual_cfii:  h.dual_cfii   ?? 0,
     pic:        h.pic         ?? 0,
     night_pic:  h.night_pic   ?? 0,
+    // Glider-specific fields
+    total_glider:  h.total_glider  ?? h.total  ?? 0,
+    solo_glider:   h.solo_glider   ?? h.soloPIC ?? 0,
+    dual_glider:   h.dual_glider   ?? h.dual   ?? 0,
+    launches:      h.launches      ?? 0,
+    solo_launches: h.solo_launches ?? 0,
   }
   return program.requirements.map((req) => {
     const got = actual[req.id] ?? 0
@@ -189,7 +195,7 @@ export const WEATHER_14DAY = {
   3:  { condition: 'vmc',          icon: '☀️',  ceiling: 'FEW030',  vis: '10 sm',  wind: '9kt',   label: 'Mostly clear' },
   4:  { condition: 'imc',          icon: '🌧',  ceiling: 'OVC005',  vis: '1 sm',   wind: '22kt',  label: 'IMC · rain · low ceilings' },
   5:  { condition: 'vmc',          icon: '🌤',  ceiling: 'SCT040',  vis: '10 sm',  wind: '8kt',   label: 'Improving, scattered' },
-  // Day 6 = Sunday, no operations
+  6:  { condition: 'vmc',          icon: '☀️',  ceiling: 'FEW045',  vis: '10+ sm', wind: '6kt',   label: 'Sunday — clear, light winds' },
   7:  { condition: 'vmc',          icon: '☀️',  ceiling: 'CAVU',    vis: '10+ sm', wind: '5kt',   label: 'CAVU · excellent' },
   8:  { condition: 'vmc',          icon: '☀️',  ceiling: 'FEW040',  vis: '10 sm',  wind: '10kt',  label: 'Light winds, clear' },
   9:  { condition: 'marginal_vmc', icon: '🌦',  ceiling: 'BKN020',  vis: '3 sm',   wind: '18kt',  label: 'Marginal, scattered showers' },
@@ -316,38 +322,40 @@ export const LESSON_TEMPLATES = {
     ],
   },
 
+  // towProfile: { numTows, heights[] } — tow demand per lesson type
+  // Pattern work = many short tows; soaring = single long tow; ground = no tow
   glider_private_pilot: {
     1: [
-      { id: 'gpp-1-1', title: 'Glider Intro — Controls & Straight-&-Level', type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
-      { id: 'gpp-1-2', title: 'Aerotow Procedures & Traffic Pattern',        type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
-      { id: 'gpp-1-3', title: 'Stalls & Spin Awareness',                     type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
+      { id: 'gpp-1-1', title: 'Glider Intro — Controls & Straight-&-Level', type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0, towProfile: { numTows: 2, heights: [2000, 2000] } },
+      { id: 'gpp-1-2', title: 'Aerotow Procedures & Traffic Pattern',        type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0, towProfile: { numTows: 4, heights: [1000, 1000, 1000, 1000] } },
+      { id: 'gpp-1-3', title: 'Stalls & Spin Awareness',                     type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0, towProfile: { numTows: 2, heights: [3000, 3000] } },
     ],
     2: [
-      { id: 'gpp-2-1', title: 'Soaring Techniques — Ridge & Thermal',        type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
-      { id: 'gpp-2-2', title: 'Pattern & Off-Field Landing Planning',         type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
+      { id: 'gpp-2-1', title: 'Soaring Techniques — Ridge & Thermal',        type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.5, towProfile: { numTows: 1, heights: [3000] } },
+      { id: 'gpp-2-2', title: 'Pattern & Off-Field Landing Planning',         type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0, towProfile: { numTows: 3, heights: [1000, 1000, 2000] } },
       { id: 'gpp-2-3', title: 'Pre-Solo Ground — Regulations & Weather',     type: 'ground',      requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: false, durationHr: 1.0 },
     ],
     3: [
-      { id: 'gpp-3-1', title: 'First Solo — Pattern Tows',                   type: 'solo',        requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
-      { id: 'gpp-3-2', title: 'Solo Soaring Practice',                        type: 'solo',        requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.5 },
+      { id: 'gpp-3-1', title: 'First Solo — Pattern Tows',                   type: 'solo',        requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0, towProfile: { numTows: 4, heights: [1000, 1000, 1000, 1000] } },
+      { id: 'gpp-3-2', title: 'Solo Soaring Practice',                        type: 'solo',        requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.5, towProfile: { numTows: 1, heights: [3000] } },
     ],
     4: [
       { id: 'gpp-4-1', title: 'Mock Oral Exam — Glider ACS',                 type: 'ground',      requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: false, durationHr: 1.5 },
-      { id: 'gpp-4-2', title: 'Mock Practical — Full Maneuvers',              type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.5 },
+      { id: 'gpp-4-2', title: 'Mock Practical — Full Maneuvers',              type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.5, towProfile: { numTows: 3, heights: [2000, 2000, 3000] } },
     ],
   },
 
   glider_add_on: {
     1: [
-      { id: 'gao-1-1', title: 'Glider Systems & Aerotow Orientation',        type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
-      { id: 'gao-1-2', title: 'Pattern Work & Spot Landings',                 type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
+      { id: 'gao-1-1', title: 'Glider Systems & Aerotow Orientation',        type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0, towProfile: { numTows: 2, heights: [2000, 2000] } },
+      { id: 'gao-1-2', title: 'Pattern Work & Spot Landings',                 type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0, towProfile: { numTows: 4, heights: [1000, 1000, 1000, 1000] } },
     ],
     2: [
-      { id: 'gao-2-1', title: 'Soaring Skills — Thermal Centering',          type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
-      { id: 'gao-2-2', title: 'Emergency Off-Field Procedures',               type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0 },
+      { id: 'gao-2-1', title: 'Soaring Skills — Thermal Centering',          type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.5, towProfile: { numTows: 1, heights: [3000] } },
+      { id: 'gao-2-2', title: 'Emergency Off-Field Procedures',               type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.0, towProfile: { numTows: 2, heights: [2000, 3000] } },
     ],
     3: [
-      { id: 'gao-3-1', title: 'Mock Practical — Add-On Checkride',           type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.5 },
+      { id: 'gao-3-1', title: 'Mock Practical — Add-On Checkride',           type: 'dual_lesson', requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: true,  durationHr: 1.5, towProfile: { numTows: 3, heights: [2000, 2000, 3000] } },
       { id: 'gao-3-2', title: 'IACRA & Endorsement Review',                   type: 'ground',      requiresCfii: false, requiresIfrAircraft: false, requiresComplex: false, requiresMulti: false, preferVmc: false, durationHr: 1.0 },
     ],
   },
@@ -430,7 +438,7 @@ export function studentFlightFrequency(studentId, bookings) {
  * @param {Set}      skipSlotKeys — Set of "dayIdx:slot" strings to skip
  * @param {number}   minDayIdx    — do not return days earlier than this index
  *
- * Searches days 0–12 (skipping Sunday index 6).
+ * Searches days 0–13 (includes Sunday).
  * Returns { dayIdx, slot, dateLabel, weather } or null.
  */
 export function findNextAvailableSlot(
@@ -438,7 +446,7 @@ export function findNextAvailableSlot(
   preferences = {}, skipSlotKeys = new Set(), minDayIdx = 0,
 ) {
   const { preferredSlots = [], preferredDays = [], weatherMin = 'any' } = preferences
-  const SEARCH_DAYS = [0,1,2,3,4,5,7,8,9,10,11,12]
+  const SEARCH_DAYS = [0,1,2,3,4,5,6,7,8,9,10,11,12,13]
 
   // Two passes: first try preferred days/slots, then any day/slot
   for (const strict of [true, false]) {

@@ -26,6 +26,25 @@ function relDep(iso) {
   return `+${Math.round(diff / 60)}h`
 }
 
+/** Large-format departure countdown: "Departs in 2:35" or "Departed 1:20 ago" or "Airborne" */
+function depCountdown(iso, status) {
+  if (!iso) return { text: '--', sub: '' }
+  if (status === 'completed') return { text: 'Completed', sub: '' }
+  const diffMin = dayjs(iso).diff(dayjs(), 'minute')
+  if (status === 'active' || (diffMin < 0 && diffMin > -10)) {
+    return { text: 'Airborne', sub: '' }
+  }
+  if (diffMin < 0) {
+    const absMins = Math.abs(diffMin)
+    const h = Math.floor(absMins / 60)
+    const m = absMins % 60
+    return { text: h > 0 ? `${h}:${String(m).padStart(2, '0')}` : `0:${String(m).padStart(2, '0')}`, sub: 'ago' }
+  }
+  const h = Math.floor(diffMin / 60)
+  const m = diffMin % 60
+  return { text: h > 0 ? `${h}:${String(m).padStart(2, '0')}` : `0:${String(m).padStart(2, '0')}`, sub: diffMin <= 30 ? 'soon' : '' }
+}
+
 function riskColor(ratio, disq) {
   if (disq) return 'text-red-400'
   if (!ratio) return 'text-slate-500'
@@ -288,10 +307,38 @@ export function FlightBar({ flight, currentUser, recalculating, conflicts = [] }
           <div className="text-xs text-slate-500">{flight.aircraftType}</div>
         </div>
 
-        {/* Route */}
-        <div className="flex-1 min-w-[140px]">
-          <div className="text-sm font-mono text-slate-200">{flight.departure} → {flight.arrival}</div>
-          <div className="text-xs text-slate-500">{depTime.format('MMM D HH:mm[Z]')} · {relDep(flight.plannedDepartureUtc)}</div>
+        {/* Route + departure countdown */}
+        <div className="flex-1 min-w-[140px] flex items-center gap-3">
+          <div className="flex-1">
+            <div className="text-sm font-mono text-slate-200">{flight.departure} → {flight.arrival}</div>
+            <div className="text-xs text-slate-500">{depTime.format('MMM D HH:mm[Z]')}</div>
+          </div>
+          {/* Large departure countdown */}
+          {(() => {
+            const cd = depCountdown(flight.plannedDepartureUtc, flight.status)
+            const diffMin = dayjs(flight.plannedDepartureUtc).diff(dayjs(), 'minute')
+            const isUrgent = diffMin >= 0 && diffMin <= 30
+            const isPast = diffMin < 0 && flight.status !== 'active'
+            return (
+              <div className={`flex-shrink-0 text-right min-w-[70px] ${isPast ? 'opacity-60' : ''}`}>
+                <div className={`text-lg font-bold font-mono leading-tight ${
+                  flight.status === 'active' ? 'text-green-400' :
+                  flight.status === 'completed' ? 'text-slate-500' :
+                  isUrgent ? 'text-amber-400' :
+                  isPast ? 'text-slate-500' :
+                  'text-slate-100'
+                }`}>{cd.text}</div>
+                <div className={`text-[10px] ${
+                  flight.status === 'active' ? 'text-green-500' :
+                  flight.status === 'completed' ? 'text-slate-600' :
+                  isPast ? 'text-slate-600' :
+                  isUrgent ? 'text-amber-500' : 'text-slate-500'
+                }`}>
+                  {flight.status === 'active' ? '' : flight.status === 'completed' ? '' : isPast ? 'dep ago' : cd.sub || 'departs in'}
+                </div>
+              </div>
+            )
+          })()}
         </div>
 
         {/* Crew */}
@@ -362,6 +409,8 @@ export function FlightBar({ flight, currentUser, recalculating, conflicts = [] }
         {/* Mission badge */}
         {flight._flightType === 'deadhead'
           ? <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600 text-slate-400 font-mono hidden sm:block">DH</span>
+          : flight.missionType === 'parachute_ops'
+          ? <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-pink-500/10 border border-pink-500/30 text-pink-400 hidden sm:block">§105 Para</span>
           : <span className="flex-shrink-0 text-[10px] text-slate-600 capitalize hidden sm:block">{flight.missionType}</span>
         }
 
@@ -396,7 +445,7 @@ export function FlightBar({ flight, currentUser, recalculating, conflicts = [] }
           {/* Mission details + edit toggle */}
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div className="flex gap-6 flex-wrap text-xs">
-              <div><span className="text-slate-600">Mission </span><span className="text-slate-300 capitalize">{flight.missionType}</span></div>
+              <div><span className="text-slate-600">Mission </span><span className="text-slate-300 capitalize">{flight.missionType === 'parachute_ops' ? 'Parachute Ops (§105)' : flight.missionType}</span></div>
               <div><span className="text-slate-600">Dep </span><span className="text-slate-300 font-mono">{depTime.format('YYYY-MM-DD HH:mm[Z]')}</span></div>
               <div><span className="text-slate-600">PIC </span><span className="text-slate-300">{flight.pic ?? '—'}</span></div>
               {flight.sic && <div><span className="text-slate-600">SIC </span><span className="text-slate-300">{flight.sic}</span></div>}
@@ -413,6 +462,62 @@ export function FlightBar({ flight, currentUser, recalculating, conflicts = [] }
           </div>
 
           {editing && <EditPanel flight={flight} onSave={handleSave} onCancel={() => setEditing(false)} />}
+
+          {/* ── Parachute ops details ── */}
+          {flight.jumpInfo && (() => {
+            const ji = flight.jumpInfo
+            const manifest = ji.manifest ?? []
+            const totalExit = manifest.reduce((s, m) => s + m.exitWeight, 0)
+            const jumpTypeLabels = { tandem: 'Tandem', fun_jump: 'Fun Jump', aff: 'AFF', hop_n_pop: 'Hop-n-Pop', formation: 'Formation' }
+            return (
+              <div className="flex flex-col gap-2">
+                <div className="text-[10px] text-pink-500 uppercase tracking-widest">Parachute Operations — FAR §105</div>
+                <div className="flex gap-6 flex-wrap text-xs">
+                  <div><span className="text-slate-600">Jump Type </span><span className="text-pink-300 font-medium">{jumpTypeLabels[ji.jumpType] ?? ji.jumpType}</span></div>
+                  <div><span className="text-slate-600">Exit Alt </span><span className="text-slate-200 font-mono">{ji.jumpAltitudeFt?.toLocaleString()} ft</span></div>
+                  {ji.jumpMasterName && <div><span className="text-slate-600">Jump Master </span><span className="text-slate-200">{ji.jumpMasterName}</span></div>}
+                  <div><span className="text-slate-600">Load </span><span className="text-slate-200 font-mono">#{ji.loadNumber || '--'}</span></div>
+                  <div><span className="text-slate-600">Manifest </span><span className="text-slate-200">{manifest.length} jumpers</span></div>
+                  <div><span className="text-slate-600">Total exit wt </span><span className="text-slate-200 font-mono">{totalExit.toLocaleString()} lbs</span></div>
+                </div>
+                {manifest.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs mt-1">
+                      <thead>
+                        <tr className="border-b border-surface-border text-slate-500 text-left">
+                          <th className="py-1 pr-2 font-medium w-6">#</th>
+                          <th className="py-1 pr-3 font-medium">Name</th>
+                          <th className="py-1 pr-3 font-medium">Slot</th>
+                          <th className="py-1 pr-3 font-medium">License</th>
+                          <th className="py-1 pr-3 font-medium text-right">Body</th>
+                          <th className="py-1 font-medium text-right">Exit Wt</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {manifest.map((m, i) => (
+                          <tr key={i} className="border-b border-surface-border/40">
+                            <td className="py-1 pr-2 text-slate-500 font-mono">{i + 1}</td>
+                            <td className="py-1 pr-3 text-slate-200">{m.name}</td>
+                            <td className="py-1 pr-3 text-slate-400">{m.slot?.replace(/-/g, ' ')}</td>
+                            <td className="py-1 pr-3 text-slate-400 font-mono">{m.licenseLevel}</td>
+                            <td className="py-1 pr-3 text-right text-slate-300 font-mono">{m.weightLbs}</td>
+                            <td className="py-1 text-right text-slate-200 font-mono">{m.exitWeight}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t border-surface-border">
+                          <td colSpan={4} className="py-1 text-slate-500 font-medium">Total</td>
+                          <td className="py-1 pr-3 text-right text-slate-300 font-mono">{manifest.reduce((s, m) => s + m.weightLbs, 0).toLocaleString()}</td>
+                          <td className="py-1 text-right text-slate-200 font-mono font-medium">{totalExit.toLocaleString()}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {/* ── Conflict details ── */}
           {hasConflicts && (

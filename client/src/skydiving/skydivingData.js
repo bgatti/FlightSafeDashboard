@@ -754,6 +754,291 @@ export const DZ_WEATHER_LIMITS = {
   lightningHold:       30,    // minutes after last strike
 }
 
+// ── Mock Jump Flights (common flight object with jumpInfo) ──────────────────
+//
+// jumpInfo shape:
+//   jumpAltitudeFt   — exit altitude AGL
+//   jumpType         — 'tandem' | 'fun_jump' | 'aff' | 'hop_n_pop' | 'formation'
+//   jumpMasterId     — instructor / jump-master id (optional for fun jumps)
+//   jumpMasterName   — display name
+//   manifest[]       — array of { jumperId, name, weightLbs, exitWeight, licenseLevel, slot }
+//   loadNumber       — load # for the day
+//   airport          — DZ airport id
+
+const now = Date.now()
+const h = (n) => new Date(now + n * 3_600_000).toISOString()
+
+export const mockJumpFlights = [
+  // ── Load 1: Tandem load — Grand Caravan ─────────────────────────────────────
+  {
+    id:                  'jf-001',
+    callsign:            'N208JB',
+    tailNumber:          'N208JB',
+    aircraftType:        'C208B',
+    departure:           'KBDU',
+    arrival:             'KBDU',
+    airport:             'KBDU',
+    plannedDepartureUtc: h(0.5),
+    plannedArrivalUtc:   h(0.8),
+    status:              'planned',
+    pic:                 'Hennessy, R.',
+    picId:               'jp-pil-001',
+    sic:                 null,
+    sicId:               null,
+    passengers:          12,
+    missionType:         'parachute_ops',
+    part:                '91',
+    part91Type:          'parachute_ops',
+    riskScore:           28,
+    riskSnapshot: {
+      capturedAt:      h(-0.1),
+      lastCheckedAt:   h(-0.1),
+      ratioToBaseline: 1.10,
+      riskTrend:       'stable',
+      riskDelta:       0,
+      weatherSummary:  { flightCategory: 'VFR', sigmetCount: 0, airmetCount: 0, windKts: 8, visibilitySm: 10 },
+      terrainProfile:  null,
+      riskItems: [
+        { id: 'op_para_ops', label: 'Parachute operations — §105', category: 'operational', severity: 'low' },
+      ],
+    },
+    jumpInfo: {
+      jumpAltitudeFt:  14000,
+      jumpType:        'tandem',
+      jumpMasterId:    'ji-001',
+      jumpMasterName:  'Tony Marchetti',
+      loadNumber:      1,
+      airport:         'KBDU',
+      manifest: [
+        { jumperId: 'ji-001',   name: 'Tony Marchetti',   weightLbs: 190, exitWeight: 220, licenseLevel: 'TI', slot: 'tandem-instructor' },
+        { jumperId: 'prsp-001', name: 'Jordan Whitaker',  weightLbs: 175, exitWeight: 175, licenseLevel: '--', slot: 'tandem-student' },
+        { jumperId: 'ji-002',   name: 'Brianna Voss',     weightLbs: 148, exitWeight: 178, licenseLevel: 'TI', slot: 'tandem-instructor' },
+        { jumperId: 'prsp-T1',  name: 'Walk-in Guest #1', weightLbs: 165, exitWeight: 165, licenseLevel: '--', slot: 'tandem-student' },
+        { jumperId: 'ji-004',   name: 'Kyla Novak',       weightLbs: 135, exitWeight: 165, licenseLevel: 'TI', slot: 'tandem-instructor' },
+        { jumperId: 'prsp-T2',  name: 'Walk-in Guest #2', weightLbs: 150, exitWeight: 150, licenseLevel: '--', slot: 'tandem-student' },
+        { jumperId: 'jmp-001',  name: 'Aaron Pollock',    weightLbs: 195, exitWeight: 220, licenseLevel: 'D',  slot: 'videographer' },
+        { jumperId: 'jmp-004',  name: 'Leila Farzan',     weightLbs: 118, exitWeight: 143, licenseLevel: 'D',  slot: 'videographer' },
+        { jumperId: 'jmp-002',  name: 'Natalie Chen',     weightLbs: 130, exitWeight: 155, licenseLevel: 'C',  slot: 'fun-jumper' },
+        { jumperId: 'jmp-006',  name: 'Sam Whitford',     weightLbs: 170, exitWeight: 197, licenseLevel: 'C',  slot: 'fun-jumper' },
+      ],
+    },
+  },
+
+  // ── Load 2: AFF + fun jumpers — Grand Caravan ──────────────────────────────
+  {
+    id:                  'jf-002',
+    callsign:            'N208JB',
+    tailNumber:          'N208JB',
+    aircraftType:        'C208B',
+    departure:           'KBDU',
+    arrival:             'KBDU',
+    airport:             'KBDU',
+    plannedDepartureUtc: h(1.2),
+    plannedArrivalUtc:   h(1.5),
+    status:              'planned',
+    pic:                 'Torres, M.',
+    picId:               'jp-pil-002',
+    sic:                 null,
+    sicId:               null,
+    passengers:          9,
+    missionType:         'parachute_ops',
+    part:                '91',
+    part91Type:          'parachute_ops',
+    riskScore:           32,
+    riskSnapshot: {
+      capturedAt:      h(-0.1),
+      lastCheckedAt:   h(-0.1),
+      ratioToBaseline: 1.15,
+      riskTrend:       'stable',
+      riskDelta:       0,
+      weatherSummary:  { flightCategory: 'VFR', sigmetCount: 0, airmetCount: 0, windKts: 10, visibilitySm: 10 },
+      terrainProfile:  null,
+      riskItems: [
+        { id: 'op_para_ops', label: 'Parachute operations — §105', category: 'operational', severity: 'low' },
+        { id: 'op_aff_student', label: 'AFF student on board — additional supervision required', category: 'operational', severity: 'moderate' },
+      ],
+    },
+    jumpInfo: {
+      jumpAltitudeFt:  14000,
+      jumpType:        'aff',
+      jumpMasterId:    'ji-003',
+      jumpMasterName:  'Hector Salinas',
+      loadNumber:      2,
+      airport:         'KBDU',
+      manifest: [
+        { jumperId: 'ji-003',   name: 'Hector Salinas',   weightLbs: 175, exitWeight: 202, licenseLevel: 'AFF-I', slot: 'aff-instructor' },
+        { jumperId: 'ji-001',   name: 'Tony Marchetti',   weightLbs: 190, exitWeight: 220, licenseLevel: 'AFF-I', slot: 'aff-instructor' },
+        { jumperId: 'affs-001', name: 'Derek Yamashita',  weightLbs: 168, exitWeight: 195, licenseLevel: 'STU',   slot: 'aff-student' },
+        { jumperId: 'jmp-001',  name: 'Aaron Pollock',    weightLbs: 195, exitWeight: 220, licenseLevel: 'D',     slot: 'fun-jumper' },
+        { jumperId: 'jmp-004',  name: 'Leila Farzan',     weightLbs: 118, exitWeight: 143, licenseLevel: 'D',     slot: 'fun-jumper' },
+        { jumperId: 'jmp-006',  name: 'Sam Whitford',     weightLbs: 170, exitWeight: 197, licenseLevel: 'C',     slot: 'fun-jumper' },
+        { jumperId: 'jmp-002',  name: 'Natalie Chen',     weightLbs: 130, exitWeight: 155, licenseLevel: 'C',     slot: 'fun-jumper' },
+        { jumperId: 'jmp-007',  name: 'Tracy Okafor',     weightLbs: 158, exitWeight: 185, licenseLevel: 'B',     slot: 'fun-jumper' },
+        { jumperId: 'jmp-003',  name: 'Jake Novotny',     weightLbs: 215, exitWeight: 245, licenseLevel: 'B',     slot: 'fun-jumper' },
+      ],
+    },
+  },
+
+  // ── Load 3: Formation dive — Twin Otter (big plane, big group) ─────────────
+  {
+    id:                  'jf-003',
+    callsign:            'N406DZ',
+    tailNumber:          'N406DZ',
+    aircraftType:        'DHC6',
+    departure:           'KBDU',
+    arrival:             'KBDU',
+    airport:             'KBDU',
+    plannedDepartureUtc: h(1.8),
+    plannedArrivalUtc:   h(2.1),
+    status:              'planned',
+    pic:                 'Briggs, C.',
+    picId:               'jp-pil-003',
+    sic:                 null,
+    sicId:               null,
+    passengers:          16,
+    missionType:         'parachute_ops',
+    part:                '91',
+    part91Type:          'parachute_ops',
+    riskScore:           30,
+    riskSnapshot: {
+      capturedAt:      h(-0.1),
+      lastCheckedAt:   h(-0.1),
+      ratioToBaseline: 1.08,
+      riskTrend:       'stable',
+      riskDelta:       0,
+      weatherSummary:  { flightCategory: 'VFR', sigmetCount: 0, airmetCount: 0, windKts: 8, visibilitySm: 10 },
+      terrainProfile:  null,
+      riskItems: [
+        { id: 'op_para_ops', label: 'Parachute operations — §105', category: 'operational', severity: 'low' },
+        { id: 'op_formation', label: 'Formation skydive — multiple exit groups', category: 'operational', severity: 'moderate' },
+      ],
+    },
+    jumpInfo: {
+      jumpAltitudeFt:  14000,
+      jumpType:        'formation',
+      jumpMasterId:    'jmp-001',
+      jumpMasterName:  'Aaron Pollock',
+      loadNumber:      3,
+      airport:         'KBDU',
+      manifest: [
+        { jumperId: 'jmp-001',  name: 'Aaron Pollock',    weightLbs: 195, exitWeight: 220, licenseLevel: 'D',     slot: 'organizer' },
+        { jumperId: 'jmp-004',  name: 'Leila Farzan',     weightLbs: 118, exitWeight: 143, licenseLevel: 'D',     slot: 'fun-jumper' },
+        { jumperId: 'jmp-006',  name: 'Sam Whitford',     weightLbs: 170, exitWeight: 197, licenseLevel: 'C',     slot: 'fun-jumper' },
+        { jumperId: 'jmp-002',  name: 'Natalie Chen',     weightLbs: 130, exitWeight: 155, licenseLevel: 'C',     slot: 'fun-jumper' },
+        { jumperId: 'ji-001',   name: 'Tony Marchetti',   weightLbs: 190, exitWeight: 220, licenseLevel: 'D',     slot: 'fun-jumper' },
+        { jumperId: 'ji-003',   name: 'Hector Salinas',   weightLbs: 175, exitWeight: 202, licenseLevel: 'D',     slot: 'fun-jumper' },
+        { jumperId: 'ji-004',   name: 'Kyla Novak',       weightLbs: 135, exitWeight: 165, licenseLevel: 'D',     slot: 'fun-jumper' },
+        { jumperId: 'jmp-007',  name: 'Tracy Okafor',     weightLbs: 158, exitWeight: 185, licenseLevel: 'B',     slot: 'fun-jumper' },
+        { jumperId: 'ji-002',   name: 'Brianna Voss',     weightLbs: 148, exitWeight: 178, licenseLevel: 'D',     slot: 'fun-jumper' },
+        { jumperId: 'affs-003', name: 'Ryan Kowalski',    weightLbs: 200, exitWeight: 228, licenseLevel: 'STU',   slot: 'fun-jumper' },
+      ],
+    },
+  },
+
+  // ── Load 4: Hop-n-pop — C182 (small load, low altitude) ───────────────────
+  {
+    id:                  'jf-004',
+    callsign:            'N182JK',
+    tailNumber:          'N182JK',
+    aircraftType:        'C182',
+    departure:           'KBDU',
+    arrival:             'KBDU',
+    airport:             'KBDU',
+    plannedDepartureUtc: h(2.5),
+    plannedArrivalUtc:   h(2.7),
+    status:              'planned',
+    pic:                 'Kowalski, D.',
+    picId:               'jp-pil-004',
+    sic:                 null,
+    sicId:               null,
+    passengers:          3,
+    missionType:         'parachute_ops',
+    part:                '91',
+    part91Type:          'parachute_ops',
+    riskScore:           20,
+    riskSnapshot: {
+      capturedAt:      h(-0.1),
+      lastCheckedAt:   h(-0.1),
+      ratioToBaseline: 0.95,
+      riskTrend:       'stable',
+      riskDelta:       0,
+      weatherSummary:  { flightCategory: 'VFR', sigmetCount: 0, airmetCount: 0, windKts: 6, visibilitySm: 10 },
+      terrainProfile:  null,
+      riskItems: [
+        { id: 'op_para_ops', label: 'Parachute operations — §105', category: 'operational', severity: 'low' },
+      ],
+    },
+    jumpInfo: {
+      jumpAltitudeFt:  5000,
+      jumpType:        'hop_n_pop',
+      jumpMasterId:    null,
+      jumpMasterName:  null,
+      loadNumber:      4,
+      airport:         'KBDU',
+      manifest: [
+        { jumperId: 'jmp-004',  name: 'Leila Farzan',   weightLbs: 118, exitWeight: 143, licenseLevel: 'D', slot: 'fun-jumper' },
+        { jumperId: 'jmp-001',  name: 'Aaron Pollock',  weightLbs: 195, exitWeight: 220, licenseLevel: 'D', slot: 'fun-jumper' },
+        { jumperId: 'jmp-006',  name: 'Sam Whitford',   weightLbs: 170, exitWeight: 197, licenseLevel: 'C', slot: 'fun-jumper' },
+      ],
+    },
+  },
+
+  // ── Load 5: Morning tandem completed ──────────────────────────────────────
+  {
+    id:                  'jf-005',
+    callsign:            'N208JB',
+    tailNumber:          'N208JB',
+    aircraftType:        'C208B',
+    departure:           'KBDU',
+    arrival:             'KBDU',
+    airport:             'KBDU',
+    plannedDepartureUtc: h(-1.5),
+    plannedArrivalUtc:   h(-1.2),
+    status:              'completed',
+    pic:                 'Hennessy, R.',
+    picId:               'jp-pil-001',
+    sic:                 null,
+    sicId:               null,
+    passengers:          10,
+    missionType:         'parachute_ops',
+    part:                '91',
+    part91Type:          'parachute_ops',
+    riskScore:           25,
+    riskSnapshot: {
+      capturedAt:      h(-1.6),
+      lastCheckedAt:   h(-1.6),
+      ratioToBaseline: 1.05,
+      riskTrend:       'stable',
+      riskDelta:       0,
+      weatherSummary:  { flightCategory: 'VFR', sigmetCount: 0, airmetCount: 0, windKts: 5, visibilitySm: 10 },
+      terrainProfile:  null,
+      riskItems: [
+        { id: 'op_para_ops', label: 'Parachute operations — §105', category: 'operational', severity: 'low' },
+      ],
+    },
+    jumpInfo: {
+      jumpAltitudeFt:  14000,
+      jumpType:        'tandem',
+      jumpMasterId:    'ji-002',
+      jumpMasterName:  'Brianna Voss',
+      loadNumber:      0,
+      airport:         'KBDU',
+      manifest: [
+        { jumperId: 'ji-002',   name: 'Brianna Voss',     weightLbs: 148, exitWeight: 178, licenseLevel: 'TI', slot: 'tandem-instructor' },
+        { jumperId: 'prsp-T3',  name: 'Morning Guest #1', weightLbs: 185, exitWeight: 185, licenseLevel: '--', slot: 'tandem-student' },
+        { jumperId: 'ji-001',   name: 'Tony Marchetti',   weightLbs: 190, exitWeight: 220, licenseLevel: 'TI', slot: 'tandem-instructor' },
+        { jumperId: 'prsp-T4',  name: 'Morning Guest #2', weightLbs: 145, exitWeight: 145, licenseLevel: '--', slot: 'tandem-student' },
+        { jumperId: 'ji-004',   name: 'Kyla Novak',       weightLbs: 135, exitWeight: 165, licenseLevel: 'TI', slot: 'tandem-instructor' },
+        { jumperId: 'prsp-T5',  name: 'Morning Guest #3', weightLbs: 160, exitWeight: 160, licenseLevel: '--', slot: 'tandem-student' },
+        { jumperId: 'jmp-001',  name: 'Aaron Pollock',    weightLbs: 195, exitWeight: 220, licenseLevel: 'D',  slot: 'videographer' },
+        { jumperId: 'jmp-002',  name: 'Natalie Chen',     weightLbs: 130, exitWeight: 155, licenseLevel: 'C',  slot: 'videographer' },
+        { jumperId: 'jmp-004',  name: 'Leila Farzan',     weightLbs: 118, exitWeight: 143, licenseLevel: 'D',  slot: 'fun-jumper' },
+        { jumperId: 'jmp-006',  name: 'Sam Whitford',     weightLbs: 170, exitWeight: 197, licenseLevel: 'C',  slot: 'fun-jumper' },
+      ],
+    },
+  },
+]
+
 // ── Load Manifest Helper ────────────────────────────────────────────────────
 
 export function getTodayLoads() {

@@ -205,6 +205,39 @@ export const MHG_GALLERY = [
   { id: 12, alt: 'Bear Peak and Green Mountain from 9,000 ft', category: 'scenery' },
 ]
 
+// Personas map to actual mock students/personnel so the training system works.
+// studentId links to mockStudents[], personnelId links to mockPersonnel[].
+export const MHG_PERSONAS = [
+  // Visitor — never flown before, just browsing
+  { id: 'visitor-1', name: 'Chris Parker', role: 'visitor', label: 'First-time Visitor',
+    email: 'chris@example.com', weightLbs: 185, operator: 'mhg' },
+  // Glider PPL student — Stage 2, 8.5 hrs dual
+  { id: 'std-005', name: 'Ryan Okada', role: 'student', label: 'Glider PPL Student (Stage 2)',
+    email: 'rokada@email.com', weightLbs: 172, hours: 8.5,
+    studentId: 'std-005', program: 'glider_private_pilot', operator: 'mhg',
+    aircraft: ['ac-008', 'ac-009'], cert: 'student', ratings: [], endorsements: [] },
+  // PPL holder adding glider — Stage 3, near checkride
+  { id: 'std-006', name: 'Sara Lindstrom', role: 'student', label: 'PPL → Glider Add-On (Stage 3)',
+    email: 'slindstrom@email.com', weightLbs: 138, hours: 195,
+    studentId: 'std-006', program: 'glider_add_on', operator: 'mhg',
+    aircraft: ['ac-009'], cert: 'private', ratings: ['asel'], endorsements: [] },
+  // Glider PPL student — club member with glider rating, continuing training
+  { id: 'std-010', name: 'Anika Patel', role: 'student', label: 'Glider PPL Student (Stage 2)',
+    email: 'anika@example.com', weightLbs: 130, hours: 12.0, operator: 'mhg',
+    studentId: 'std-010', program: 'glider_private_pilot',
+    aircraft: ['ac-008', 'ac-009'], cert: 'student', ratings: [], endorsements: [] },
+  // Rated glider pilot — club renter
+  { id: 'renter-1', name: 'Sarah Whitfield', role: 'renter', label: 'Glider Private — Club Renter',
+    email: 'sarah@soarboulder.org', weightLbs: 145, hours: 120, operator: 'mhg',
+    cert: 'private', ratings: ['glider'], endorsements: [],
+    aircraft: ['ac-008', 'ac-009'] },
+  // CFI-G instructor (maps to Linda Foster prs-017 who is CFIG)
+  { id: 'cfi-1', name: 'Linda Foster', role: 'cfi', label: 'CFIG — Instructor',
+    email: 'linda@milehighgliding.com', weightLbs: 147, hours: 3200, operator: 'mhg',
+    personnelId: 'prs-017',
+    cert: 'commercial', ratings: ['asel', 'instrument', 'cfi', 'cfii', 'cfig'], endorsements: ['hp', 'complex', 'tailwheel'] },
+]
+
 // Simulated "today's ops" for the current-operations widget
 export function getTodayOps() {
   const hour = new Date().getHours()

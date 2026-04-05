@@ -3,7 +3,8 @@
  * survive page navigation and are visible in Flights page.
  */
 
-import { mockFlights, mockGliderTowFlights } from '../mocks/flights'
+import { mockFlights, mockGliderTowFlights, mockMhgTrainingFlights } from '../mocks/flights'
+import { mockJumpFlights } from '../skydiving/skydivingData'
 
 const STORAGE_KEY     = 'flightsafe_scheduled'
 const SIM_FLIGHTS_KEY = 'flightsafe_sim_flights'
@@ -19,7 +20,7 @@ function getSimFlights() {
 
 /** Returns all flights: user-scheduled (newest first) + sim-generated Part 135 + mock seed. */
 export function getAllFlights() {
-  return [...getScheduled(), ...getSimFlights(), ...mockFlights, ...mockGliderTowFlights]
+  return [...getScheduled(), ...getSimFlights(), ...mockFlights, ...mockGliderTowFlights, ...mockMhgTrainingFlights, ...mockJumpFlights]
 }
 
 /** Add a new scheduled flight (with optional riskSnapshot). */
