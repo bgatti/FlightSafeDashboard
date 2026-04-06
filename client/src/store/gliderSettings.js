@@ -1,55 +1,55 @@
-// Glider region settings — persisted to localStorage
+/**
+ * Glider region settings — API-backed with sync cache.
+ * Same interface as the original localStorage store.
+ */
 
-const STORAGE_KEY = 'flightsafe:gliderSettings'
+import { apiClient } from '../lib/apiClient'
+
+const EVENT = 'flightsafe:gliderSettings'
 
 const DEFAULTS = {
-  baseAirport:      'KBDU',       // Boulder Municipal
-  altTafAirport:    'KBJC',       // Rocky Mountain Metro — alternate TAF source
+  baseAirport:      'KBDU',
+  altTafAirport:    'KBJC',
   regionName:       'Front Range Soaring',
-  // Bounding box: mountains west of Boulder → foothills
-  regionBounds: {
-    north: 40.25,
-    south: 39.85,
-    west: -105.70,
-    east: -105.20,
-  },
-  // Centre point for AIRMET/SIGMET area query
-  regionCenter: { lat: 40.02, lon: -105.45 },
-  regionRadiusNm:   40,           // nautical miles from centre for met queries
+  regionBounds:     { north: 40.25, south: 39.85, west: -105.70, east: -105.20 },
+  regionCenter:     { lat: 40.02, lon: -105.45 },
+  regionRadiusNm:   40,
 }
 
-function load() {
+let _cache = { ...DEFAULTS }
+
+async function refresh() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? { ...DEFAULTS, ...JSON.parse(raw) } : { ...DEFAULTS }
-  } catch { return { ...DEFAULTS } }
+    const { data } = await apiClient.get('/settings/glider')
+    _cache = data
+    window.dispatchEvent(new Event(EVENT))
+  } catch { /* silent — use defaults */ }
 }
 
-function save(settings) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
-  window.dispatchEvent(new Event('flightsafe:gliderSettings'))
-}
+refresh()
 
-export function getGliderSettings() { return load() }
+export function getGliderSettings() { return _cache }
 
 export function updateGliderSettings(partial) {
-  const next = { ...load(), ...partial }
-  save(next)
-  return next
+  _cache = { ..._cache, ...partial }
+  window.dispatchEvent(new Event(EVENT))
+  apiClient.patch('/settings/glider', partial).then(refresh).catch(() => {})
+  return _cache
 }
 
 export function resetGliderSettings() {
-  save({ ...DEFAULTS })
-  return { ...DEFAULTS }
+  _cache = { ...DEFAULTS }
+  window.dispatchEvent(new Event(EVENT))
+  apiClient.delete('/settings/glider').then(refresh).catch(() => {})
+  return _cache
 }
 
 export function subscribeGliderSettings(fn) {
-  const handler = () => fn(load())
-  window.addEventListener('flightsafe:gliderSettings', handler)
-  window.addEventListener('storage', (e) => { if (e.key === STORAGE_KEY) handler() })
+  const handler = () => fn(_cache)
+  window.addEventListener(EVENT, handler)
+  window.addEventListener('storage', (e) => { if (e.key === 'flightsafe:gliderSettings') handler() })
   return () => {
-    window.removeEventListener('flightsafe:gliderSettings', handler)
-    window.removeEventListener('storage', handler)
+    window.removeEventListener(EVENT, handler)
   }
 }
 

@@ -22,6 +22,7 @@ import {
   PortalNav, PortalLoginModal, MiniGalleryStrip, GalleryGrid,
   AirportOps, PortalFooter, SquawkPanel as SharedSquawkPanel,
   GALLERY_GRADIENTS, STATUS_COLOR, fmt$, getAircraftPhoto, PortalIcon,
+  FlightLog,
 } from '../portal'
 import { IcMaint, IcDual, IcSolo, IcGround, IcShield } from '../portal/icons'
 import { towDeficiencyMin, towCycleMin, TOW_SETTINGS } from './gliderUtils'
@@ -845,7 +846,7 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                 <label className="text-slate-400 text-xs block mb-2">
                   {flightMode === 'checkride' ? 'Evaluation / Currency' : 'Lesson'}
                 </label>
-                <div className="space-y-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
                   {tabLessons.map((lesson) => {
                     const hasSyllabus = lesson.stage > 0
                     const done = hasSyllabus && lesson.stage < currentStage
@@ -863,7 +864,7 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                           if (lesson.type === 'ground') setAcMode('ground')
                           else if (acMode === 'ground') setAcMode('fleet')
                         }}
-                        className={`w-full flex items-center gap-3 p-2.5 rounded-xl text-left transition-all border ${
+                        className={`flex items-start gap-2 p-2.5 rounded-xl text-left transition-all border ${
                           grayed ? 'opacity-30 cursor-not-allowed border-surface-border'
                           : selected ? 'bg-sky-500/15 border-sky-400 ring-1 ring-sky-400/20'
                           : done ? 'bg-green-400/5 border-green-400/15 opacity-60'
@@ -871,27 +872,22 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                           : 'bg-surface border-surface-border hover:border-slate-500'
                         }`}>
                         {hasSyllabus ? (
-                          <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+                          <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5 ${
                             done ? 'bg-green-400/20 text-green-400' : isCurrent ? 'bg-sky-400/20 text-sky-400' : 'bg-surface border border-surface-border text-slate-600'
                           }`}>{done ? '✓' : lesson.stage}</span>
                         ) : (
-                          <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0 ${
+                          <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] flex-shrink-0 mt-0.5 ${
                             selected ? 'bg-emerald-400/20 text-emerald-400' : 'bg-surface border border-surface-border text-slate-500'
                           }`}>{lesson.type === 'ground' ? 'G' : '—'}</span>
                         )}
                         <div className="flex-1 min-w-0">
-                          <div className={`text-xs font-semibold truncate ${done ? 'text-green-400/80' : selected ? 'text-sky-400' : 'text-slate-200'}`}>{lesson.title}</div>
-                          <div className="text-[10px] text-slate-500">
-                            {lesson.durationHr} hr
-                            {lesson.requiresCfii ? ' · CFII' : ''}
-                            {lesson.requiresIfrAircraft ? ' · IFR ac' : ''}
-                            {lesson.requiresComplex ? ' · Complex' : ''}
-                            {lesson.requiresStageCheckAuth ? ' · Chief/Senior CFI' : ''}
-                            {lesson.desc ? ` — ${lesson.desc}` : ''}
+                          <div className={`text-xs font-semibold leading-snug ${done ? 'text-green-400/80' : selected ? 'text-sky-400' : 'text-slate-200'}`}>{lesson.title}</div>
+                          <div className="text-[10px] text-slate-500 leading-snug">
+                            {lesson.durationHr}hr{lesson.requiresCfii ? ' · CFII' : ''}{lesson.requiresIfrAircraft ? ' · IFR' : ''}{lesson.requiresComplex ? ' · Cplx' : ''}{lesson.requiresStageCheckAuth ? ' · Sr CFI' : ''}
+                            {done && <span className="text-green-400/60 ml-1">✓</span>}
+                            {grayed && <span className="text-red-400/60 ml-1">{needsCfii ? 'CFII' : 'MEI'}</span>}
                           </div>
                         </div>
-                        {done && <span className="text-green-400/60 text-[10px]">Done</span>}
-                        {grayed && <span className="text-red-400/60 text-[10px]">{needsCfii ? 'Needs CFII' : 'Needs MEI'}</span>}
                       </button>
                     )
                   })}
@@ -1281,7 +1277,7 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                           const propIsDual = rec.template.type === 'dual_lesson'
                           return (
                             <div key={`prop-${ri}`}
-                              className="absolute left-0.5 right-0.5 rounded-lg bg-sky-400/8 border border-dashed border-sky-400/30 text-left z-[5] animate-breathe overflow-hidden flex flex-col justify-between"
+                              className="absolute left-0.5 right-0.5 rounded-lg bg-sky-400/8 border border-dashed border-sky-400/30 text-left z-[5] animate-breathe-slow overflow-hidden flex flex-col justify-between"
                               style={{ top, height }}>
                               {propPhoto && <img src={propPhoto} alt="" loading="lazy" className="absolute inset-0 w-full h-full object-cover opacity-[0.08] pointer-events-none" />}
                               <div className="relative z-[1] px-2 py-1">
@@ -1320,127 +1316,10 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-green-500/25 border border-green-400/30" /> Yours</span>
         </div>
 
-        {/* ── Flight Log (IACRA categories) ── */}
-        {(() => {
-          // Gather all flights for this user from the store
-          const allFlights = getAllFlights()
-          const myFlights = allFlights.filter((f) =>
-            (f.picId === user.id || f.sicId === user.id || f._source === `${operator}_portal`) &&
-            (f.operator === operator || f._source === `${operator}_portal`)
-          ).sort((a, b) => new Date(b.plannedDepartureUtc) - new Date(a.plannedDepartureUtc))
-
-          if (myFlights.length === 0 && bookings.length === 0) return null
-
-          // IACRA categories
-          const categories = [
-            { id: 'dual', label: 'Dual Received', filter: (f) => f.missionType === 'training_dual' || f.type === 'dual_lesson', icon: '👨‍✈️' },
-            { id: 'solo', label: 'Solo / PIC', filter: (f) => f.missionType === 'training_solo' || f.type === 'solo', icon: '🧑‍✈️' },
-            { id: 'xc', label: 'Cross-Country', filter: (f) => f.waypoints?.length > 1 || f._sessionLabel?.includes('XC') || f._sessionLabel?.includes('Cross'), icon: '🗺️' },
-            { id: 'night', label: 'Night', filter: (f) => f._sessionLabel?.toLowerCase()?.includes('night'), icon: '🌙' },
-            { id: 'instrument', label: 'Instrument', filter: (f) => f._sessionLabel?.toLowerCase()?.includes('instrument') || f._sessionLabel?.toLowerCase()?.includes('hood') || f._sessionLabel?.toLowerCase()?.includes('ifr'), icon: '☁️' },
-            { id: 'ground', label: 'Ground Training', filter: (f) => f.missionType === 'ground' || f.type === 'ground', icon: '📚' },
-          ]
-
-          // Also include pending bookings as "scheduled"
-          const pendingBookings = bookings.filter((b) => !myFlights.some((f) => f._bookingId === b.id))
-
-          return (
-            <div className="mt-8">
-              <h3 className="text-white text-xl sm:text-2xl font-bold mb-4">Flight Log</h3>
-
-              {/* Pending bookings (upcoming, not yet flown) */}
-              {pendingBookings.length > 0 && (
-                <div className="bg-sky-400/5 border border-sky-400/15 rounded-2xl p-4 mb-4">
-                  <h4 className="text-sky-400 text-[10px] font-bold uppercase tracking-wide mb-2">Scheduled ({pendingBookings.length})</h4>
-                  <div className="space-y-1">
-                    {pendingBookings.map((b) => (
-                      <button key={b.id} onClick={() => setEditingBooking(b.id)}
-                        className="w-full flex items-center justify-between text-left bg-surface/30 rounded-lg px-3 py-2 hover:bg-surface/50 transition-colors">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-sky-400" />
-                          <span className="text-slate-200 text-xs">{b.title}</span>
-                        </div>
-                        <span className="text-slate-500 text-[10px]">{b.duration}hr</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* IACRA categories */}
-              {categories.map((cat) => {
-                const catFlights = myFlights.filter(cat.filter)
-                if (catFlights.length === 0) return null
-                const totalHrs = catFlights.reduce((sum, f) => sum + (f._duration || f._postFlight?.hobbsTime ? parseFloat(f._postFlight?.hobbsTime || f._duration || 0) : 0), 0)
-                return (
-                  <details key={cat.id} className="mb-2 group">
-                    <summary className="flex items-center justify-between bg-surface-card border border-surface-border rounded-xl px-4 py-3 cursor-pointer hover:border-slate-500 transition-colors list-none">
-                      <div className="flex items-center gap-2.5">
-                        <span className="text-slate-400"><PortalIcon emoji={cat.icon} size={18} /></span>
-                        <span className="text-white text-sm font-semibold">{cat.label}</span>
-                        <span className="text-slate-500 text-xs">({catFlights.length} flights)</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-sky-400 text-sm font-bold">{totalHrs.toFixed(1)} hr</span>
-                        <span className="text-slate-600 text-xs group-open:rotate-90 transition-transform">▸</span>
-                      </div>
-                    </summary>
-                    <div className="mt-1 ml-4 border-l-2 border-surface-border pl-3 space-y-1 pb-2">
-                      {catFlights.map((f) => {
-                        const dep = new Date(f.plannedDepartureUtc)
-                        const pf = f._postFlight
-                        const billedHrs = pf?.hobbsTime || pf?.realHours || f._duration || '—'
-                        const billedLabel = pf?.billingMode === 'real_hour' ? 'real hr' : pf?.billingMode === 'tach' ? 'tach' : 'hr'
-                        const rating = pf?.rating ? '★'.repeat(pf.rating) + '☆'.repeat(5 - pf.rating) : null
-                        const acsCount = pf?.acsResults ? Object.values(pf.acsResults).filter(Boolean).length : 0
-                        const topic = f._sessionLabel?.includes('—') ? f._sessionLabel.split('—').slice(1).join('—').trim() : null
-                        const launches = pf?.numLaunches || f.towInfo?.numTows
-                        const fAc = mockAircraft.find((a) => a.tailNumber === f.tailNumber)
-                        const fPhoto = getAircraftPhoto(fAc?.makeModel)
-                        return (
-                          <div key={f.id} className="bg-surface/30 rounded-lg px-3 py-2 text-xs flex gap-3">
-                            {/* Aircraft thumb */}
-                            <div className="w-10 h-10 rounded-lg overflow-hidden bg-surface-card flex-shrink-0 mt-0.5">
-                              {fPhoto ? <img src={fPhoto} alt={f.tailNumber} loading="lazy" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-slate-600 text-[10px]">✈</div>}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <span className={`w-2 h-2 rounded-full ${f.status === 'closed' ? 'bg-green-400' : f.status === 'planned' ? 'bg-sky-400' : 'bg-slate-500'}`} />
-                                {topic ? (
-                                  <span className="text-slate-100 font-semibold">{topic}</span>
-                                ) : (
-                                  <span className="text-slate-200 font-medium">{f._sessionLabel || f.tailNumber}</span>
-                                )}
-                              </div>
-                              <span className="text-slate-500">{dep.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                            </div>
-                            <div className="flex items-center gap-3 mt-1 text-[10px] text-slate-500 flex-wrap">
-                              <span>{f.tailNumber}</span>
-                              {f.pic && <span>PIC: {f.pic}</span>}
-                              <span className="text-sky-400 font-medium">{billedHrs} {billedLabel}</span>
-                              {launches && <span className="text-indigo-400">{launches} tow{launches > 1 ? 's' : ''}</span>}
-                              {pf?.tachStart && pf?.tachEnd && <span>Tach: {pf.tachStart}→{pf.tachEnd}</span>}
-                              {acsCount > 0 && <span className="text-green-400">{acsCount} ACS ✓</span>}
-                              {rating && <span className="text-amber-400">{rating}</span>}
-                              {f.status === 'planned' && <span className="text-sky-400">Scheduled</span>}
-                            </div>
-                            {pf?.route && <div className="text-[10px] text-sky-400/60 mt-0.5">Route: {pf.route}</div>}
-                            {pf?.flightNotes && <div className="text-[10px] text-slate-500 mt-0.5 italic">"{pf.flightNotes}"</div>}
-                            {f.waypoints?.length > 1 && (
-                              <div className="text-[10px] text-sky-400/60 mt-0.5">{f.waypoints.join(' → ')}</div>
-                            )}
-                            </div>{/* close flex-1 */}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </details>
-                )
-              })}
-            </div>
-          )
-        })()}
+        {/* ── Flight Log (IACRA categories — shared component) ── */}
+        <div className="mt-8">
+          <FlightLog user={user} operator={operator} />
+        </div>
 
         {/* ── Edit/Modify booking popup ── */}
         {editingBooking && (() => {
@@ -1547,7 +1426,7 @@ function TopNav({ onSection, user, onLoginClick, onLogout }) {
   const navItems = !user
     ? ['fleet', 'training', 'fbo', 'operations', 'gallery', 'about']
     : user.role === 'student'
-      ? [...(hasOwnAircraft ? ['my-aircraft'] : []), 'schedule', 'fleet', 'operations']
+      ? [...(hasOwnAircraft ? ['my-aircraft'] : []), 'schedule', 'fleet', 'log', 'operations']
       : user.role === 'mx_client'
         ? ['my-aircraft', 'fleet', 'fbo', 'operations', 'about']
         : user.role === 'cfi'
@@ -1561,7 +1440,7 @@ function TopNav({ onSection, user, onLoginClick, onLogout }) {
           <span className="text-white font-bold text-lg tracking-tight">Journeys Aviation</span>
           <div className="hidden md:flex items-center gap-4">
             {navItems.map((s) => {
-              const labels = { 'my-aircraft': 'My Aircraft', fleet: 'Fleet', schedule: 'Schedule', training: 'Training', maintenance: 'Maintenance', fbo: 'FBO', operations: 'Ops', gallery: 'Gallery', about: 'About' }
+              const labels = { log: 'Flight Log', 'my-aircraft': 'My Aircraft', fleet: 'Fleet', schedule: 'Schedule', training: 'Training', maintenance: 'Maintenance', fbo: 'FBO', operations: 'Ops', gallery: 'Gallery', about: 'About' }
               return (
                 <button key={s} onClick={() => onSection(s)} className="text-white/70 hover:text-white text-xs uppercase tracking-wide transition-colors">{labels[s] || s}</button>
               )
@@ -3470,14 +3349,63 @@ export function StudentDashboard({ user, operator = 'journeys' }) {
 
   const handleAccept = (rec) => {
     if (!rec.slot) return
+    const ts = Date.now()
     const booking = {
-      id: `bk-ja-${Date.now()}`, studentId: student.id, cfiId: rec.cfi?.id,
+      id: `bk-ja-${ts}`, studentId: student.id, cfiId: rec.cfi?.id,
       aircraftId: rec.aircraft?.id, type: rec.template.type,
       title: rec.template.title, dayIdx: rec.slot.dayIdx, slot: rec.slot.slot,
       durationHr: rec.template.durationHr,
     }
     setAcceptedBookings((prev) => [...prev, booking])
     setAcceptedIds((prev) => new Set([...prev, rec.template.id]))
+
+    // Create a real flight — same shape as the calendar's booking flow
+    const slotStr = rec.slot.slot
+    const dep = new Date()
+    dep.setDate(dep.getDate() + ((rec.slot.dayIdx - (dep.getDay() === 0 ? 6 : dep.getDay() - 1) + 7) % 7 || 7))
+    dep.setHours(parseInt(slotStr.slice(0, 2)), parseInt(slotStr.slice(2) || '0'), 0, 0)
+    const isDual = rec.template.type?.includes('dual') || rec.template.requiresCFI !== false
+    const ac = rec.aircraft
+    const isGliderAc = ac?.glider || ac?.needs_tow || ac?.fboCategory === 'glider'
+    const towProfile = rec.template.towProfile
+    addFlight({
+      id: `flt-ja-${ts}`,
+      callsign: ac?.tailNumber || user.name,
+      tailNumber: ac?.tailNumber || null,
+      aircraftType: ac?.icaoType || ac?.makeModel || null,
+      departure: 'KBDU',
+      arrival: 'KBDU',
+      airport: 'KBDU',
+      waypoints: [],
+      plannedDepartureUtc: dep.toISOString(),
+      status: 'planned',
+      pic: isDual ? (rec.cfi?.name ?? user.name) : user.name,
+      picId: isDual ? (rec.cfi?.id ?? user.id) : user.id,
+      sic: isDual ? user.name : null,
+      sicId: isDual ? user.id : null,
+      passengers: 0,
+      missionType: isDual ? 'training_dual' : 'training_solo',
+      part: '61',
+      operator,
+      riskScore: null,
+      riskP: null, riskA: null, riskV: null, riskE: null,
+      riskSnapshot: null,
+      _source: `${operator}_portal`,
+      _bookingId: booking.id,
+      _sessionLabel: rec.template.title,
+      _lessonTemplateId: rec.template.id || null,
+      _lessonTitle: rec.template.title,
+      _duration: rec.template.durationHr,
+      _autoProposed: true,
+      ...(isGliderAc ? {
+        towInfo: {
+          numTows: towProfile?.numTows || 1,
+          towHeights: towProfile?.heights || [2000],
+          isStandby: false,
+        },
+      } : {}),
+    })
+
     setToast(`✓ ${rec.template.title} booked`)
     setTimeout(() => setToast(null), 3000)
   }
@@ -3822,6 +3750,11 @@ export function JourneysBoulder() {
           <MiniGalleryStrip gallery={JB_GALLERY} category="fleet" />
           <FleetSection user={user} onBookAircraft={setBookingAircraft} onSquawk={setSquawkTail} squawkVersion={squawkVersion} />
           {squawkTail && user && <SharedSquawkPanel tailNumber={squawkTail} user={user} aircraftLabel={(getAircraftByOperator('journeys').find((a) => a.tailNumber === squawkTail) || mockAircraft.find((a) => a.tailNumber === squawkTail))?.makeModel} onClose={() => setSquawkTail(null)} />}
+          <section id="sec-log" className="py-10 px-4 sm:px-6">
+            <div className="max-w-6xl mx-auto">
+              <FlightLog user={user} operator="journeys" />
+            </div>
+          </section>
           <MiniGalleryStrip gallery={JB_GALLERY} category="scenery" />
           <AirportOps getOps={getJBOps} title="Field Conditions" openLabel="FBO open — aircraft available" closedLabel="FBO closed — check back during business hours" weatherLinks={JB_WEATHER_LINKS} fields={JB_OPS_FIELDS} />
           <PortalFooter brand="Journeys Aviation" address={JB_INFO.address} airport={JB_INFO.airport} hours={JB_INFO.hours} contactLines={[{label:'FBO', value:JB_INFO.phone},{label:'Maintenance', value:JB_INFO.maintenancePhone},{label:'', value:JB_INFO.email}]} socialLinks={[{label:'Facebook',url:JB_INFO.facebook},{label:'LinkedIn',url:JB_INFO.linkedin},{label:'Yelp',url:JB_INFO.yelp},{label:'Website',url:JB_INFO.website}]} resources={JB_RESOURCES.slice(0,6)} copyright={`© ${new Date().getFullYear()} Journeys Aviation, Inc. · Boulder, Colorado · KBDU`} />

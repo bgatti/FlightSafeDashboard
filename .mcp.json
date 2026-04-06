@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "mile-high-gliding": {
+      "command": "node",
+      "args": ["server/mcp/index.js"],
+      "cwd": "c:\\Users\\Benja\\FlightSafeDashboard"
+    }
+  }
+}

@@ -5,6 +5,17 @@ import express from 'express'
 import { appendFile, readFile, writeFile, mkdir } from 'fs/promises'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
+import { getDb } from './db/index.js'
+import { flightsRouter } from './routes/flights.js'
+import { clientsRouter } from './routes/clients.js'
+import { squawksRouter } from './routes/squawks.js'
+import { invoicesRouter } from './routes/invoices.js'
+import { serviceRequestsRouter } from './routes/serviceRequests.js'
+import { acksRouter } from './routes/acks.js'
+import { settingsRouter } from './routes/settings.js'
+import { pricingRouter } from './routes/pricing.js'
+import { towScheduleRouter } from './routes/towSchedule.js'
+import { updatesRouter, broadcast } from './routes/updates.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_DIR  = join(__dirname, 'data')
@@ -12,8 +23,14 @@ const LOG_FILE  = join(DATA_DIR, 'sim_events.jsonl')
 
 await mkdir(DATA_DIR, { recursive: true })
 
+// Initialize SQLite database (schema + seed on first run)
+getDb()
+
 const app = express()
 app.use(express.json({ limit: '2mb' }))
+
+// Make broadcast available to route handlers via req.app
+app.set('broadcast', broadcast)
 
 // ── In-memory sim state + SSE fan-out ────────────────────────────────────────
 // Sim tab pushes state here every ~500ms via POST /api/sim/state.
@@ -86,6 +103,24 @@ app.get('/api/sim/events', async (_req, res) => {
 app.delete('/api/sim/events', async (_req, res) => {
   await writeFile(LOG_FILE, '')
   res.json({ ok: true })
+})
+
+// ── REST API routes ──────────────────────────────────────────────────────────
+app.use('/api/flights',          flightsRouter)
+app.use('/api/clients',          clientsRouter)
+app.use('/api/squawks',          squawksRouter)
+app.use('/api/invoices',         invoicesRouter)
+app.use('/api/service-requests', serviceRequestsRouter)
+app.use('/api/acks',             acksRouter)
+app.use('/api/settings',         settingsRouter)
+app.use('/api/pricing',          pricingRouter)
+app.use('/api/tow-schedule',     towScheduleRouter)
+app.use('/api/updates',          updatesRouter)
+
+// ── Error handling ───────────────────────────────────────────────────────────
+app.use((err, _req, res, _next) => {
+  console.error(err)
+  res.status(500).json({ error: err.message ?? 'Internal server error' })
 })
 
 app.listen(4000, () => {

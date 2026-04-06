@@ -6,6 +6,7 @@ import {
 import {
   PortalNav, PortalLoginModal, MiniGalleryStrip, GalleryGrid,
   AirportOps, PortalFooter, SquawkPanel, STATUS_COLOR, fmt$, getAircraftPhoto, PortalIcon,
+  FlightLog,
 } from '../portal'
 import {
   ScheduleSection, FleetSection as JBFleetSection, StudentDashboard,
@@ -583,7 +584,7 @@ function StartSoaringSection({ onBook }) {
    ═══════════════════════════════════════════════════════════ */
 
 const MHG_NAV_ITEMS = ['flights', 'fleet', 'instruction', 'operations', 'gallery', 'leaderboard']
-const MHG_NAV_LABELS = { flights: 'Flights', fleet: 'Fleet', instruction: 'Training', operations: 'Ops', gallery: 'Gallery', leaderboard: 'Leaderboard' }
+const MHG_NAV_LABELS = { flights: 'Flights', fleet: 'Fleet', instruction: 'Training', operations: 'Ops', gallery: 'Gallery', leaderboard: 'Leaderboard', log: 'Flight Log' }
 
 const MHG_WEATHER_LINKS = [
   { label: 'METAR / TAF', url: MHG_INFO.metarUrl },
@@ -664,8 +665,8 @@ export function MileHighGliding() {
   const navItems = !isLoggedIn
     ? MHG_NAV_ITEMS
     : isStudent
-      ? ['schedule', 'fleet', 'instruction', 'operations', 'leaderboard']
-      : ['schedule', 'fleet', 'instruction', 'operations', 'gallery', 'leaderboard']
+      ? ['schedule', 'fleet', 'log', 'instruction', 'operations', 'leaderboard']
+      : ['schedule', 'fleet', 'log', 'instruction', 'operations', 'gallery', 'leaderboard']
 
   return (
     <div className="min-h-screen bg-surface text-slate-100">
@@ -684,11 +685,15 @@ export function MileHighGliding() {
       {isStudent ? (
         <>
           <StudentDashboard user={user} operator="mhg" />
-
           <ScheduleSection user={user} selectedAircraft={bookingAircraft} onSelectAircraft={setBookingAircraft} onClearAircraft={() => setBookingAircraft(null)} operator="mhg" />
           <MiniGalleryStrip gallery={MHG_GALLERY} category="flights" />
           <JBFleetSection user={user} onBookAircraft={setBookingAircraft} onSquawk={(tail) => { setSquawkTail(tail); setSquawkVersion((v) => v + 1) }} squawkVersion={squawkVersion} operator="mhg" />
           {squawkTail && user && <SquawkPanel tailNumber={squawkTail} user={user} onClose={() => setSquawkTail(null)} />}
+          <section id="sec-log" className="py-10 px-4 sm:px-6">
+            <div className="max-w-6xl mx-auto">
+              <FlightLog user={user} operator="mhg" />
+            </div>
+          </section>
           <MiniGalleryStrip gallery={MHG_GALLERY} category="scenery" />
           <InstructionSection />
           <AirportOps getOps={getMHGOps} title="Current Operations" openLabel="We're flying today!" closedLabel="Operations closed — check back during daylight hours" weatherLinks={MHG_WEATHER_LINKS} fields={MHG_OPS_DISPLAY} />

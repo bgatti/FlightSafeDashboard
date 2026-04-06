@@ -1,0 +1,4 @@
+node_modules
+data/flightsafe.db
+data/flightsafe.db-wal
+data/flightsafe.db-shm

@@ -1,69 +1,63 @@
 /**
- * Unified squawk store — merges maintenance/mockDb.js seed data with
- * user-added squawks from localStorage into a single global list.
- *
- * Schema (matches maintenance/mockDb.js):
- *   id, tailNumber, reportedBy, reportedDate, description,
- *   severity (grounding | ops_limiting | deferred | monitoring),
- *   status (open | in_progress | deferred_mel | closed),
- *   melReference, melExpiryDate, airframeHours,
- *   resolvedDate, resolvedBy, resolutionNotes, workOrderId
- *
- * Extra field for cross-referencing:
- *   aircraftId — links to mockAircraft[].id (optional, not in legacy data)
+ * Unified squawk store — API-backed with sync cache.
+ * Same interface as the original localStorage store.
  */
 
-import { mockSquawks as seedSquawks } from '../maintenance/mockDb'
+import { apiClient } from '../lib/apiClient'
+import { mockAircraft } from '../mocks/aircraft'
 
-const STORAGE_KEY = 'flightsafe_squawks'
-const EVENT       = 'flightsafe:squawks'
+const EVENT = 'flightsafe:squawks'
 
-function getUserSquawks() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') } catch { return [] }
+let _cache = null
+let _loading = false
+
+async function refresh() {
+  if (_loading) return
+  _loading = true
+  try {
+    const { data } = await apiClient.get('/squawks')
+    _cache = data
+    window.dispatchEvent(new CustomEvent(EVENT))
+  } catch (e) {
+    console.warn('squawks.refresh failed:', e.message)
+  } finally {
+    _loading = false
+  }
 }
 
-/** Returns all squawks: seed + user-added, deduplicated by id */
+refresh()
+setInterval(refresh, 15_000)
+
 export function getSquawks() {
-  const user = getUserSquawks()
-  const userIds = new Set(user.map((s) => s.id))
-  // User squawks first (newest), then seed squawks not overridden
-  return [...user, ...seedSquawks.filter((s) => !userIds.has(s.id))]
+  if (!_cache) refresh()
+  return _cache ?? []
 }
 
 export function addSquawk(sqk) {
-  const user = getUserSquawks()
-  user.unshift(sqk)
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(user))
+  if (_cache) _cache.unshift(sqk)
   window.dispatchEvent(new CustomEvent(EVENT))
+  apiClient.post('/squawks', sqk).then(refresh).catch((e) => console.warn('addSquawk failed:', e.message))
 }
 
 export function resolveSquawk(id, resolvedBy, resolutionNotes) {
-  // If it's a seed squawk, copy it into user store with resolved status
-  const all  = getSquawks()
-  const sqk  = all.find((s) => s.id === id)
-  if (!sqk) return
-  const resolved = {
-    ...sqk,
-    status:          'closed',
-    resolvedDate:    new Date().toISOString().split('T')[0],
-    resolvedBy:      resolvedBy ?? null,
-    resolutionNotes: resolutionNotes ?? null,
+  if (_cache) {
+    const idx = _cache.findIndex((s) => s.id === id)
+    if (idx >= 0) _cache[idx] = { ..._cache[idx], status: 'closed', resolvedBy, resolutionNotes }
   }
-  const user = getUserSquawks().filter((s) => s.id !== id)
-  user.unshift(resolved)
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(user))
   window.dispatchEvent(new CustomEvent(EVENT))
+  apiClient.patch(`/squawks/${id}/resolve`, { resolvedBy, resolutionNotes }).then(refresh).catch((e) => console.warn('resolveSquawk failed:', e.message))
 }
 
 /**
  * True if mock data says unairworthy OR an unresolved grounding squawk exists.
- * Works with both aircraftId and tailNumber for cross-module compatibility.
+ * Pure function — works with both aircraftId and tailNumber.
  */
-export function isAircraftGrounded(aircraftId, mockAircraft, squawks) {
-  const ac = mockAircraft?.find((a) => a.id === aircraftId)
+export function isAircraftGrounded(aircraftId, aircraftList, squawks) {
+  const list = aircraftList ?? mockAircraft
+  const ac = list.find((a) => a.id === aircraftId)
   if (ac && !ac.airworthy) return true
-  return squawks.some((s) =>
-    (s.aircraftId === aircraftId || s.tailNumber === ac?.tailNumber) &&
+  return (squawks ?? getSquawks()).some((s) =>
+    (s.aircraftId === aircraftId || s.tailNumber === ac?.tailNumber || s.tail_number === ac?.tailNumber) &&
     s.severity === 'grounding' &&
     s.status !== 'closed'
   )
