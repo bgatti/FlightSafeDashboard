@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ReferenceLine, ResponsiveContainer,
@@ -6,6 +6,7 @@ import {
 import { RiskChecklist, AckProgressChip } from './RiskChecklist'
 import { mockPersonnel } from '../../mocks/personnel'
 import { mockAircraft } from '../../mocks/aircraft'
+import { getAircraftPhoto } from '../../portal/portalConstants'
 import { updateFlight, addFlight } from '../../store/flights'
 import { estimateFlightDuration, estimateEta, formatHours, CRUISE_SPEEDS_KTS } from '../../lib/flightCalc'
 import dayjs from 'dayjs'
@@ -14,6 +15,91 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 
 dayjs.extend(utc)
 dayjs.extend(relativeTime)
+
+// ─── Aircraft lookup index ────────────────────────────────────────────────────
+
+const acByTail = Object.fromEntries(mockAircraft.map((a) => [a.tailNumber, a]))
+
+// ─── Aircraft silhouette SVGs ─────────────────────────────────────────────────
+
+function AircraftSilhouette({ icaoType, className = '' }) {
+  const cat = categoriseAircraft(icaoType)
+  return (
+    <svg viewBox="0 0 64 40" className={className} fill="none" xmlns="http://www.w3.org/2000/svg">
+      {cat === 'twin' && (
+        /* Twin-engine — Baron / Seneca style */
+        <g stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 20h52M32 8l-4 12 4 4 4-4-4-12Z" fill="currentColor" fillOpacity=".12" />
+          <path d="M20 14l-12 6 12 6" />
+          <path d="M44 14l12 6-12 6" />
+          <path d="M28 32l4 4 4-4" />
+          <circle cx="16" cy="20" r="2.5" fill="currentColor" fillOpacity=".25" />
+          <circle cx="48" cy="20" r="2.5" fill="currentColor" fillOpacity=".25" />
+        </g>
+      )}
+      {cat === 'turboprop' && (
+        /* High-wing turboprop — Caravan style */
+        <g stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M8 18h48M32 6l-3 12 3 6 3-6-3-12Z" fill="currentColor" fillOpacity=".12" />
+          <path d="M14 14l-6 4 6 4" />
+          <path d="M50 14l6 4-6 4" />
+          <path d="M29 34l3 3 3-3" />
+          <ellipse cx="32" cy="7" rx="2" ry="3" fill="currentColor" fillOpacity=".2" />
+          <line x1="8" y1="18" x2="8" y2="22" />
+          <line x1="56" y1="18" x2="56" y2="22" />
+        </g>
+      )}
+      {cat === 'glider' && (
+        /* Glider — long slender wings */
+        <g stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2 20h60M32 10l-2 10 2 4 2-4-2-10Z" fill="currentColor" fillOpacity=".12" />
+          <path d="M28 32l4 5 4-5" />
+        </g>
+      )}
+      {cat === 'taildragger' && (
+        /* Tow plane / taildragger — Pawnee / Super Cub */
+        <g stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10 20h44M32 10l-3 10 3 4 3-4-3-10Z" fill="currentColor" fillOpacity=".12" />
+          <path d="M22 15l-10 5 10 5" />
+          <path d="M42 15l10 5-10 5" />
+          <path d="M29 33l3 4 3-4" />
+          <circle cx="32" cy="10" r="2" fill="currentColor" fillOpacity=".3" />
+        </g>
+      )}
+      {cat === 'lsa' && (
+        /* Light sport — small compact */
+        <g stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 20h36M32 12l-2 8 2 4 2-4-2-8Z" fill="currentColor" fillOpacity=".12" />
+          <path d="M24 16l-8 4 8 4" />
+          <path d="M40 16l8 4-8 4" />
+          <path d="M30 32l2 3 2-3" />
+        </g>
+      )}
+      {cat === 'single' && (
+        /* Single-engine — C172 / PA28 / DA20 style */
+        <g stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10 20h44M32 8l-3 12 3 4 3-4-3-12Z" fill="currentColor" fillOpacity=".12" />
+          <path d="M20 15l-10 5 10 5" />
+          <path d="M44 15l10 5-10 5" />
+          <path d="M29 33l3 4 3-4" />
+          <circle cx="32" cy="9" r="2" fill="currentColor" fillOpacity=".3" />
+        </g>
+      )}
+    </svg>
+  )
+}
+
+function categoriseAircraft(icaoType) {
+  if (!icaoType) return 'single'
+  const t = icaoType.toUpperCase()
+  if (['BE58', 'PA34'].includes(t)) return 'twin'
+  if (['C208'].includes(t)) return 'turboprop'
+  if (['S33', 'G103', 'ASK21', 'DG1000'].includes(t)) return 'glider'
+  if (['PA25', 'PA18'].includes(t)) return 'taildragger'
+  if (['ALPT', 'VIRS'].includes(t)) return 'lsa'
+  if (['CIAB'].includes(t)) return 'taildragger'
+  return 'single'
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -43,6 +129,13 @@ function depCountdown(iso, status) {
   const h = Math.floor(diffMin / 60)
   const m = diffMin % 60
   return { text: h > 0 ? `${h}:${String(m).padStart(2, '0')}` : `0:${String(m).padStart(2, '0')}`, sub: diffMin <= 30 ? 'soon' : '' }
+}
+
+function paxCount(p) {
+  if (p == null) return 0
+  if (typeof p === 'number') return p
+  if (typeof p === 'object') return p.count ?? 0
+  return Number(p) || 0
 }
 
 function riskColor(ratio, disq) {
@@ -83,7 +176,7 @@ const PART_BADGE_STYLES = {
 function PartBadge({ part }) {
   const p = part ?? '135'
   return (
-    <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded border font-mono hidden sm:block ${PART_BADGE_STYLES[p] ?? 'text-slate-500 border-slate-600'}`}>
+    <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded border font-mono ${PART_BADGE_STYLES[p] ?? 'text-slate-500 border-slate-600'}`}>
       Pt {p}
     </span>
   )
@@ -287,6 +380,17 @@ export function FlightBar({ flight, currentUser, recalculating, conflicts = [] }
 
   const ratioCls = riskColor(ratio)
 
+  // Aircraft details from fleet lookup
+  const ac = acByTail[flight.tailNumber]
+  const makeModel = ac?.makeModel ?? flight.aircraftType
+  const wxCat = snap?.weatherSummary?.flightCategory
+
+  // Estimate distance + block time for the collapsed info line
+  const est = useMemo(() => {
+    const kts = CRUISE_SPEEDS_KTS[flight.aircraftType] ?? ac?.cruiseSpeedKts ?? 150
+    return estimateFlightDuration(flight.departure, flight.arrival, kts, 15)
+  }, [flight.departure, flight.arrival, flight.aircraftType])
+
   return (
     <div className={`bg-surface-card border rounded-lg transition-colors ${
       hasConflicts
@@ -295,23 +399,50 @@ export function FlightBar({ flight, currentUser, recalculating, conflicts = [] }
     }`}>
       {/* ── Collapsed row ── */}
       <button
-        className="w-full text-left px-4 py-3 flex items-center gap-3 flex-wrap"
+        className="w-full text-left px-3 py-2.5 flex items-center gap-3"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
       >
-        <StatusDot status={flight.status} />
-
-        {/* Tail + type */}
-        <div className="flex-shrink-0 w-20">
-          <div className="text-sm font-mono font-bold text-slate-100">{flight.callsign}</div>
-          <div className="text-xs text-slate-500">{flight.aircraftType}</div>
+        {/* Aircraft image + status dot */}
+        <div className="flex-shrink-0 w-16 flex flex-col items-center gap-0.5">
+          {(() => {
+            const photo = getAircraftPhoto(makeModel)
+            return photo ? (
+              <div className="w-14 h-9 rounded overflow-hidden bg-slate-800">
+                <img src={photo} alt={makeModel} className="w-full h-full object-cover" loading="lazy" />
+              </div>
+            ) : (
+              <AircraftSilhouette
+                icaoType={flight.aircraftType}
+                className={`w-12 h-8 ${
+                  flight.status === 'active' ? 'text-green-400' :
+                  flight.status === 'completed' ? 'text-slate-600' :
+                  ratio >= 2 ? 'text-red-400/70' :
+                  'text-slate-400'
+                }`}
+              />
+            )
+          })()}
+          <StatusDot status={flight.status} />
         </div>
 
-        {/* Route + departure countdown */}
-        <div className="flex-1 min-w-[140px] flex items-center gap-3">
+        {/* Tail + make/model */}
+        <div className="flex-shrink-0 w-28">
+          <div className="text-sm font-mono font-bold text-slate-100">{flight.callsign}</div>
+          <div className="text-[10px] text-slate-500 leading-tight truncate" title={makeModel}>{makeModel}</div>
+        </div>
+
+        {/* Route + distance + departure info */}
+        <div className="flex-1 min-w-[160px] flex items-center gap-3">
           <div className="flex-1">
             <div className="text-sm font-mono text-slate-200">{flight.departure} → {flight.arrival}</div>
-            <div className="text-xs text-slate-500">{depTime.format('MMM D HH:mm[Z]')}</div>
+            <div className="flex items-center gap-2 text-[10px] text-slate-500 mt-0.5">
+              <span>{depTime.format('MMM D HH:mm[Z]')}</span>
+              {est && <span className="text-slate-600">·</span>}
+              {est && <span className="font-mono">{Math.round(est.distNm)} nm</span>}
+              {est && <span className="text-slate-600">·</span>}
+              {est && <span className="font-mono">{formatHours(est.totalHours)}</span>}
+            </div>
           </div>
           {/* Large departure countdown */}
           {(() => {
@@ -341,18 +472,23 @@ export function FlightBar({ flight, currentUser, recalculating, conflicts = [] }
           })()}
         </div>
 
-        {/* Crew */}
+        {/* Crew + pax column */}
         <div className="flex-shrink-0 min-w-[100px]">
           <div className="text-xs text-slate-300">{flight.pic ?? '—'}</div>
-          {flight.sic && <div className="text-xs text-slate-500">{flight.sic}</div>}
+          {flight.sic && <div className="text-[10px] text-slate-500">{flight.sic}</div>}
+          {flight.passengers != null && (
+            <div className="text-[10px] text-slate-600 mt-0.5">{paxCount(flight.passengers)} pax</div>
+          )}
         </div>
 
-        {/* Pax */}
-        {flight.passengers != null && (
-          <div className="flex-shrink-0 text-xs text-center w-10">
-            <div className="text-slate-300">{flight.passengers}</div>
-            <div className="text-slate-600">pax</div>
-          </div>
+        {/* Weather category chip */}
+        {wxCat && (
+          <span className={`flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded border font-mono ${
+            wxCat === 'VFR'  ? 'text-green-400 border-green-500/30 bg-green-500/10' :
+            wxCat === 'MVFR' ? 'text-blue-400  border-blue-500/30  bg-blue-500/10'  :
+            wxCat === 'IFR'  ? 'text-red-400   border-red-500/30   bg-red-500/10'   :
+                               'text-purple-400 border-purple-500/30 bg-purple-500/10'
+          }`}>{wxCat}</span>
         )}
 
         {/* Conflict chip */}
@@ -406,26 +542,29 @@ export function FlightBar({ flight, currentUser, recalculating, conflicts = [] }
           </div>
         )}
 
-        {/* Mission badge */}
-        {flight._flightType === 'deadhead'
-          ? <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600 text-slate-400 font-mono hidden sm:block">DH</span>
-          : flight.missionType === 'parachute_ops'
-          ? <span className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-pink-500/10 border border-pink-500/30 text-pink-400 hidden sm:block">§105 Para</span>
-          : <span className="flex-shrink-0 text-[10px] text-slate-600 capitalize hidden sm:block">{flight.missionType}</span>
-        }
-
-        {/* Part badge */}
-        <PartBadge part={flight.part} />
-
-        {/* Maintenance required flag (sim-generated) */}
-        {flight._requiresMaintenance && (
-          <span
-            className="flex-shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/30 text-red-400 font-mono"
-            title={flight._maintenanceSquawk ?? 'Post-flight maintenance required'}
-          >
-            MX REQ
-          </span>
-        )}
+        {/* Badges row */}
+        <div className="flex-shrink-0 flex flex-col gap-0.5 items-end">
+          <div className="flex gap-1">
+            {/* Mission badge */}
+            {flight._flightType === 'deadhead'
+              ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600 text-slate-400 font-mono">DH</span>
+              : flight.missionType === 'parachute_ops'
+              ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-pink-500/10 border border-pink-500/30 text-pink-400">§105 Para</span>
+              : <span className="text-[10px] text-slate-600 capitalize">{flight.missionType}</span>
+            }
+            {/* Part badge */}
+            <PartBadge part={flight.part} />
+          </div>
+          {/* Maintenance required flag */}
+          {flight._requiresMaintenance && (
+            <span
+              className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/30 text-red-400 font-mono"
+              title={flight._maintenanceSquawk ?? 'Post-flight maintenance required'}
+            >
+              MX REQ
+            </span>
+          )}
+        </div>
 
         <span className="flex-shrink-0 text-slate-500 text-xs">{expanded ? '▲' : '▼'}</span>
       </button>
@@ -449,7 +588,9 @@ export function FlightBar({ flight, currentUser, recalculating, conflicts = [] }
               <div><span className="text-slate-600">Dep </span><span className="text-slate-300 font-mono">{depTime.format('YYYY-MM-DD HH:mm[Z]')}</span></div>
               <div><span className="text-slate-600">PIC </span><span className="text-slate-300">{flight.pic ?? '—'}</span></div>
               {flight.sic && <div><span className="text-slate-600">SIC </span><span className="text-slate-300">{flight.sic}</span></div>}
-              {flight.passengers != null && <div><span className="text-slate-600">Pax </span><span className="text-slate-300">{flight.passengers}</span></div>}
+              {flight.passengers != null && <div><span className="text-slate-600">Pax </span><span className="text-slate-300">{paxCount(flight.passengers)}</span></div>}
+              {est && <div><span className="text-slate-600">Dist </span><span className="text-slate-300 font-mono">{Math.round(est.distNm)} nm</span></div>}
+              {est && <div><span className="text-slate-600">Block </span><span className="text-slate-300 font-mono">{formatHours(est.totalHours)}</span></div>}
             </div>
             {flight.picId && (  // only user-scheduled flights support edit
               <button
@@ -460,6 +601,34 @@ export function FlightBar({ flight, currentUser, recalculating, conflicts = [] }
               </button>
             )}
           </div>
+
+          {/* Aircraft details (from fleet data) */}
+          {ac && (
+            <div className="flex items-start gap-4">
+              {(() => {
+                const photo = getAircraftPhoto(ac.makeModel)
+                return photo ? (
+                  <div className="w-20 h-14 rounded overflow-hidden bg-slate-800 flex-shrink-0">
+                    <img src={photo} alt={ac.makeModel} className="w-full h-full object-cover" loading="lazy" />
+                  </div>
+                ) : (
+                  <AircraftSilhouette icaoType={flight.aircraftType} className="w-16 h-10 text-slate-500 flex-shrink-0" />
+                )
+              })()}
+              <div className="flex gap-5 flex-wrap text-xs">
+                <div><span className="text-slate-600">Aircraft </span><span className="text-slate-300">{ac.makeModel}</span></div>
+                <div><span className="text-slate-600">TT </span><span className="text-slate-300 font-mono">{ac.totalAirframeHours?.toLocaleString()} hr</span></div>
+                {ac.cruiseSpeedKts && <div><span className="text-slate-600">Cruise </span><span className="text-slate-300 font-mono">{ac.cruiseSpeedKts} kt</span></div>}
+                {ac.serviceCeiling && <div><span className="text-slate-600">Ceiling </span><span className="text-slate-300 font-mono">{ac.serviceCeiling.toLocaleString()} ft</span></div>}
+                {ac.maxGrossWeightLbs && <div><span className="text-slate-600">MTOW </span><span className="text-slate-300 font-mono">{ac.maxGrossWeightLbs.toLocaleString()} lb</span></div>}
+                {ac.equipment?.ifrCertified && <span className="px-1.5 py-0.5 rounded bg-sky-500/10 border border-sky-500/30 text-sky-400 text-[10px]">IFR</span>}
+                {ac.equipment?.autopilot && <span className="px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600 text-slate-400 text-[10px]">AP</span>}
+                {ac.equipment?.fiki && <span className="px-1.5 py-0.5 rounded bg-slate-700/60 border border-slate-600 text-slate-400 text-[10px]">FIKI</span>}
+                {ac.melItemsOpen?.length > 0 && <span className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px]">{ac.melItemsOpen.length} MEL</span>}
+                {ac.openSquawks?.length > 0 && <span className="px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/30 text-red-400 text-[10px]">{ac.openSquawks.length} squawk{ac.openSquawks.length > 1 ? 's' : ''}</span>}
+              </div>
+            </div>
+          )}
 
           {editing && <EditPanel flight={flight} onSave={handleSave} onCancel={() => setEditing(false)} />}
 

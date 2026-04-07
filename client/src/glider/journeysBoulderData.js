@@ -52,6 +52,63 @@ export const JB_STAFF = [
   },
 ]
 
+/* ──────────────── FLIGHT INSTRUCTORS (from flight-instructors page) ──────────────── */
+const jbCFI = (f) => `https://www.journeysaviation.com/uploads/1/3/2/8/132898297/${f}`
+export const JB_INSTRUCTORS = [
+  {
+    name: 'Chuck Brescia',
+    role: 'Chief Flight Instructor',
+    bio: 'Chief Flight Instructor and Stage Check Airman. Career CFI with thousands of hours of dual instruction, devoted to creating and improving pilot skills at every level.',
+    photo: jbCFI('chuck_orig.jpg'),
+    certifications: ['CFI'],
+    endorsements: ['Stage Check Airman'],
+  },
+  {
+    name: 'Peter Black',
+    role: 'Chief Tailwheel Instructor',
+    bio: 'Chief Tailwheel Instructor and Stage Check Airman. Specialist in conventional-gear training.',
+    photo: jbCFI('peter-3_orig.jpg'),
+    certifications: ['CFI', 'Tailwheel'],
+    endorsements: ['Stage Check Airman'],
+  },
+  {
+    name: 'Erik Jensen',
+    role: 'Senior Flight Instructor',
+    bio: 'Senior Flight Instructor and Stage Check Airman. Instrument-rated instructor with deep experience across the training curriculum.',
+    photo: jbCFI('erik-jenseon_orig.jpeg'),
+    certifications: ['CFI', 'CFII'],
+    endorsements: ['Stage Check Airman'],
+  },
+  {
+    name: 'Matt Corr',
+    role: 'Flight Instructor',
+    bio: 'Flight Instructor with instrument instruction capability.',
+    photo: jbCFI('mattcorr_orig.jpg'),
+    certifications: ['CFI', 'CFII'],
+  },
+  {
+    name: 'Matt Chrabot',
+    role: 'Flight Instructor',
+    bio: 'Flight Instructor with instrument instruction capability.',
+    photo: jbCFI('mattchrabot_orig.jpg'),
+    certifications: ['CFI', 'CFII'],
+  },
+  {
+    name: 'Brent Johannes',
+    role: 'Flight Instructor',
+    bio: 'Certified Flight Instructor.',
+    photo: jbCFI('unnamed-6_orig.png'),
+    certifications: ['CFI'],
+  },
+  {
+    name: 'George Eisenlau',
+    role: 'Flight Instructor',
+    bio: 'Flight Instructor.',
+    photo: jbCFI('unnamed-8_orig.jpg'),
+    certifications: ['CFI'],
+  },
+]
+
 /* ──────────────── AIRCRAFT FLEET ────────────────
    Every aircraft from the 2023-24 Rental Price List (Dec 1, 2023).
    W&B data from type-certificate / POH typical values.

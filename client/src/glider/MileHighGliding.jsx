@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   MHG_INFO, MHG_FLEET, MHG_TOW_PLANES, MHG_FLIGHTS, MHG_INSTRUCTION,
-  MHG_STAFF, MHG_TOW_FEES, MHG_RESTRICTIONS, MHG_GALLERY, MHG_PERSONAS, getTodayOps,
+  MHG_STAFF, MHG_INSTRUCTORS, MHG_TOW_FEES, MHG_RESTRICTIONS, MHG_GALLERY, MHG_PERSONAS, getTodayOps,
 } from './mhgData'
 import {
   PortalNav, PortalLoginModal, MiniGalleryStrip, GalleryGrid,
   AirportOps, PortalFooter, SquawkPanel, STATUS_COLOR, fmt$, getAircraftPhoto, PortalIcon,
-  FlightLog,
+  FlightLog, InstructorsDisplay,
 } from '../portal'
 import {
   ScheduleSection, FleetSection as JBFleetSection, StudentDashboard,
@@ -583,8 +583,8 @@ function StartSoaringSection({ onBook }) {
    MAIN PAGE — Composed from shared portal + MHG-specific
    ═══════════════════════════════════════════════════════════ */
 
-const MHG_NAV_ITEMS = ['flights', 'fleet', 'instruction', 'operations', 'gallery', 'leaderboard']
-const MHG_NAV_LABELS = { flights: 'Flights', fleet: 'Fleet', instruction: 'Training', operations: 'Ops', gallery: 'Gallery', leaderboard: 'Leaderboard', log: 'Flight Log' }
+const MHG_NAV_ITEMS = ['flights', 'fleet', 'instructors', 'instruction', 'operations', 'gallery', 'leaderboard']
+const MHG_NAV_LABELS = { flights: 'Flights', fleet: 'Fleet', instructors: 'Instructors', instruction: 'Training', operations: 'Ops', gallery: 'Gallery', leaderboard: 'Leaderboard', log: 'Flight Log' }
 
 const MHG_WEATHER_LINKS = [
   { label: 'METAR / TAF', url: MHG_INFO.metarUrl },
@@ -652,6 +652,7 @@ export function MileHighGliding() {
   const [booking, setBooking] = useState(null)
   const [squawkTail, setSquawkTail] = useState(null)
   const [bookingAircraft, setBookingAircraft] = useState(null)
+  const [bookingInstructor, setBookingInstructor] = useState(null)
   const [squawkVersion, setSquawkVersion] = useState(0)
 
   const handleLogin = (u) => { setUser(u); localStorage.setItem(MHG_USER_KEY, JSON.stringify(u)); setShowLogin(false) }
@@ -665,8 +666,8 @@ export function MileHighGliding() {
   const navItems = !isLoggedIn
     ? MHG_NAV_ITEMS
     : isStudent
-      ? ['schedule', 'fleet', 'log', 'instruction', 'operations', 'leaderboard']
-      : ['schedule', 'fleet', 'log', 'instruction', 'operations', 'gallery', 'leaderboard']
+      ? ['schedule', 'fleet', 'instructors', 'log', 'instruction', 'operations', 'leaderboard']
+      : ['schedule', 'fleet', 'instructors', 'log', 'instruction', 'operations', 'gallery', 'leaderboard']
 
   return (
     <div className="min-h-screen bg-surface text-slate-100">
@@ -685,10 +686,11 @@ export function MileHighGliding() {
       {isStudent ? (
         <>
           <StudentDashboard user={user} operator="mhg" />
-          <ScheduleSection user={user} selectedAircraft={bookingAircraft} onSelectAircraft={setBookingAircraft} onClearAircraft={() => setBookingAircraft(null)} operator="mhg" />
+          <ScheduleSection user={user} selectedAircraft={bookingAircraft} onSelectAircraft={setBookingAircraft} onClearAircraft={() => setBookingAircraft(null)} selectedInstructor={bookingInstructor} onClearInstructor={() => setBookingInstructor(null)} instructors={MHG_INSTRUCTORS} operator="mhg" />
           <MiniGalleryStrip gallery={MHG_GALLERY} category="flights" />
           <JBFleetSection user={user} onBookAircraft={setBookingAircraft} onSquawk={(tail) => { setSquawkTail(tail); setSquawkVersion((v) => v + 1) }} squawkVersion={squawkVersion} operator="mhg" />
           {squawkTail && user && <SquawkPanel tailNumber={squawkTail} user={user} onClose={() => setSquawkTail(null)} />}
+          <InstructorsDisplay instructors={MHG_INSTRUCTORS} brand="Mile High Gliding" user={user} onBookInstructor={setBookingInstructor} heading="Our Pilots & Instructors" subtitle="Experienced glider pilots and certified flight instructors" />
           <section id="sec-log" className="py-10 px-4 sm:px-6">
             <div className="max-w-6xl mx-auto">
               <FlightLog user={user} operator="mhg" />
@@ -704,16 +706,16 @@ export function MileHighGliding() {
           {/* ── Logged-in renter/CFI view: recent flights + schedule + full fleet ── */}
           <HeroSection onBook={setBooking} />
 
-          <ScheduleSection user={user} selectedAircraft={bookingAircraft} onSelectAircraft={setBookingAircraft} onClearAircraft={() => setBookingAircraft(null)} operator="mhg" />
+          <ScheduleSection user={user} selectedAircraft={bookingAircraft} onSelectAircraft={setBookingAircraft} onClearAircraft={() => setBookingAircraft(null)} selectedInstructor={bookingInstructor} onClearInstructor={() => setBookingInstructor(null)} instructors={MHG_INSTRUCTORS} operator="mhg" />
           <MiniGalleryStrip gallery={MHG_GALLERY} category="flights" />
           <JBFleetSection user={user} onBookAircraft={setBookingAircraft} onSquawk={(tail) => { setSquawkTail(tail); setSquawkVersion((v) => v + 1) }} squawkVersion={squawkVersion} operator="mhg" />
           {squawkTail && user && <SquawkPanel tailNumber={squawkTail} user={user} onClose={() => setSquawkTail(null)} />}
+          <InstructorsDisplay instructors={MHG_INSTRUCTORS} brand="Mile High Gliding" user={user} onBookInstructor={setBookingInstructor} heading="Our Pilots & Instructors" subtitle="Experienced glider pilots and certified flight instructors" />
           <MiniGalleryStrip gallery={MHG_GALLERY} category="scenery" />
           <InstructionSection />
           <AirportOps getOps={getMHGOps} title="Current Operations" openLabel="We're flying today!" closedLabel="Operations closed — check back during daylight hours" weatherLinks={MHG_WEATHER_LINKS} fields={MHG_OPS_DISPLAY} />
           <GalleryGrid gallery={MHG_GALLERY} />
           <LeaderboardSection />
-          <TeamSection />
         </>
       ) : (
         <>
@@ -724,13 +726,13 @@ export function MileHighGliding() {
           <MiniGalleryStrip gallery={MHG_GALLERY} category="flights" />
           <FleetSection user={user} onSquawk={(tail) => { setSquawkTail(tail); setTimeout(() => document.getElementById('sec-squawk')?.scrollIntoView({ behavior: 'smooth' }), 100) }} />
           {squawkTail && user && <SquawkPanel tailNumber={squawkTail} user={user} aircraftLabel={MHG_FLEET.find((a) => a.tailNumber === squawkTail)?.type} onClose={() => setSquawkTail(null)} />}
+          <InstructorsDisplay instructors={MHG_INSTRUCTORS} brand="Mile High Gliding" user={null} onBookInstructor={setBookingInstructor} heading="Our Pilots & Instructors" subtitle="Experienced glider pilots and certified flight instructors" />
           <MiniGalleryStrip gallery={MHG_GALLERY} category="operations" />
           <InstructionSection />
           <AirportOps getOps={getMHGOps} title="Current Operations" openLabel="We're flying today!" closedLabel="Operations closed — check back during daylight hours" weatherLinks={MHG_WEATHER_LINKS} fields={MHG_OPS_DISPLAY} />
           <MiniGalleryStrip gallery={MHG_GALLERY} category="instruction" />
           <GalleryGrid gallery={MHG_GALLERY} />
           <LeaderboardSection />
-          <TeamSection />
           <StartSoaringSection onBook={setBooking} />
         </>
       )}

@@ -21,6 +21,12 @@ export const fmt$ = (n) => n != null ? `$${n}` : 'Call'
 // Uses thumb.php API (more reliable than hash-based /thumb/ paths)
 const wm = (f) => `https://commons.wikimedia.org/w/thumb.php?width=400&f=${encodeURIComponent(f)}`
 export const AIRCRAFT_TYPE_PHOTOS = {
+  // ── Multi-engine / turboprop ──
+  'Beechcraft Baron': wm('Beechcraft_Baron_58_(D-IBBA)_02.jpg'),
+  'Baron 58':         wm('Beechcraft_Baron_58_(D-IBBA)_02.jpg'),
+  'Cessna 208':       wm('Cessna208FedEx.jpg'),
+  'Piper PA-34':      wm('Piper_PA-34-200T_Seneca_II,_Aeroclub_Barcelona-Sabadell_JP6311561.jpg'),
+  'Seneca':           wm('Piper_PA-34-200T_Seneca_II,_Aeroclub_Barcelona-Sabadell_JP6311561.jpg'),
   // ── Powered singles ──
   'Cessna 150':      wm('Cessna_150M_(cropped).jpg'),
   'Diamond DA20':    wm('Diamond_DA20_(8735090139).jpg'),

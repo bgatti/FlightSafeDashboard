@@ -178,6 +178,42 @@ export const MHG_STAFF = [
   { name: 'Jordon Griffler', role: 'Pilot / Instructor', bio: 'Airplane pilot + flight instructor. Boulder native. Aviation and outdoor recreation.' },
 ]
 
+const mhgPhoto = (f) => `https://4d7a9580e910a5227ad3.cdn6.editmysite.com/uploads/b/4d7a9580e910a5227ad31b8f17f245e444d0c04f822164dcfd300a7e2f96ba78/${f}`
+export const MHG_INSTRUCTORS = [
+  {
+    name: 'Dan Swenson',
+    role: 'Pilot / Ride Operator',
+    bio: 'Boulder born and raised, Dan\'s first glider ride was March 1981. He has over 3,000 hours in our all-metal aerobatic ride planes.',
+    photo: mhgPhoto('PJBJ4482_1644164484.jpg'),
+    certifications: ['Commercial Pilot'],
+    endorsements: ['Scenic Rides', 'Aerobatic Flights'],
+  },
+  {
+    name: 'Luke Reivich',
+    role: 'Commercial Pilot',
+    bio: 'Started flying gliders at 13 and has loved it ever since. Soaring gliders and paragliders for hundreds of kilometers on big cross country flights.',
+    photo: mhgPhoto('IMG_1515%20-%20Copy_1644166448.JPEG'),
+    certifications: ['Commercial Pilot'],
+    endorsements: ['Cross-Country Soaring', 'Adventure Flights'],
+  },
+  {
+    name: 'Jenna Cooper',
+    role: 'Certified Glider Instructor',
+    bio: 'Started flying gliders at Mile High Gliding, attended Harris Hill in Elmira, NY. Aerospace Engineering PhD student at CU and loves sharing her passion for soaring.',
+    photo: mhgPhoto('IMG_0215_1675793351.jpeg'),
+    certifications: ['CFIG'],
+    endorsements: ['Glider Instruction', 'Scenic Rides'],
+  },
+  {
+    name: 'Jordon Griffler',
+    role: 'Glider Pilot / Flight Instructor',
+    bio: 'Glider pilot, airplane pilot, and flight instructor. Boulder local, avid rock climber, adventurer, skier, cyclist.',
+    photo: mhgPhoto('Griffler_1646592570.PNG'),
+    certifications: ['CFI', 'Commercial Pilot'],
+    endorsements: ['Glider Instruction', 'Airplane Instruction'],
+  },
+]
+
 export const MHG_TOW_FEES = {
   hookup: 15,
   perThousandFt: 16,

@@ -372,20 +372,20 @@ export function Flights() {
         </div>
       </div>
 
-      {/* ── Route Map ── */}
-      <RouteMap
-        flights={missionFiltered}
-        selectedId={selectedId}
-        onSelect={(id) => setSelectedId((prev) => prev === id ? null : id)}
-      />
-
-      {/* ── Flight Timeline (Gantt) ── */}
-      <FlightTimeline
-        flights={tabFiltered}
-        impliedRepos={visibleRepos}
-        selectedId={selectedId}
-        onSelect={(id) => setSelectedId((prev) => prev === id ? null : id)}
-      />
+      {/* ── Route Map + Timeline side-by-side ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <RouteMap
+          flights={missionFiltered}
+          selectedId={selectedId}
+          onSelect={(id) => setSelectedId((prev) => prev === id ? null : id)}
+        />
+        <FlightTimeline
+          flights={tabFiltered}
+          impliedRepos={visibleRepos}
+          selectedId={selectedId}
+          onSelect={(id) => setSelectedId((prev) => prev === id ? null : id)}
+        />
+      </div>
 
       {/* ── Filters + tabs ── */}
       <div className="flex flex-col gap-2">

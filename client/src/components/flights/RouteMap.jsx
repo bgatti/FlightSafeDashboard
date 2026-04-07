@@ -19,7 +19,7 @@ const AIRPORTS = {
   KSNA: [33.68, -117.87], KFLL: [26.07, -80.15],  KDAL: [32.85, -96.85],
 }
 
-const W = 640, H = 280
+const W = 640, H = 360
 const LAT_MIN = 24, LAT_MAX = 50, LON_MIN = -125, LON_MAX = -65
 
 function project(lat, lon) {
@@ -53,12 +53,13 @@ export function RouteMap({ flights = [], selectedId, onSelect }) {
   })
 
   return (
-    <div className="bg-slate-900/80 border border-surface-border rounded-xl overflow-hidden">
+    <div className="bg-slate-900/80 border border-surface-border rounded-xl overflow-hidden h-full flex flex-col">
       <svg
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
-        height={H}
-        style={{ display: 'block' }}
+        className="flex-1"
+        preserveAspectRatio="xMidYMid meet"
+        style={{ display: 'block', minHeight: 220 }}
         aria-label="Route map"
       >
         {/* Background */}

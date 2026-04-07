@@ -7,6 +7,8 @@ import { PART_91_TYPES } from '../mocks/flights'
 import { estimateFlightDuration, estimateEta } from '../lib/flightCalc'
 import { mockPersonnel } from '../mocks/personnel'
 import { mockStudents, mockClubMembers } from '../training/mockTraining'
+import { getAircraftPhoto } from '../portal/portalConstants'
+import { useAircraftStars } from '../hooks/useAircraftStars'
 import {
   getTowAvailability,
   towCycleMin,
@@ -1032,6 +1034,7 @@ function AircraftRiskCard({
   pilotAssessments, loadingPilots, pilotRiskError, onRetryPilots,
   flightConditions, onSchedule, onScheduleReturn, isScheduled, scheduledEta,
   towConfig, onTowChange, allFlights, missionType,
+  starRating = 0, onSetStar,
 }) {
   const [expanded, setExpanded] = useState(false)
   const { ratio, rate, label, color, mode } = riskFromAirSafe(
@@ -1039,6 +1042,7 @@ function AircraftRiskCard({
     airSafeResult?.risk_clusters,
   )
   const clusters = airSafeResult?.risk_clusters ?? []
+  const photo = getAircraftPhoto(aircraft.makeModel)
 
   const inspColors = {
     current: 'text-green-400',
@@ -1047,42 +1051,68 @@ function AircraftRiskCard({
   }
 
   return (
-    <div className={`bg-surface-card border rounded-lg transition-colors ${
+    <div className={`border rounded-lg transition-colors overflow-hidden ${
       !aircraft.airworthy
         ? 'border-red-500/40 opacity-60'
         : expanded ? 'border-sky-500/40' : 'border-surface-border'
     }`}>
-      {/* Main row */}
+      {/* Main row — with aircraft photo background */}
       <div
         role="button"
         tabIndex={0}
-        className="w-full text-left px-4 py-3 flex items-center gap-4 cursor-pointer"
+        className="relative w-full text-left px-4 py-3 flex items-center gap-4 cursor-pointer"
         onClick={() => setExpanded((v) => !v)}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setExpanded((v) => !v)}
         aria-expanded={expanded}
       >
+        {/* Aircraft photo underlay — same pattern as calendar cells */}
+        {photo && (
+          <img src={photo} alt="" loading="lazy"
+            className="absolute inset-0 w-full h-full object-cover opacity-[0.12] pointer-events-none" />
+        )}
+        <div className={`absolute inset-0 ${photo ? 'bg-gradient-to-r from-surface-card via-surface-card/90 to-transparent' : 'bg-surface-card'} pointer-events-none`} />
+
+        {/* Star rating */}
+        {onSetStar && (
+          <div className="relative z-[1] flex gap-0 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+            {[1, 2, 3].map((s) => (
+              <button key={s} onClick={() => onSetStar(aircraft.tailNumber, starRating === s ? 0 : s)}
+                className={`text-sm leading-none transition-all hover:scale-125 ${s <= starRating ? 'text-amber-400' : 'text-slate-700 hover:text-slate-500'}`}>★</button>
+            ))}
+          </div>
+        )}
+
         {/* Airworthy dot */}
         <span
-          className={`w-2 h-2 rounded-full flex-shrink-0 ${aircraft.airworthy ? 'bg-green-400' : 'bg-red-500'}`}
+          className={`relative z-[1] w-2 h-2 rounded-full flex-shrink-0 ${aircraft.airworthy ? 'bg-green-400' : 'bg-red-500'}`}
           title={aircraft.airworthy ? 'Airworthy' : 'Not airworthy'}
         />
 
-        {/* Tail + model */}
-        <div className="flex-shrink-0 w-20">
+        {/* Tail + ICAO type */}
+        <div className="relative z-[1] flex-shrink-0 w-20">
           <div className="text-sm font-mono font-bold text-slate-100">{aircraft.tailNumber}</div>
           <div className="text-xs text-slate-500">{aircraft.icaoType}</div>
         </div>
 
-        {/* Make/model */}
-        <div className="flex-1 min-w-0">
+        {/* Make/model + aircraft type category */}
+        <div className="relative z-[1] flex-1 min-w-0">
           <div className="text-sm text-slate-300 truncate">{aircraft.makeModel}</div>
-          <div className={`text-xs ${inspColors[aircraft.inspectionStatus] ?? 'text-slate-400'}`}>
-            Insp: {aircraft.inspectionStatus.replace('_', ' ')}
+          <div className="flex items-center gap-2">
+            <span className={`text-xs ${inspColors[aircraft.inspectionStatus] ?? 'text-slate-400'}`}>
+              Insp: {aircraft.inspectionStatus.replace('_', ' ')}
+            </span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
+              aircraft.equipment?.ifrCertified
+                ? 'bg-sky-500/10 text-sky-300 border-sky-500/20'
+                : 'bg-slate-700/50 text-slate-400 border-slate-600'
+            }`}>
+              {aircraft.equipment?.ifrCertified ? 'IFR' : 'VFR only'}
+            </span>
           </div>
         </div>
 
         {/* Capacity */}
-        <div className="flex-shrink-0 text-center w-16">
+        <div className="relative z-[1] flex-shrink-0 text-center w-16">
           <div className="text-sm text-slate-300">{aircraft.passengerCapacity} seats</div>
           <div className="text-xs text-slate-500">capacity</div>
         </div>
@@ -1098,21 +1128,21 @@ function AircraftRiskCard({
           const depHour    = fc.depTime?.date?.getHours() ?? null
           const isNight    = depHour != null && (depHour < 6 || depHour >= 20)
           const ws = assessWeightStatus(aircraft, paxLbs, bagLbs, flightHrs > 0 ? { flightHrs, isNight } : null)
-          if (!ws) return <div className="flex-shrink-0 w-8" />
+          if (!ws) return <div className="relative z-[1] flex-shrink-0 w-8" />
           const cfg = {
             ok:       { color: 'text-green-300',  bg: 'bg-green-500/25',  border: 'border-green-500/50'  },
             caution:  { color: 'text-yellow-300', bg: 'bg-yellow-500/25', border: 'border-yellow-500/50' },
             critical: { color: 'text-red-300',    bg: 'bg-red-500/40',    border: 'border-red-500/70'    },
           }[ws.status]
           return (
-            <div className="flex-shrink-0 text-center w-8" title={`${ws.label} — ${ws.detail}`}>
+            <div className="relative z-[1] flex-shrink-0 text-center w-8" title={`${ws.label} — ${ws.detail}`}>
               <span className={`text-sm px-1 py-0.5 rounded border ${cfg.color} ${cfg.bg} ${cfg.border}`}>⚖</span>
             </div>
           )
         })()}
 
         {/* Capability chips + MEL — fixed width so columns align across cards */}
-        <div className="hidden md:flex flex-wrap gap-1 flex-shrink-0 w-48">
+        <div className="relative z-[1] hidden md:flex flex-wrap gap-1 flex-shrink-0 w-48">
           {aircraft.equipment?.fiki && (
             <span title="FIKI — Flight Into Known Icing" className="text-xs px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20">❄️ FIKI</span>
           )}
@@ -1125,9 +1155,7 @@ function AircraftRiskCard({
           {aircraft.riskProfile?.turbocharged && (
             <span title="Turbocharged" className="text-xs px-1.5 py-0.5 rounded bg-orange-500/10 text-orange-300 border border-orange-500/20">📈 TC</span>
           )}
-          {!aircraft.equipment?.ifrCertified && (
-            <span title="Not IFR certified" className="text-xs px-1.5 py-0.5 rounded bg-red-500/10 text-red-300 border border-red-500/20">VFR only</span>
-          )}
+          {/* VFR-only badge now shown inline with make/model */}
           {aircraft.riskProfile?.multiEngine && aircraft.singleEngineCeiling && (
             (() => {
               // Compare OEI ceiling against DA (decision altitude) — the critical threshold
@@ -1184,11 +1212,11 @@ function AircraftRiskCard({
             // Aircraft lacks fuel data — show hourly rate only
             return (
               <>
-                <div className="flex-shrink-0 text-center w-20">
+                <div className="relative z-[1] flex-shrink-0 text-center w-20">
                   <div className="text-sm font-mono text-slate-400">—</div>
                   <div className="text-[10px] text-slate-500">fuel rem</div>
                 </div>
-                <div className="flex-shrink-0 text-center w-20">
+                <div className="relative z-[1] flex-shrink-0 text-center w-20">
                   <div className="text-sm font-mono text-slate-300">${aircraft.opCostPerHour.toLocaleString()}</div>
                   <div className="text-[10px] text-slate-500">per hour</div>
                 </div>
@@ -1202,7 +1230,7 @@ function AircraftRiskCard({
           return (
             <>
               {/* Fuel remaining column */}
-              <div className="flex-shrink-0 text-center w-20"
+              <div className="relative z-[1] flex-shrink-0 text-center w-20"
                 title={`Max endurance ${formatHours(endHrs)}`}>
                 <div className={`text-sm font-mono font-semibold ${wf.fuelColor}`}>
                   {wf.remMin < 0 ? '⚠ ' : ''}{formatHours(hasRoute ? wf.remHrs : endHrs)}
@@ -1210,7 +1238,7 @@ function AircraftRiskCard({
                 <div className="text-[10px] text-slate-500">{hasRoute ? 'fuel rem' : 'endurance'}</div>
               </div>
               {/* Trip cost column */}
-              <div className="flex-shrink-0 text-center w-20">
+              <div className="relative z-[1] flex-shrink-0 text-center w-20">
                 <div className="text-sm font-mono text-slate-300">
                   {wf.tripCostDollars != null ? `$${wf.tripCostDollars.toLocaleString()}` : `$${aircraft.opCostPerHour.toLocaleString()}`}
                 </div>
@@ -1221,7 +1249,7 @@ function AircraftRiskCard({
         })()}
 
         {/* Combined risk score */}
-        <div className="flex-shrink-0 w-40 flex flex-col gap-1">
+        <div className="relative z-[1] flex-shrink-0 w-40 flex flex-col gap-1">
           {loading ? (
             <span className="text-xs text-slate-500 animate-pulse">Querying AirSafe…</span>
           ) : error ? (
@@ -1282,12 +1310,12 @@ function AircraftRiskCard({
         </div>
 
         {/* Pilot availability chip */}
-        <div className="flex-shrink-0 w-32 hidden md:block" onClick={(e) => e.stopPropagation()}>
+        <div className="relative z-[1] flex-shrink-0 w-32 hidden md:block" onClick={(e) => e.stopPropagation()}>
           <AvailabilityChip assessments={pilotAssessments} />
         </div>
 
         {/* Schedule button */}
-        <div className="flex-shrink-0 w-20 text-center">
+        <div className="relative z-[1] flex-shrink-0 w-20 text-center">
           {isScheduled ? (
             <span className="text-xs px-2 py-1 rounded border border-green-500/30 text-green-400 bg-green-400/10">
               ✓ Scheduled
@@ -1303,7 +1331,7 @@ function AircraftRiskCard({
           )}
         </div>
 
-        <span className="text-slate-500 text-xs flex-shrink-0">{expanded ? '▲' : '▼'}</span>
+        <span className="relative z-[1] text-slate-500 text-xs flex-shrink-0">{expanded ? '▲' : '▼'}</span>
       </div>
 
       {/* Expanded detail */}
@@ -1474,6 +1502,7 @@ function AircraftRiskCard({
 // ─── Main page ─────────────────────────────────────────────────────────────────
 
 export function FlightPlanning() {
+  const [stars, setStar] = useAircraftStars()
   const [planningTab,     setPlanningTab]     = useState('135')   // '135' | '91'
   // ── Part 91 specific state ──────────────────────────────────────────────────
   const [opType,          setOpType]          = useState(PART_91_TYPES[0].id)
@@ -2033,17 +2062,23 @@ export function FlightPlanning() {
   const eligibleAircraft = isTowOp
     ? mockAircraft.filter((ac) => ac.is_tow).sort((a, b) => {
         if (a.airworthy !== b.airworthy) return b.airworthy - a.airworthy
-        return 0
+        return (stars[b.tailNumber] || 0) - (stars[a.tailNumber] || 0)
       })
     : paxCount > 0
       ? mockAircraft.filter((ac) => (ac.passengerCapacity ?? 0) >= paxCount).sort((a, b) => {
-          // sort: airworthy first, then by airsafe similarity asc (lower risk first)
+          // sort: starred first, then airworthy, then by airsafe similarity asc (lower risk first)
+          const starDiff = (stars[b.tailNumber] || 0) - (stars[a.tailNumber] || 0)
+          if (starDiff !== 0) return starDiff
           if (a.airworthy !== b.airworthy) return b.airworthy - a.airworthy
           const aScore = aircraftRisks[a.id]?.result?.results?.reduce((s, r) => s + r.score, 0) ?? 0
           const bScore = aircraftRisks[b.id]?.result?.results?.reduce((s, r) => s + r.score, 0) ?? 0
           return aScore - bScore
         })
       : []
+
+  // Group by IFR / VFR capability
+  const ifrAircraft = eligibleAircraft.filter((ac) => ac.equipment?.ifrCertified)
+  const vfrAircraft = eligibleAircraft.filter((ac) => !ac.equipment?.ifrCertified)
 
   const arrMetar = Array.isArray(routeData?.metars?.data)
     ? routeData.metars.data.find((m) => m.station_id === arr || m.station_id?.endsWith(arr.slice(-3)))
@@ -2413,41 +2448,55 @@ export function FlightPlanning() {
                   Enter departure and arrival to include AirSafe accident analysis.
                 </p>
               ) : null}
-              {eligibleAircraft.map((ac) => {
-                // Seed default tow config for gliders
-                if (ac.needs_tow && !towConfigs[ac.id]) {
-                  setTimeout(() => setTowConfigs((prev) =>
-                    prev[ac.id] ? prev : { ...prev, [ac.id]: { numTows: 1, towHeights: [2000] } }
-                  ), 0)
-                }
-                return (
-                  <AircraftRiskCard
-                    key={ac.id}
-                    aircraft={ac}
-                    airSafeResult={aircraftRisks[ac.id]?.result ?? null}
-                    loading={aircraftRisks[ac.id]?.loading ?? false}
-                    error={aircraftRisks[ac.id]?.error ?? null}
-                    terrainMetrics={terrainMetrics}
-                    knownRiskAssessment={knownRisks?.[ac.id] ?? null}
-                    loadingKnown={loadingKnown}
-                    pilotAssessments={pilotRisks?.[ac.tailNumber] ?? null}
-                    loadingPilots={loadingPilots}
-                    flightConditions={{ dept, arr, depTime, paxWeights, bagWeightLbs: totalBagLbs, manualFlightHrs }}
-                    onSchedule={(picId, sicId, missionType) => handleScheduleFlight(ac, picId, sicId, missionType)}
-                    onScheduleReturn={(opts) => handleScheduleReturn(ac, opts)}
-                    isScheduled={scheduledMap[ac.id] ?? false}
-                    scheduledEta={scheduledEtas[ac.id] ?? null}
-                    towConfig={ac.needs_tow ? (towConfigs[ac.id] ?? { numTows: 1, towHeights: [2000] }) : null}
-                    onTowChange={ac.needs_tow
-                      ? (cfg) => setTowConfigs((prev) => ({ ...prev, [ac.id]: cfg }))
-                      : null}
-                    allFlights={allFlights}
-                    pilotRiskError={pilotRiskError}
-                    onRetryPilots={() => fetchPilotRisks(eligibleAircraft, routeData, deptWeather, depTime)}
-                    missionType={scheduleMissionType}
-                  />
-                )
-              })}
+              {[
+                { label: 'IFR Capable', list: ifrAircraft, color: 'text-sky-400', icon: '🔵' },
+                { label: 'VFR Only',    list: vfrAircraft, color: 'text-slate-400', icon: '⚪' },
+              ].map(({ label: groupLabel, list, color: groupColor }) => list.length > 0 && (
+                <div key={groupLabel} className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={`text-[10px] font-bold uppercase tracking-widest ${groupColor}`}>{groupLabel}</span>
+                    <span className="text-[10px] text-slate-600">{list.length} aircraft</span>
+                    <div className="flex-1 border-t border-surface-border" />
+                  </div>
+                  {list.map((ac) => {
+                    // Seed default tow config for gliders
+                    if (ac.needs_tow && !towConfigs[ac.id]) {
+                      setTimeout(() => setTowConfigs((prev) =>
+                        prev[ac.id] ? prev : { ...prev, [ac.id]: { numTows: 1, towHeights: [2000] } }
+                      ), 0)
+                    }
+                    return (
+                      <AircraftRiskCard
+                        key={ac.id}
+                        aircraft={ac}
+                        airSafeResult={aircraftRisks[ac.id]?.result ?? null}
+                        loading={aircraftRisks[ac.id]?.loading ?? false}
+                        error={aircraftRisks[ac.id]?.error ?? null}
+                        terrainMetrics={terrainMetrics}
+                        knownRiskAssessment={knownRisks?.[ac.id] ?? null}
+                        loadingKnown={loadingKnown}
+                        pilotAssessments={pilotRisks?.[ac.tailNumber] ?? null}
+                        loadingPilots={loadingPilots}
+                        flightConditions={{ dept, arr, depTime, paxWeights, bagWeightLbs: totalBagLbs, manualFlightHrs }}
+                        onSchedule={(picId, sicId, missionType) => handleScheduleFlight(ac, picId, sicId, missionType)}
+                        onScheduleReturn={(opts) => handleScheduleReturn(ac, opts)}
+                        isScheduled={scheduledMap[ac.id] ?? false}
+                        scheduledEta={scheduledEtas[ac.id] ?? null}
+                        towConfig={ac.needs_tow ? (towConfigs[ac.id] ?? { numTows: 1, towHeights: [2000] }) : null}
+                        onTowChange={ac.needs_tow
+                          ? (cfg) => setTowConfigs((prev) => ({ ...prev, [ac.id]: cfg }))
+                          : null}
+                        allFlights={allFlights}
+                        pilotRiskError={pilotRiskError}
+                        onRetryPilots={() => fetchPilotRisks(eligibleAircraft, routeData, deptWeather, depTime)}
+                        missionType={scheduleMissionType}
+                        starRating={stars[ac.tailNumber] || 0}
+                        onSetStar={setStar}
+                      />
+                    )
+                  })}
+                </div>
+              ))}
             </div>
           )}
         </section>

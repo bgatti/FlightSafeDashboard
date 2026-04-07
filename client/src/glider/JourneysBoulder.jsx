@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useAircraftStars } from '../hooks/useAircraftStars'
+import { InstructorsDisplay } from '../portal'
 import {
-  JB_INFO, JB_STAFF, JB_MEMBERSHIP, JB_INSTRUCTION_RATES,
+  JB_INFO, JB_STAFF, JB_INSTRUCTORS, JB_MEMBERSHIP, JB_INSTRUCTION_RATES,
   JB_INSURANCE, JB_FUEL, JB_FBO_SERVICES, JB_TRAINING, JB_GALLERY,
   JB_RESOURCES, getJBTodayOps,
 } from './journeysBoulderData'
@@ -319,8 +321,32 @@ function slotOccupied(bookings, dayIdx, slot, field, id) {
   })
 }
 
-export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAircraft, proposedLessons = [], operator = 'journeys' }) {
-  const cfiList = mockPersonnel.filter((p) => p.cfiCert)
+export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onClearAircraft, selectedInstructor, onClearInstructor, instructors = [], proposedLessons = [], operator = 'journeys' }) {
+  // Build CFI list: real instructors (from portal data) + mock personnel as fallback
+  const mockCfis = mockPersonnel.filter((p) => p.cfiCert)
+  const realCfis = useMemo(() => instructors.map((inst, i) => {
+    const certs = (inst.certifications || []).map((c) => c.toUpperCase())
+    const ends = (inst.endorsements || []).map((e) => e.toLowerCase())
+    const ratings = []
+    if (certs.includes('CFI') || certs.includes('CFIG') || certs.length > 0) ratings.push('CFI')
+    if (certs.includes('CFII')) ratings.push('CFII')
+    if (certs.includes('CFIG')) ratings.push('CFIG')
+    if (certs.includes('MEI')) ratings.push('MEI')
+    return {
+      id: `inst-${inst.name.toLowerCase().replace(/\s+/g, '-')}`,
+      name: inst.name,
+      weightLbs: 170,
+      role: 'cfi',
+      roleLabel: inst.role,
+      cfiCert: true,
+      cfiRatings: ratings,
+      isChiefPilot: ends.some((e) => e.includes('stage check')) || inst.role.toLowerCase().includes('chief'),
+      certType: certs.includes('CFII') ? 'Commercial' : 'Commercial',
+      photo: inst.photo,
+      _realInstructor: inst,
+    }
+  }), [instructors])
+  const cfiList = realCfis.length > 0 ? realCfis : mockCfis
   const fleet = getAircraftByOperator(operator)
   const preferredCfis = user.preferredCfis || []
   // Merge persona owned aircraft with any added via localStorage
@@ -342,8 +368,9 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
   // 'preferred' = any preferred CFI, '' = any CFI, or specific id
   const [selectedCfi, setSelectedCfi] = useState(preferredCfis.length > 0 ? 'preferred' : '')
   const [durationHalfHours, setDurationHalfHours] = useState(4)
-  const [weekOffset, setWeekOffset] = useState(0) // 0 = this week, 1 = next, -1 = prev
-  const [stars] = useAircraftStars(user?.id)
+  const [weekOffset, setWeekOffset] = useState(0)
+  const lessonCombosRef = useRef({})
+  const [stars] = useAircraftStars()
   const [bookings, setBookings] = useState(loadBookings)
   const [editingBooking, setEditingBooking] = useState(null)
   const [skippedProposals, setSkippedProposals] = useState(new Set())
@@ -356,8 +383,96 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
 
   useEffect(() => { if (selectedAircraft) setAcMode('fleet') }, [selectedAircraft])
 
+  // ── Map selected instructor → real CFI record ───────────────────────────
+  const selectedCfiRecord = useMemo(() => {
+    if (!selectedInstructor) return null
+    return cfiList.find((c) => c._realInstructor && c._realInstructor.name === selectedInstructor.name) || null
+  }, [selectedInstructor, cfiList])
+
+  // Auto-set selectedCfi when instructor is picked from InstructorsDisplay
+  useEffect(() => {
+    if (selectedCfiRecord) {
+      setSelectedCfi(selectedCfiRecord.id)
+      setFlightMode('dual')
+    }
+  }, [selectedCfiRecord])
+
   const durationHrs = durationHalfHours / 2
   const session = CFI_SESSION_TYPES.find((s) => s.id === sessionType)
+
+  // ── Instructor-proposed lessons (3 breathing slots when booked via InstructorsDisplay) ──
+  const instructorProposed = useMemo(() => {
+    if (!selectedCfiRecord) return []
+    const cfi = selectedCfiRecord
+    const inst = cfi._realInstructor || {}
+    const ends = (inst.endorsements || []).map((e) => e.toLowerCase())
+
+    // Filter CFI_SESSION_TYPES to this real instructor's qualifications + aircraft capabilities
+    const ac = selectedAircraft
+    const qualified = CFI_SESSION_TYPES.filter((s) => {
+      if (!cfiQualifiedForSession(cfi, s)) return false
+      // If aircraft is selected, also filter by its capabilities
+      if (ac) {
+        if (s.requiresIfrAc && !ac.equipment?.ifrCertified) return false
+        if (s.requiresComplexAc && !ac.riskProfile?.complexAircraft) return false
+        if (s.requiresMultiAc && !ac.riskProfile?.multiEngine) return false
+        if (s.requiresHpAc && !ac.riskProfile?.highPerformance) return false
+        if (s.requiresTwAc && !ac.riskProfile?.tailwheel) return false
+      }
+      return true
+    })
+
+    // Pick 3 diverse lessons: 1 short pattern, 1 medium, 1 specialty (or next available)
+    const picks = []
+    // Prioritize endorsement-specific lessons for this instructor
+    const priority = []
+    if (ends.some((e) => e.includes('tailwheel'))) priority.push('tailwheel')
+    if ((cfi.cfiRatings || []).includes('CFII')) priority.push('ipc', 'ifr-practice')
+    if (ends.some((e) => e.includes('stage check'))) priority.push('stage-check')
+    priority.push('pattern', 'practice-area', 'local', 'xc', 'bfr', 'mountain', 'night', 'hp-checkout')
+
+    for (const cat of priority) {
+      if (picks.length >= 3) break
+      const match = qualified.find((s) => s.id === cat && !picks.some((p) => p.id === s.id))
+      if (match) picks.push(match)
+    }
+    for (const s of qualified) {
+      if (picks.length >= 3) break
+      if (!picks.some((p) => p.id === s.id)) picks.push(s)
+    }
+
+    // Place on calendar: find open slots in next 7 days
+    const now = new Date()
+    const todayDow = now.getDay()
+    const todayIdx = todayDow === 0 ? 6 : todayDow - 1
+    const nowHour = now.getHours()
+    const results = []
+    let nextDay = todayIdx
+    const usedSlots = new Set()
+
+    for (const lesson of picks) {
+      let placed = false
+      for (let d = nextDay; d < 7 && !placed; d++) {
+        for (const sl of ['09:00', '10:00', '14:00', '15:00']) {
+          const key = `${d}:${sl}`
+          if (usedSlots.has(key)) continue
+          if (d === todayIdx && parseInt(sl.slice(0, 2), 10) <= nowHour) continue
+          usedSlots.add(key)
+          results.push({
+            template: { id: `inst-${lesson.id}`, title: lesson.label, durationHr: lesson.duration || 1.5, type: 'dual_lesson' },
+            cfi: cfi,
+            aircraft: null,
+            slot: { dayIdx: d, slot: sl, dateLabel: '' },
+            _instructorName: inst.name,
+          })
+          nextDay = d + 1
+          placed = true
+          break
+        }
+      }
+    }
+    return results.slice(0, 3)
+  }, [selectedCfiRecord, selectedAircraft])
 
   // Proposed lessons for students (breathing on calendar)
   const studentData = useMemo(() => mockStudents.find((s) => s.name.toLowerCase().includes(user.name.split(' ')[0].toLowerCase())), [user.name])
@@ -404,6 +519,9 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
       return true
     }).slice(0, 3)
   })()
+
+  // Merge instructor-proposed lessons (from InstructorsDisplay "Book" action) into proposals
+  const allProposed = instructorProposed.length > 0 ? instructorProposed : proposed
 
   // Gather ALL bookings for conflict detection:
   // 1. Training module mock bookings (instructor schedule)
@@ -718,6 +836,55 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
           <p className="text-slate-400 text-base sm:text-lg">Book lessons, check flights, currency, and ground school</p>
         </div>
 
+        {/* Booking context banner — active CFI (from dropdown or InstructorsDisplay) and/or aircraft */}
+        {(() => {
+          // Derive active instructor from dropdown state — updates when user changes the select
+          const activeCfiObj = selectedCfi && selectedCfi !== 'preferred' ? cfiList.find((c) => c.id === selectedCfi) : null
+          const activeInst = activeCfiObj?._realInstructor || (activeCfiObj ? { name: activeCfiObj.name, role: activeCfiObj.roleLabel || 'Instructor', certifications: activeCfiObj.cfiRatings, photo: activeCfiObj.photo } : null)
+          const showBanner = activeInst || selectedAircraft
+          if (!showBanner) return null
+          return (
+            <div className="bg-sky-400/10 border border-sky-400/25 rounded-xl p-4 mb-6 flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-4 flex-wrap">
+                {activeInst && (
+                  <div className="flex items-center gap-3">
+                    {activeInst.photo ? (
+                      <img src={activeInst.photo} alt={activeInst.name} className="w-10 h-10 rounded-full object-cover" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                        {activeInst.name.split(' ').map((n) => n[0]).join('')}
+                      </div>
+                    )}
+                    <div>
+                      <div className="text-white text-sm font-semibold">{activeInst.name}</div>
+                      <div className="text-sky-400 text-xs">{activeInst.role}{activeInst.certifications?.length ? ` · ${activeInst.certifications.join(', ')}` : ''}</div>
+                    </div>
+                    <button onClick={() => { setSelectedCfi(''); onClearInstructor?.() }} className="text-slate-500 hover:text-white text-[10px] ml-1">✕</button>
+                  </div>
+                )}
+                {activeInst && selectedAircraft && <span className="text-slate-600 text-xs">+</span>}
+                {selectedAircraft && (
+                  <div className="flex items-center gap-3">
+                    {(() => { const ph = getAircraftPhoto(selectedAircraft.type || selectedAircraft.makeModel); return ph ? (
+                      <img src={ph} alt={selectedAircraft.tailNumber} className="w-10 h-10 rounded-lg object-cover" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg bg-surface-card border border-surface-border flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">{selectedAircraft.tailNumber?.slice(-3)}</div>
+                    ) })()}
+                    <div>
+                      <div className="text-white text-sm font-semibold">{selectedAircraft.tailNumber}</div>
+                      <div className="text-sky-400 text-xs">{selectedAircraft.type || selectedAircraft.makeModel}</div>
+                    </div>
+                    <button onClick={() => onClearAircraft?.()} className="text-slate-500 hover:text-white text-[10px] ml-1">✕</button>
+                  </div>
+                )}
+              </div>
+              <div className="text-slate-400 text-xs">
+                {activeInst && selectedAircraft ? 'Booking with instructor + aircraft' : activeInst ? 'Booking with instructor' : 'Booking aircraft'}
+              </div>
+            </div>
+          )
+        })()}
+
         {/* ═══ CASCADING FUNNEL: Mode → CFI → Lesson → Aircraft → Calendar ═══ */}
 
         {/* ── Step 1: Dual / Solo / Ground ── */}
@@ -750,6 +917,13 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
           // CFI capabilities affect which lessons are grayed
           const cfiHasCfii = selCfi ? (selCfi.cfiRatings || []).includes('CFII') : true // if no CFI selected, don't gray
           const cfiHasMei = selCfi ? (selCfi.cfiRatings || []).includes('MEI') : true
+
+          // Aircraft capabilities — gray out lessons the aircraft can't support
+          const acHasIfr = selectedAircraft ? !!selectedAircraft.equipment?.ifrCertified : true
+          const acHasComplex = selectedAircraft ? !!selectedAircraft.riskProfile?.complexAircraft : true
+          const acHasMulti = selectedAircraft ? !!selectedAircraft.riskProfile?.multiEngine : true
+          const acHasHp = selectedAircraft ? !!selectedAircraft.riskProfile?.highPerformance : true
+          const acHasTailwheel = selectedAircraft ? !!selectedAircraft.riskProfile?.tailwheel : true
 
           // Score aircraft
           const statusOrder = { green: 0, yellow: 1, red: 2, unqualified: 3 }
@@ -841,6 +1015,121 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                 </div>
               )}
 
+              {/* ── Lesson combo solver: find best aircraft + CFI + slot for each lesson ── */}
+              {(() => {
+                // Pre-compute combos for all visible lessons (memoized-ish via the IIFE)
+                const now = new Date()
+                const todayDow = now.getDay()
+                const mondayOff = todayDow === 0 ? -6 : 1 - todayDow
+                const nowHour = now.getHours()
+                const todayDayIdx = todayDow === 0 ? -1 : todayDow - 1
+
+                // Sunset for night lessons
+                const jan1 = new Date(now.getFullYear(), 0, 1)
+                const dayOfYear = Math.floor((now - jan1) / 86400000)
+                const sunsetHour = Math.floor(17.0 + 3.5 * Math.sin(((dayOfYear - 80) / 365) * 2 * Math.PI))
+
+                const statusOrder = { green: 0, yellow: 1, red: 2 }
+
+                lessonCombosRef.current = {}
+
+                tabLessons.forEach((lesson) => {
+                  if (lesson.type === 'ground') { lessonCombosRef.current[lesson.id] = { type: 'ground' }; return }
+
+                  const isNight = lesson.title?.toLowerCase().includes('night')
+                  const isSoloLesson = lesson.type === 'solo' || flightMode === 'solo'
+                  const dur = lesson.durationHr || 1.5
+                  const durSlots = Math.round(dur * 2)
+                  const fuelHrs = dur + (lesson.title?.includes('XC') ? 0.75 : 0.5)
+
+                  // Rank CFIs: selected first, then preferred, then all, filtered by qualification
+                  const rankedCfis = isSoloLesson ? [null] : [
+                    ...(selCfi && cfiQualifiedForSession(selCfi, lesson) ? [selCfi] : []),
+                    ...prefCfiList.filter((c) => c.id !== selCfi?.id && cfiQualifiedForSession(c, lesson)),
+                    ...cfiList.filter((c) => c.id !== selCfi?.id && !preferredCfis.includes(c.id) && cfiQualifiedForSession(c, lesson)),
+                  ]
+                  if (!isSoloLesson && rankedCfis.length === 0) { lessonCombosRef.current[lesson.id] = null; return }
+
+                  // Rank aircraft: selected first, then starred (3>2>1>0), then cheapest, filtered by equipment
+                  const rankedAc = fleet.filter((ac) => {
+                    if (!ac.airworthy || ac.fboCategory === 'sim') return false
+                    if (lesson.requiresIfrAircraft && !ac.equipment?.ifrCertified) return false
+                    if (lesson.requiresComplex && !ac.riskProfile?.complexAircraft) return false
+                    if (lesson.requiresMulti && !ac.riskProfile?.multiEngine) return false
+                    return true
+                  }).sort((a, b) => {
+                    // Put selected aircraft first
+                    if (selectedAircraft) {
+                      if (a.id === selectedAircraft.id) return -1
+                      if (b.id === selectedAircraft.id) return 1
+                    }
+                    const sa = stars[a.tailNumber] || 0, sb = stars[b.tailNumber] || 0
+                    if (sb !== sa) return sb - sa
+                    return (a.rentalRates?.member || 999) - (b.rentalRates?.member || 999)
+                  })
+
+                  let bestCombo = null
+                  // Search next 14 days, prioritize first 3
+                  for (let dayOff = 0; dayOff < 14 && !bestCombo; dayOff++) {
+                    const di = todayDayIdx + dayOff
+                    if (di % 7 === 6) continue // skip Sunday (index 6 in 0=Mon scheme... actually Sun is -1 in our scheme)
+                    // Map to real day index for slot checking
+                    const checkDate = new Date(now)
+                    checkDate.setDate(now.getDate() + dayOff)
+                    if (checkDate.getDay() === 0) continue // skip Sunday
+                    const slotDayIdx = dayOff // relative to today
+
+                    // Determine valid slot range
+                    const minSlotHour = (dayOff === 0) ? nowHour + 1 : 7
+                    const maxSlotHour = isNight ? 17 : 16
+                    const nightMinHour = isNight ? Math.max(sunsetHour - 1, minSlotHour) : minSlotHour
+
+                    for (const cfiCandidate of rankedCfis) {
+                      for (const acCandidate of rankedAc) {
+                        // W&B check
+                        const wb = acCandidate.weightBalance
+                        if (wb?.maxGrossLbs && wb?.emptyWeightLbs) {
+                          const occ = studentWeight + (cfiCandidate?.weightLbs || 0)
+                          const fuelLbs = Math.round(Math.min(fuelHrs * (acCandidate.fuelBurnGalHr || 8), acCandidate.fuelCapacityGal || 50) * (wb.fuelWeightPerGal || 6))
+                          if (wb.emptyWeightLbs + occ + fuelLbs > wb.maxGrossLbs) continue
+                        }
+
+                        // Find a slot where both CFI and aircraft are free
+                        for (let h = (isNight ? nightMinHour : minSlotHour); h <= maxSlotHour; h++) {
+                          for (const m of [0, 30]) {
+                            const slotStr = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`
+                            // Check all half-hour cells for the duration
+                            const si0 = HALF_HOUR_SLOTS.indexOf(slotStr)
+                            if (si0 < 0 || si0 + durSlots > HALF_HOUR_SLOTS.length) continue
+                            let free = true
+                            for (let s = 0; s < durSlots && free; s++) {
+                              const checkSlot = HALF_HOUR_SLOTS[si0 + s]
+                              if (cfiCandidate && slotOccupied(allBookings, slotDayIdx, checkSlot, 'cfiId', cfiCandidate.id)) free = false
+                              if (slotOccupied(allBookings, slotDayIdx, checkSlot, 'aircraftId', acCandidate.id)) free = false
+                            }
+                            if (free) {
+                              const margin = wb?.maxGrossLbs ? wb.maxGrossLbs - wb.emptyWeightLbs - studentWeight - (cfiCandidate?.weightLbs || 0) - Math.round(Math.min(fuelHrs * (acCandidate.fuelBurnGalHr || 8), acCandidate.fuelCapacityGal || 50) * (wb?.fuelWeightPerGal || 6)) : 999
+                              bestCombo = {
+                                ac: acCandidate, cfi: cfiCandidate, slot: slotStr, dayOff,
+                                date: new Date(checkDate), rate: acCandidate.rentalRates?.member || 0,
+                                margin, stars: stars[acCandidate.tailNumber] || 0,
+                                within3: dayOff < 3,
+                              }
+                              break
+                            }
+                          }
+                          if (bestCombo) break
+                        }
+                        if (bestCombo) break
+                      }
+                      if (bestCombo) break
+                    }
+                  }
+                  lessonCombosRef.current[lesson.id] = bestCombo
+                })
+                return null // render nothing, just compute
+              })()}
+
               {/* ── Step 3: Lesson ── */}
               <div className="mb-5">
                 <label className="text-slate-400 text-xs block mb-2">
@@ -854,7 +1143,12 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                     const selected = sessionType === lesson.id
                     const needsCfii = lesson.requiresCfii && !cfiHasCfii
                     const needsMei = lesson.requiresMulti && !cfiHasMei
-                    const grayed = needsCfii || needsMei
+                    const needsIfrAc = lesson.requiresIfrAircraft && !acHasIfr
+                    const needsComplexAc = lesson.requiresComplex && !acHasComplex
+                    const needsMultiAc = lesson.requiresMulti && !acHasMulti
+                    const needsHpAc = lesson.requiresHpAc && !acHasHp
+                    const needsTwAc = lesson.requiresTwAc && !acHasTailwheel
+                    const grayed = needsCfii || needsMei || needsIfrAc || needsComplexAc || needsMultiAc || needsHpAc || needsTwAc
 
                     return (
                       <button key={lesson.id} disabled={grayed} onClick={() => {
@@ -882,12 +1176,34 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                         )}
                         <div className="flex-1 min-w-0">
                           <div className={`text-xs font-semibold leading-snug ${done ? 'text-green-400/80' : selected ? 'text-sky-400' : 'text-slate-200'}`}>{lesson.title}</div>
-                          <div className="text-[10px] text-slate-500 leading-snug">
-                            {lesson.durationHr}hr{lesson.requiresCfii ? ' · CFII' : ''}{lesson.requiresIfrAircraft ? ' · IFR' : ''}{lesson.requiresComplex ? ' · Cplx' : ''}{lesson.requiresStageCheckAuth ? ' · Sr CFI' : ''}
-                            {done && <span className="text-green-400/60 ml-1">✓</span>}
-                            {grayed && <span className="text-red-400/60 ml-1">{needsCfii ? 'CFII' : 'MEI'}</span>}
-                          </div>
+                          {(() => {
+                            const combo = lessonCombosRef.current?.[lesson.id]
+                            if (combo === null) return <div className="text-[10px] text-red-400/60">No availability</div>
+                            if (combo?.type === 'ground') return <div className="text-[10px] text-slate-500">{lesson.durationHr}hr · Ground</div>
+                            if (!combo) return <div className="text-[10px] text-slate-500">{lesson.durationHr}hr</div>
+                            return (
+                              <div className="text-[10px] leading-snug">
+                                <span className={combo.within3 ? 'text-green-400/70' : 'text-amber-400/70'}>
+                                  {combo.date.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' })} {combo.slot}
+                                </span>
+                                <span className="text-slate-600"> · </span>
+                                <span className="text-slate-400">{combo.ac.tailNumber}</span>
+                                {combo.cfi && <span className="text-slate-500"> · {combo.cfi.name.split(' ')[0]}</span>}
+                                <span className="text-slate-600"> · ${combo.rate}/hr</span>
+                                {done && <span className="text-green-400/60 ml-1">✓</span>}
+                                {grayed && <span className="text-red-400/60 ml-1">{needsCfii ? 'CFII' : needsMei ? 'MEI' : needsIfrAc ? 'IFR A/C' : needsComplexAc ? 'Complex' : needsMultiAc ? 'Multi' : needsHpAc ? 'HP' : needsTwAc ? 'Tailwheel' : ''}</span>}
+                              </div>
+                            )
+                          })()}
                         </div>
+                        {/* Aircraft thumbnail */}
+                        {(() => {
+                          const combo = lessonCombosRef.current?.[lesson.id]
+                          if (!combo?.ac) return null
+                          const photo = getAircraftPhoto(combo.ac.makeModel)
+                          if (!photo) return null
+                          return <img src={photo} alt={combo.ac.tailNumber} loading="lazy" className="w-14 h-10 rounded-lg object-cover flex-shrink-0 opacity-70" />
+                        })()}
                       </button>
                     )
                   })}
@@ -914,28 +1230,69 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                       <div className="font-semibold">+ Own Aircraft</div>
                     </button>
 
-                    {/* Fleet aircraft */}
-                    {qualified.map(({ ac, status, reason, rate, stars: s }) => {
-                      const isSelected = selectedAircraft?.id === ac.id
-                      const colorMap = { green: 'bg-green-400/10 border-green-400/25 text-green-400', yellow: 'bg-amber-400/10 border-amber-400/25 text-amber-400', red: 'bg-red-400/10 border-red-400/25 text-red-400' }
-                      return (
-                        <button key={ac.id} onClick={() => { setAcMode('fleet'); onSelectAircraft?.(ac) }}
-                          className={`px-3 py-2 rounded-xl text-xs transition-all border ${isSelected ? 'ring-2 ring-sky-400 bg-sky-500/20 border-sky-400 text-sky-300' : colorMap[status]}`}>
-                          <div className="font-semibold flex items-center gap-1">
-                            {s > 0 && <span className="text-amber-400 text-[9px]">{'★'.repeat(s)}</span>}
-                            {ac.tailNumber}
-                          </div>
-                          <div className="text-[10px] opacity-70">${rate}/hr · {reason}</div>
-                        </button>
-                      )
-                    })}
-                    {/* Grayed unqualified */}
-                    {unqualified.map(({ ac, reason, rate, stars: s }) => (
-                      <div key={ac.id} className="px-3 py-2 rounded-xl text-xs border border-surface-border opacity-25 cursor-not-allowed">
-                        <div className="font-semibold text-slate-500">{s > 0 && <span className="text-amber-400/50 text-[9px]">{'★'.repeat(s)}</span>} {ac.tailNumber}</div>
-                        <div className="text-[10px] text-slate-600">{reason}</div>
+                    {/* Fleet aircraft — grouped by IFR / VFR */}
+                    {[
+                      { label: 'IFR Capable', items: qualified.filter(({ ac }) => ac.equipment?.ifrCertified), color: 'text-sky-400' },
+                      { label: 'VFR Only',    items: qualified.filter(({ ac }) => !ac.equipment?.ifrCertified), color: 'text-slate-400' },
+                    ].map(({ label: grpLabel, items, color: grpColor }) => items.length > 0 && (
+                      <div key={grpLabel} className="w-full flex flex-col gap-2">
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`text-[9px] font-bold uppercase tracking-widest ${grpColor}`}>{grpLabel}</span>
+                          <div className="flex-1 border-t border-surface-border" />
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {items.map(({ ac, status, reason, rate, stars: s }) => {
+                            const isSelected = selectedAircraft?.id === ac.id
+                            const colorMap = { green: 'bg-green-400/10 border-green-400/25 text-green-400', yellow: 'bg-amber-400/10 border-amber-400/25 text-amber-400', red: 'bg-red-400/10 border-red-400/25 text-red-400' }
+                            const photo = getAircraftPhoto(ac.makeModel)
+                            return (
+                              <button key={ac.id} onClick={() => { setAcMode('fleet'); onSelectAircraft?.(ac) }}
+                                className={`relative overflow-hidden px-3 py-2 rounded-xl text-xs transition-all border ${isSelected ? 'ring-2 ring-sky-400 bg-sky-500/20 border-sky-400 text-sky-300' : colorMap[status]}`}>
+                                {photo && (
+                                  <img src={photo} alt="" loading="lazy"
+                                    className="absolute inset-0 w-full h-full object-cover opacity-[0.12] pointer-events-none" />
+                                )}
+                                <div className="relative z-[1]">
+                                  <div className="font-semibold flex items-center gap-1">
+                                    {s > 0 && <span className="text-amber-400 text-[9px]">{'★'.repeat(s)}</span>}
+                                    {ac.tailNumber}
+                                  </div>
+                                  <div className="text-[10px] opacity-70">{ac.makeModel?.split(' ').slice(0, 2).join(' ')}</div>
+                                  <div className="text-[10px] opacity-70">${rate}/hr · {reason}</div>
+                                </div>
+                              </button>
+                            )
+                          })}
+                        </div>
                       </div>
                     ))}
+                    {/* Grayed unqualified */}
+                    {unqualified.length > 0 && (
+                      <div className="w-full flex flex-col gap-2">
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Unqualified</span>
+                          <div className="flex-1 border-t border-surface-border/50" />
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {unqualified.map(({ ac, reason, rate, stars: s }) => {
+                            const photo = getAircraftPhoto(ac.makeModel)
+                            return (
+                              <div key={ac.id} className="relative overflow-hidden px-3 py-2 rounded-xl text-xs border border-surface-border opacity-25 cursor-not-allowed">
+                                {photo && (
+                                  <img src={photo} alt="" loading="lazy"
+                                    className="absolute inset-0 w-full h-full object-cover opacity-[0.08] pointer-events-none" />
+                                )}
+                                <div className="relative z-[1]">
+                                  <div className="font-semibold text-slate-500">{s > 0 && <span className="text-amber-400/50 text-[9px]">{'★'.repeat(s)}</span>} {ac.tailNumber}</div>
+                                  <div className="text-[10px] text-slate-600">{ac.makeModel?.split(' ').slice(0, 2).join(' ')}</div>
+                                  <div className="text-[10px] text-slate-600">{reason}</div>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Own aircraft registration form */}
@@ -1164,6 +1521,19 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                                 style={{ top: si * ROW_H, height: ROW_H }} />
                             )
                           }
+                          // Check if this slot is in the past — render blank if so
+                          const [slotH, slotM] = slot.split(':').map(Number)
+                          const slotDate = new Date(weekDays[dayIdx].date)
+                          slotDate.setHours(slotH, slotM, 0, 0)
+                          const isPastSlot = slotDate.getTime() < now.getTime()
+
+                          if (isPastSlot) {
+                            return (
+                              <div key={slot} className={`absolute left-0 right-0 ${isHour ? 'border-t border-surface-border/30' : ''}`}
+                                style={{ top: si * ROW_H, height: ROW_H }} />
+                            )
+                          }
+
                           const info = getSlotInfo(dayIdx, slot)
                           const preferred = info.cfis.find((c) => preferredCfis.includes(c.id))
 
@@ -1256,7 +1626,7 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                         })}
 
                         {/* Proposed lesson blocks — breathing with skip/accept */}
-                        {proposed.filter((rec) => {
+                        {allProposed.filter((rec) => {
                           if (!rec.slot) return false
                           if (skippedProposals.has(rec.template.id)) return false
                           const recDayIdx = rec.slot.dayIdx
@@ -1285,7 +1655,7 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
                                   {propIsDual ? <IcDual size={10} stroke={1.5} /> : <IcSolo size={10} stroke={1.5} />}
                                   {rec.template.title}
                                 </div>
-                                <div className="text-sky-400/40 text-[8px]">{rec.cfi?.name?.split(' ')[0] || 'CFI'} · {rec.aircraft?.tailNumber || ''} · {rec.template.durationHr}hr</div>
+                                <div className="text-sky-400/40 text-[8px]">{rec._instructorName || rec.cfi?.name?.split(' ')[0] || 'CFI'} · {rec.aircraft?.tailNumber || ''} · {rec.template.durationHr}hr</div>
                               </div>
                               <div className="flex gap-1 mt-0.5">
                                 <button onClick={() => setSkippedProposals((s) => new Set([...s, rec.template.id]))}
@@ -1316,10 +1686,6 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
           <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-green-500/25 border border-green-400/30" /> Yours</span>
         </div>
 
-        {/* ── Flight Log (IACRA categories — shared component) ── */}
-        <div className="mt-8">
-          <FlightLog user={user} operator={operator} />
-        </div>
 
         {/* ── Edit/Modify booking popup ── */}
         {editingBooking && (() => {
@@ -1424,14 +1790,14 @@ export function ScheduleSection({ user, selectedAircraft, onSelectAircraft, onCl
 function TopNav({ onSection, user, onLoginClick, onLogout }) {
   const hasOwnAircraft = (user?.ownedAircraft?.length > 0) || (() => { try { return JSON.parse(localStorage.getItem(`journeys_owned_${user?.id}`) || '[]').length > 0 } catch { return false } })()
   const navItems = !user
-    ? ['fleet', 'training', 'fbo', 'operations', 'gallery', 'about']
+    ? ['fleet', 'instructors', 'training', 'fbo', 'operations', 'gallery', 'about']
     : user.role === 'student'
-      ? [...(hasOwnAircraft ? ['my-aircraft'] : []), 'schedule', 'fleet', 'log', 'operations']
+      ? [...(hasOwnAircraft ? ['my-aircraft'] : []), 'schedule', 'fleet', 'instructors', 'log', 'operations']
       : user.role === 'mx_client'
         ? ['my-aircraft', 'fleet', 'fbo', 'operations', 'about']
         : user.role === 'cfi'
-          ? ['schedule', 'fleet', 'operations']
-          : [...(hasOwnAircraft ? ['my-aircraft'] : []), 'schedule', 'fleet', 'fbo', 'operations', 'about']
+          ? ['schedule', 'fleet', 'instructors', 'operations']
+          : [...(hasOwnAircraft ? ['my-aircraft'] : []), 'schedule', 'fleet', 'instructors', 'fbo', 'operations', 'about']
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-black/30 backdrop-blur-md border-b border-white/10">
@@ -1440,7 +1806,7 @@ function TopNav({ onSection, user, onLoginClick, onLogout }) {
           <span className="text-white font-bold text-lg tracking-tight">Journeys Aviation</span>
           <div className="hidden md:flex items-center gap-4">
             {navItems.map((s) => {
-              const labels = { log: 'Flight Log', 'my-aircraft': 'My Aircraft', fleet: 'Fleet', schedule: 'Schedule', training: 'Training', maintenance: 'Maintenance', fbo: 'FBO', operations: 'Ops', gallery: 'Gallery', about: 'About' }
+              const labels = { log: 'Flight Log', 'my-aircraft': 'My Aircraft', fleet: 'Fleet', instructors: 'Instructors', schedule: 'Schedule', training: 'Training', maintenance: 'Maintenance', fbo: 'FBO', operations: 'Ops', gallery: 'Gallery', about: 'About' }
               return (
                 <button key={s} onClick={() => onSection(s)} className="text-white/70 hover:text-white text-xs uppercase tracking-wide transition-colors">{labels[s] || s}</button>
               )
@@ -1585,17 +1951,8 @@ const EVAL_STYLE = {
   unknown: { ring: '',                  bg: 'bg-surface-card', border: 'border-surface-border', badge: 'bg-slate-400/20 text-slate-400', label: '—' },
 }
 
-// Aircraft star preference (persisted per user)
-function useAircraftStars(userId) {
-  const key = `journeys_stars_${userId}`
-  const [stars, setStars] = useState(() => { try { return JSON.parse(localStorage.getItem(key) || '{}') } catch { return {} } })
-  const setStar = (tailNumber, rating) => {
-    const next = { ...stars, [tailNumber]: rating }
-    setStars(next)
-    localStorage.setItem(key, JSON.stringify(next))
-  }
-  return [stars, setStar]
-}
+// Aircraft star preference — shared hook (syncs across all views via CustomEvent)
+// Imported from ../hooks/useAircraftStars
 
 /* SquawkPanel now from ../portal (SharedSquawkPanel) — see usage in main component */
 
@@ -1832,7 +2189,7 @@ export function MyFleetSection({ user, onSquawk, operator = 'journeys' }) {
 export function FleetSection({ user, onBookAircraft, onSquawk, squawkVersion, operator = 'journeys' }) {
   const fleet = getAircraftByOperator(operator)
   const [expanded, setExpanded] = useState(null)
-  const [stars, setStar] = useAircraftStars(user?.id)
+  const [stars, setStar] = useAircraftStars()
   // Live squawk data for each aircraft
   const allSquawks = getSquawks()
   const squawksByTail = useMemo(() => {
@@ -3276,6 +3633,23 @@ export function StudentDashboard({ user, operator = 'journeys' }) {
   const [acceptedBookings, setAcceptedBookings] = useState([])
   const [acceptedIds, setAcceptedIds] = useState(new Set())
 
+  // Load user's calendar bookings from localStorage + mockBookings for this student
+  const BOOKINGS_KEY_STUDENT = `journeys_bookings_${user.id}`
+  const [calendarBookings, setCalendarBookings] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(BOOKINGS_KEY_STUDENT) || '[]') } catch { return [] }
+  })
+  useEffect(() => {
+    // Re-read localStorage periodically in case ScheduleSection adds bookings
+    const interval = setInterval(() => {
+      try { setCalendarBookings(JSON.parse(localStorage.getItem(BOOKINGS_KEY_STUDENT) || '[]')) } catch {}
+    }, 2000)
+    return () => clearInterval(interval)
+  }, [BOOKINGS_KEY_STUDENT])
+
+  const myMockBookings = useMemo(() =>
+    mockBookings.filter((b) => b.studentId === student.id),
+    [student.id])
+
   const allBookings = [...mockBookings, ...acceptedBookings]
   // Build past-slot skip set so recommendations are always in the future
   const pastSkipSet = useMemo(() => {
@@ -3484,8 +3858,48 @@ export function StudentDashboard({ user, operator = 'journeys' }) {
               const todayDow = new Date().getDay()
               const mondayOff = todayDow === 0 ? -6 : 1 - todayDow
 
-              // Proposed → date-sortable
-              const proposedItems = allRecommendations.slice(0, 3).map((rec, i) => {
+              // Helper: convert a booking dayIdx + slot to a real timestamp
+              const bookingToTime = (b, weekOff = 0) => {
+                const d = new Date()
+                d.setDate(d.getDate() + mondayOff + weekOff * 7 + (b.dayIdx ?? b.day))
+                const [hh, mm] = (b.slot || '09:00').split(':').map(Number)
+                d.setHours(hh, mm || 0, 0, 0)
+                return d.getTime()
+              }
+
+              // Calendar bookings (user-created via ScheduleSection) — dedupe against flights by _bookingId
+              const flightBookingIds = new Set(myFlights.map((f) => f._bookingId).filter(Boolean))
+              const calendarItems = calendarBookings
+                .filter((b) => !flightBookingIds.has(b.id))
+                .map((b) => {
+                  const t = bookingToTime(b, b.weekOffset || 0)
+                  if (t < now - 7 * 24 * 3600_000) return null // skip old
+                  const cfiName = b.cfiId ? (mockPersonnel.find((p) => p.id === b.cfiId)?.name || '') : ''
+                  return { _kind: t <= now ? 'active' : 'booking', _t: t, booking: b, cfiName }
+                }).filter(Boolean)
+
+              // Mock bookings for this student (weekly recurring schedule)
+              const mockItems = myMockBookings.map((b) => {
+                const t = bookingToTime(b)
+                if (t < now) return null // skip past
+                const cfiName = b.cfiId ? (mockPersonnel.find((p) => p.id === b.cfiId)?.name || '') : ''
+                return { _kind: 'booking', _t: t, booking: b, cfiName }
+              }).filter(Boolean)
+
+              // Real flights (all my unclosed flights — past, active, and upcoming)
+              const flightItems = myFlights.filter((f) => f && f.id).map((f) => ({
+                _kind: new Date(f.plannedDepartureUtc).getTime() <= now ? 'active' : 'upcoming',
+                _t: new Date(f.plannedDepartureUtc).getTime(), flight: f,
+              }))
+
+              // Count scheduled (non-past) appointments
+              const scheduledCount = calendarItems.filter((i) => i._t > now).length
+                + mockItems.length
+                + flightItems.filter((i) => i._t > now).length
+              const hasEnoughScheduled = scheduledCount > 2
+
+              // Only show proposals if student has 2 or fewer scheduled appointments
+              const proposedItems = hasEnoughScheduled ? [] : allRecommendations.slice(0, 3).map((rec, i) => {
                 if (!rec.slot) return null
                 const d = new Date()
                 const di = rec.slot.dayIdx
@@ -3496,13 +3910,7 @@ export function StudentDashboard({ user, operator = 'journeys' }) {
                 return { _kind: 'proposed', _t: d.getTime(), rec, i, accepted: acceptedIds.has(rec.template.id) }
               }).filter(Boolean)
 
-              // Real flights (all my unclosed flights — past, active, and upcoming)
-              const flightItems = myFlights.map((f) => ({
-                _kind: new Date(f.plannedDepartureUtc).getTime() <= now ? 'active' : 'upcoming',
-                _t: new Date(f.plannedDepartureUtc).getTime(), flight: f,
-              }))
-
-              const all = [...flightItems, ...proposedItems].sort((a, b) => a._t - b._t)
+              const all = [...flightItems, ...calendarItems, ...mockItems, ...proposedItems].sort((a, b) => a._t - b._t)
 
               return (
                 <>
@@ -3543,14 +3951,36 @@ export function StudentDashboard({ user, operator = 'journeys' }) {
                       )
                     }
 
+                    // Booking item (from calendar or mock schedule)
+                    if (item._kind === 'booking') {
+                      const b = item.booking
+                      const typeLabel = BOOKING_TYPE_LABELS[b.type] || b.type || 'Lesson'
+                      const typeColor = BOOKING_TYPE_COLORS[b.type] || 'sky'
+                      return (
+                        <div key={b.id} className="rounded-xl p-3 flex items-center justify-between border bg-surface-card border-surface-border">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 bg-${typeColor}-400`} />
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-slate-200 truncate">{b.title || typeLabel}</div>
+                              <div className="text-slate-500 text-xs truncate">{dateStr} · {b.duration} hr{item.cfiName ? ` · ${item.cfiName}` : ''}{b.aircraftLabel ? ` · ${b.aircraftLabel}` : ''}</div>
+                            </div>
+                          </div>
+                          <span className="text-green-400 text-[10px] font-semibold flex-shrink-0 ml-2">Confirmed</span>
+                        </div>
+                      )
+                    }
+
                     // Real flight — use RecentFlightCard for full close-out capability
+                    if (!item.flight) return null
                     return <RecentFlightCard key={item.flight.id} flight={item.flight} user={user} squawks={squawksForClose} />
                   })}
 
-                  <button onClick={() => document.getElementById('sec-schedule')?.scrollIntoView({ behavior: 'smooth' })}
-                    className="w-full border-2 border-dashed border-slate-700 hover:border-sky-400/40 rounded-xl py-3 text-slate-400 hover:text-sky-400 text-sm font-medium transition-colors">
-                    + Schedule a Lesson
-                  </button>
+                  {!hasEnoughScheduled && (
+                    <button onClick={() => document.getElementById('sec-schedule')?.scrollIntoView({ behavior: 'smooth' })}
+                      className="w-full border-2 border-dashed border-slate-700 hover:border-sky-400/40 rounded-xl py-3 text-slate-400 hover:text-sky-400 text-sm font-medium transition-colors">
+                      + Schedule a Lesson
+                    </button>
+                  )}
                 </>
               )
             })()}
@@ -3722,6 +4152,7 @@ export function JourneysBoulder() {
   })
   const [showLogin, setShowLogin] = useState(false)
   const [bookingAircraft, setBookingAircraft] = useState(null)
+  const [bookingInstructor, setBookingInstructor] = useState(null)
   const [squawkTail, setSquawkTail] = useState(null)
   const [squawkVersion, setSquawkVersion] = useState(0) // bumped when squawk submitted to re-render panels
   useEffect(() => { const u = subscribeSquawks(() => setSquawkVersion((v) => v + 1)); return u }, [])
@@ -3745,11 +4176,12 @@ export function JourneysBoulder() {
       {isStudent ? (
         <>
           <StudentDashboard user={user} />
-          {user && <ScheduleSection user={user} selectedAircraft={bookingAircraft} onSelectAircraft={setBookingAircraft} onClearAircraft={() => setBookingAircraft(null)} />}
+          {user && <ScheduleSection user={user} selectedAircraft={bookingAircraft} onSelectAircraft={setBookingAircraft} onClearAircraft={() => setBookingAircraft(null)} selectedInstructor={bookingInstructor} onClearInstructor={() => setBookingInstructor(null)} instructors={JB_INSTRUCTORS} />}
           {user && <MyFleetSection key={squawkVersion} user={user} onSquawk={setSquawkTail} />}
           <MiniGalleryStrip gallery={JB_GALLERY} category="fleet" />
           <FleetSection user={user} onBookAircraft={setBookingAircraft} onSquawk={setSquawkTail} squawkVersion={squawkVersion} />
           {squawkTail && user && <SharedSquawkPanel tailNumber={squawkTail} user={user} aircraftLabel={(getAircraftByOperator('journeys').find((a) => a.tailNumber === squawkTail) || mockAircraft.find((a) => a.tailNumber === squawkTail))?.makeModel} onClose={() => setSquawkTail(null)} />}
+          <InstructorsDisplay instructors={JB_INSTRUCTORS} brand="Journeys Aviation" user={user} onBookInstructor={setBookingInstructor} heading="Flight Instructors" subtitle="Experienced CFIs for every certificate and rating" />
           <section id="sec-log" className="py-10 px-4 sm:px-6">
             <div className="max-w-6xl mx-auto">
               <FlightLog user={user} operator="journeys" />
@@ -3766,7 +4198,8 @@ export function JourneysBoulder() {
           <MiniGalleryStrip gallery={JB_GALLERY} category="fleet" />
           <FleetSection user={user} onBookAircraft={setBookingAircraft} onSquawk={setSquawkTail} squawkVersion={squawkVersion} />
           {squawkTail && user && <SharedSquawkPanel tailNumber={squawkTail} user={user} aircraftLabel={(getAircraftByOperator('journeys').find((a) => a.tailNumber === squawkTail) || mockAircraft.find((a) => a.tailNumber === squawkTail))?.makeModel} onClose={() => setSquawkTail(null)} />}
-          {user && <ScheduleSection user={user} selectedAircraft={bookingAircraft} onSelectAircraft={setBookingAircraft} onClearAircraft={() => setBookingAircraft(null)} />}
+          <InstructorsDisplay instructors={JB_INSTRUCTORS} brand="Journeys Aviation" user={user} onBookInstructor={setBookingInstructor} heading="Flight Instructors" subtitle="Experienced CFIs for every certificate and rating" />
+          {user && <ScheduleSection user={user} selectedAircraft={bookingAircraft} onSelectAircraft={setBookingAircraft} onClearAircraft={() => setBookingAircraft(null)} selectedInstructor={bookingInstructor} onClearInstructor={() => setBookingInstructor(null)} instructors={JB_INSTRUCTORS} />}
           <MiniGalleryStrip gallery={JB_GALLERY} category="training" />
           <TrainingSection />
           <MiniGalleryStrip gallery={JB_GALLERY} category="fbo" />

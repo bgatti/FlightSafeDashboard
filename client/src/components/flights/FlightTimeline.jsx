@@ -168,13 +168,13 @@ export function FlightTimeline({ flights, impliedRepos = [], selectedId, onSelec
   const svgH = HEADER_H + groups.length * ROW_H + 6
 
   return (
-    <div className="bg-slate-900/70 border border-surface-border rounded-xl overflow-hidden">
+    <div className="bg-slate-900/70 border border-surface-border rounded-xl overflow-hidden h-full flex flex-col">
       <div className="px-3 pt-2.5 pb-0 text-[10px] text-slate-600 uppercase tracking-widest">
         Schedule · {groups.length} aircraft · {flights.length} flight{flights.length !== 1 ? 's' : ''}
       </div>
 
       {/* Horizontally scrollable on very narrow screens */}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto flex-1">
         <svg
           viewBox={`0 0 ${SVG_W} ${svgH}`}
           width="100%"
