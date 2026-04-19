@@ -44,7 +44,8 @@
       "Bash(curl -s \"https://flightsafe-production.up.railway.app/\")",
       "Bash(MSYS_NO_PATHCONV=1 railway up --detach)",
       "Bash(curl -s \"https://flightsafe-production.up.railway.app/assets/index-DiQluDws.js\")",
-      "Bash(grep -oE '.{0,20}ADS-B.{0,20}')"
+      "Bash(grep -oE '.{0,20}ADS-B.{0,20}')",
+      "Bash(curl -s \"https://flightsafe-production.up.railway.app/api/adsb/fleet\")"
     ]
   }
 }

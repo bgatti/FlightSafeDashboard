@@ -30,10 +30,39 @@ export function getDb() {
   if (!cols.includes('icao_hex')) {
     db.exec("ALTER TABLE aircraft ADD COLUMN icao_hex TEXT")
   }
-  // Backfill icao_hex from mock data for any existing aircraft missing it
-  const backfill = db.prepare("UPDATE aircraft SET icao_hex = ? WHERE id = ? AND icao_hex IS NULL")
-  for (const a of mockAircraft) {
-    if (a.icaoHex) backfill.run(a.icaoHex, a.id)
+
+  // Re-sync aircraft table from mock data — ensures real tails replace fictitious ones.
+  // Checks if the fleet has changed by comparing a known tail; if stale, wipes and re-seeds.
+  const probe = db.prepare("SELECT tail_number FROM aircraft WHERE id = 'ssb-001'").get()
+  if (!probe || probe.tail_number !== 'N4593Y') {
+    console.log('Fleet data stale — re-seeding aircraft table...')
+    db.exec("DELETE FROM aircraft")
+    const js = (v) => v == null ? null : JSON.stringify(v)
+    const bool = (v) => v ? 1 : 0
+    const ins = db.prepare(`INSERT INTO aircraft (
+      id, operator, tail_number, make_model, icao_type, icao_hex, passenger_capacity,
+      op_cost_per_hour, fuel_capacity_gal, fuel_burn_gal_hr, empty_weight_lbs,
+      max_gross_weight_lbs, cruise_speed_kts, service_ceiling, year, serial_number,
+      airworthy, inspection_status, total_airframe_hours, last_annual_date,
+      next_annual_due, last_100hr_date, next_100hr_due, last_flight_date,
+      assigned_base, current_location, fuel_type, fbo_category,
+      equipment, risk_profile, weight_balance
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    const tx = db.transaction(() => {
+      for (const a of mockAircraft) {
+        ins.run(
+          a.id, a.operator ?? null, a.tailNumber, a.makeModel, a.icaoType, a.icaoHex ?? null, a.passengerCapacity ?? null,
+          a.opCostPerHour ?? null, a.fuelCapacityGal ?? null, a.fuelBurnGalHr ?? null, a.emptyWeightLbs ?? null,
+          a.maxGrossWeightLbs ?? null, a.cruiseSpeedKts ?? null, a.serviceCeiling ?? null, a.year ?? null, a.serialNumber ?? null,
+          bool(a.airworthy), a.inspectionStatus ?? 'current', a.totalAirframeHours ?? null, a.lastAnnualDate ?? null,
+          a.nextAnnualDue ?? null, a.last100hrDate ?? null, a.next100hrDue ?? null, a.lastFlightDate ?? null,
+          a.assignedBase ?? null, a.currentLocation ?? 'ramp', a.fuelType ?? null, a.fboCategory ?? null,
+          js(a.equipment), js(a.riskProfile), js(a.weightBalance)
+        )
+      }
+    })
+    tx()
+    console.log(`Aircraft table re-seeded: ${mockAircraft.length} aircraft.`)
   }
 
   // Seed if the database is fresh (no aircraft rows)
