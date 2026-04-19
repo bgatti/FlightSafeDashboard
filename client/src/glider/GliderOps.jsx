@@ -211,7 +211,7 @@ function towCapacityBg(h) {
   return 'rgba(239,68,68,0.07)'                                 // red — deficit
 }
 
-function TowViolinChart({ flights, previewFlight = null, schedCtx = null, squawks = [], mxWindows = [], onConfirmStandby = null, date = null, compact = false, wwCountAm: _wwAm, wwCountPm: _wwPm }) {
+function TowViolinChart({ flights, previewFlight = null, schedCtx = null, squawks = [], mxWindows = [], onConfirmStandby = null, date = null, compact = false, wwCountAm: _wwAm, wwCountPm: _wwPm, adsbTowState = [] }) {
   const [selectedSeg, setSelectedSeg] = useState(null)
   const [popoverPos, setPopoverPos]   = useState({ x: 0, y: 0 })
   const [selectedPlane, setSelectedPlane] = useState(null)  // planeId for performance card
@@ -550,10 +550,24 @@ function TowViolinChart({ flights, previewFlight = null, schedCtx = null, squawk
 
         if (topY - bottomY < 3) continue
         const midY = (bottomY + topY) / 2
+        // ADS-B annotation for this tow plane
+        const adsbMatch = adsbTowState.find((tp) =>
+          tp.aircraft_id === pid || (ac.icaoHex && tp.icao?.toLowerCase() === ac.icaoHex?.toLowerCase()) || tp.tail === ac.tailNumber
+        )
+        let adsbTag = ''
+        if (adsbMatch) {
+          const ageS = adsbMatch.current_cycle_start_ts
+            ? Math.round((Date.now() - new Date(adsbMatch.current_cycle_start_ts).getTime()) / 1000)
+            : null
+          const ageLbl = ageS != null ? (ageS < 60 ? `${ageS}s` : `${Math.round(ageS / 60)}m`) : ''
+          const phase = { climbing_on_tow: '\u2191', descending: '\u2193', on_ground: '\u2014', taxiing: '\u2014' }[adsbMatch.phase] ?? ''
+          const alt = adsbMatch.current_alt_ft != null ? `${(adsbMatch.current_alt_ft / 1000).toFixed(1)}k` : ''
+          adsbTag = ` ${phase}${alt} ${ageLbl}`.trimEnd()
+        }
         labels.push({
           x: LABEL_COL + i * dx + dx / 2,
           y: midY,
-          text: pilot ? `${pilot} ${ac.tailNumber}` : ac.tailNumber,
+          text: (pilot ? `${pilot} ${ac.tailNumber}` : ac.tailNumber) + adsbTag,
           planeId: pid,
           segIdx: i,
         })
@@ -3834,6 +3848,7 @@ export function GliderOps() {
               schedCtx={schedCtx}
               squawks={squawks}
               mxWindows={[]}
+              adsbTowState={adsbTowState}
               onConfirmStandby={(f) => {
                 updateFlight(f.id, { towInfo: { ...f.towInfo, isStandby: false } })
               }}
