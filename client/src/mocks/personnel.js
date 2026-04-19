@@ -466,7 +466,7 @@ export const mockPersonnel = [
     role: 'pilot_pic',
     roleLabel: 'Tow Pilot',
     towCertified: true,
-    towCheckouts: ['ja-006', 'ja-007'],  // Pawnee N4337Y, Super Cub N4384A
+    towCheckouts: ['ja-006', 'ja-007', 'ssb-001', 'ssb-002'],  // Journeys + SSB tow planes
     towBaseSchedule: { mon: ['am'], tue: ['am', 'pm'], wed: [], thu: ['am', 'pm'], fri: ['am'], sat: ['am', 'pm'], sun: [] },
     department: 'Flight Operations',
     certificateNumber: 'CPL-3341077',
@@ -491,7 +491,7 @@ export const mockPersonnel = [
     role: 'pilot_pic',
     roleLabel: 'Tow Pilot',
     towCertified: true,
-    towCheckouts: ['ja-007', 'ja-011'],  // Super Cub N4384A, Pawnee N6719Z
+    towCheckouts: ['ja-007', 'ja-011', 'ssb-002'],  // Super Cub N4384A, Pawnee N6719Z, SSB Cub
     towBaseSchedule: { mon: [], tue: ['am'], wed: ['am', 'pm'], thu: [], fri: ['pm'], sat: ['am'], sun: ['am', 'pm'] },
     department: 'Flight Operations',
     certificateNumber: 'PPL-7712034',
@@ -516,7 +516,7 @@ export const mockPersonnel = [
     role: 'pilot_pic',
     roleLabel: 'Tow Pilot',
     towCertified: true,
-    towCheckouts: ['ja-006', 'ja-007', 'ja-011'],  // all three tow planes
+    towCheckouts: ['ja-006', 'ja-007', 'ja-011', 'ssb-001', 'ssb-002'],  // all tow planes incl SSB
     towBaseSchedule: { mon: ['pm'], tue: [], wed: ['am'], thu: ['pm'], fri: ['am', 'pm'], sat: [], sun: ['am'] },
     department: 'Flight Operations',
     certificateNumber: 'CPL-4490228',
@@ -572,7 +572,7 @@ export const mockPersonnel = [
     role: 'pilot_pic',
     roleLabel: 'Pilot — Taildragger / Tow',
     towCertified: true,
-    towCheckouts: ['ja-006', 'ja-011'],  // Pawnee N4337Y, Pawnee N6719Z
+    towCheckouts: ['ja-006', 'ja-011', 'ssb-001'],  // Pawnees: N4337Y, N6719Z, N4593Y (SSB)
     towBaseSchedule: { mon: [], tue: ['pm'], wed: ['am', 'pm'], thu: [], fri: ['am'], sat: ['pm'], sun: [] },
     taildragherEndorsement: true,
     department: 'Flight Operations',

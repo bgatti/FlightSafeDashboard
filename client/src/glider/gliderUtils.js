@@ -35,14 +35,29 @@ export const TOW_PLANE_PROFILE = {
     maxGrossLbs:     1750,
     // endurance: 18/9 = 2.0 hrs → refuel after ~2 hrs of ops
   },
-  'ja-011': {  // N6719Z  Piper PA-25 Pawnee
+  'ja-011': {  // N6719Z  Piper PA-25 Pawnee (Journeys)
     climbFtMin:      450,
     fuelCapGal:      36,
     fuelBurnGalHr:   12,
     pilotWeightLbs:  180,
     emptyWeightLbs:  1230,
     maxGrossLbs:     2000,
-    // endurance: 36/12 = 3.0 hrs → refuel after ~3 hrs of ops
+  },
+  'ssb-001': {  // N4593Y  Piper PA-25-235 Pawnee (SSB)
+    climbFtMin:      450,
+    fuelCapGal:      36,
+    fuelBurnGalHr:   12,
+    pilotWeightLbs:  180,
+    emptyWeightLbs:  1230,
+    maxGrossLbs:     2000,
+  },
+  'ssb-002': {  // N4785F  Piper PA-18-150 Super Cub (SSB)
+    climbFtMin:      300,
+    fuelCapGal:      18,
+    fuelBurnGalHr:   9,
+    pilotWeightLbs:  180,
+    emptyWeightLbs:  930,
+    maxGrossLbs:     1750,
   },
 }
 // Legacy compat

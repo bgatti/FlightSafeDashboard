@@ -64,6 +64,16 @@ export async function fetchNearbyTracks({ lat, lng, hours = 2, limit = 50, signa
   return fetchOffenseSegments({ lat, lng, hours, limit, signal })
 }
 
+/** Single combined boot call — active excursions + tracks in one request. */
+export async function fetchBoot({ hours = 1, limit = 100, include, signal } = {}) {
+  const params = new URLSearchParams({ hours: String(hours) })
+  if (limit) params.set('limit', String(limit))
+  if (include) params.set('include', Array.isArray(include) ? include.join(',') : include)
+  const res = await fetch(`${BASE}/api/offenses/boot?${params}`, { signal })
+  if (!res.ok) throw new Error(`boot ${res.status}`)
+  return res.json()
+}
+
 /** Lightweight current positions for all live aircraft. */
 export async function fetchLivePositions({ signal } = {}) {
   const res = await fetch(`${BASE}/api/live/positions`, { signal })

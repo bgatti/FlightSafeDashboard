@@ -954,6 +954,51 @@ export const mockAircraft = [
     weightBalance: null,
   },
 
+  // ─── Soaring Society of Boulder (SSB) — glider club tow planes ─────────────
+
+  {
+    id: 'ssb-001', operator: 'ssb', tailNumber: 'N4593Y',
+    makeModel: 'Piper PA-25-235 Pawnee', icaoType: 'PA25',
+    icaoHex: 'a59663',
+    passengerCapacity: 0, year: null, opCostPerHour: 110,
+    fuelCapacityGal: 36, fuelBurnGalHr: 12, emptyWeightLbs: 1230, maxGrossWeightLbs: 2000,
+    cruiseSpeedKts: 100, serviceCeiling: 14000,
+    serialNumber: null, airworthy: true, inspectionStatus: 'current',
+    totalAirframeHours: 7500, lastAnnualDate: daysBefore(90), nextAnnualDue: daysFrom(275),
+    last100hrDate: daysBefore(30), next100hrDue: daysFrom(70),
+    melItemsOpen: [], openSquawks: [], airworthinessDirectives: [],
+    lastFlightDate: daysBefore(0), assignedBase: 'KBDU', currentLocation: 'ramp',
+    locationUpdatedAt: '2026-04-19T14:00:00', locationUpdatedBy: null,
+    fuelType: 'avgas_100ll', fboCategory: 'piston_single',
+    is_tow: true,
+    equipment: { ifrCertified: false, autopilot: false, glassPanel: false, fiki: false, oxygen: false, pressurized: false, gpwsTaws: false, tcas: false, adsbOut: true, adsbIn: false, elt: '406', stormscope: false },
+    riskProfile: { multiEngine: false, turboprop: false, jetFuelInPropAircraft: false, pressurized: false, taildragger: true, complexAircraft: false, highPerformance: true, turbocharged: false, singlePilotCertified: true, ifr: false,
+      notes: 'SSB Pawnee tow plane. 235 HP Lycoming O-540. Primary tow aircraft for Soaring Society of Boulder.',
+    },
+    weightBalance: null,
+  },
+  {
+    id: 'ssb-002', operator: 'ssb', tailNumber: 'N4785F',
+    makeModel: 'Piper PA-18-150 Super Cub', icaoType: 'PA18',
+    icaoHex: 'a5f99b',
+    passengerCapacity: 1, year: null, opCostPerHour: 90,
+    fuelCapacityGal: 18, fuelBurnGalHr: 9, emptyWeightLbs: 930, maxGrossWeightLbs: 1750,
+    cruiseSpeedKts: 85, serviceCeiling: 19000,
+    serialNumber: null, airworthy: true, inspectionStatus: 'current',
+    totalAirframeHours: 8200, lastAnnualDate: daysBefore(60), nextAnnualDue: daysFrom(305),
+    last100hrDate: daysBefore(20), next100hrDue: daysFrom(80),
+    melItemsOpen: [], openSquawks: [], airworthinessDirectives: [],
+    lastFlightDate: daysBefore(2), assignedBase: 'KBDU', currentLocation: 'ramp',
+    locationUpdatedAt: '2026-04-17T17:00:00', locationUpdatedBy: null,
+    fuelType: 'avgas_100ll', fboCategory: 'piston_single',
+    is_tow: true,
+    equipment: { ifrCertified: false, autopilot: false, glassPanel: false, fiki: false, oxygen: false, pressurized: false, gpwsTaws: false, tcas: false, adsbOut: true, adsbIn: false, elt: '406', stormscope: false },
+    riskProfile: { multiEngine: false, turboprop: false, jetFuelInPropAircraft: false, pressurized: false, taildragger: true, complexAircraft: false, highPerformance: false, turbocharged: false, singlePilotCertified: true, ifr: false,
+      notes: 'SSB Super Cub tow plane. 150 HP Lycoming O-320. Secondary tow aircraft.',
+    },
+    weightBalance: null,
+  },
+
 ]
 
 // ─── Equipment flag definitions (for display labels and risk logic) ───────────
@@ -998,18 +1043,19 @@ export const getAircraftByOperator = (op) => mockAircraft.filter((a) => a.operat
 
 // Fleet summary for scorecard (all operators combined)
 export const mockFleetSummary = {
-  total:              26,   // 7 FlightSafe + 8 MHG + 11 Journeys
-  airworthy:          25,
+  total:              28,   // 7 FlightSafe + 8 MHG + 11 Journeys + 2 SSB
+  airworthy:          27,
   grounded:           1,
   melOpen:            2,
   openSquawks:        3,
   inspectionsDueSoon: 1,
   adOpenItems:        2,
   ifrCapable:        15,
-  fikiEquipped:       5,    // N12345, N22222, N44444, N55555, N717VS
-  multiEngine:        3,    // N12345, N44444, N717VS
-  turboprop:          2,    // N22222, N55555
+  fikiEquipped:       5,
+  multiEngine:        3,
+  turboprop:          2,
   gliders:            3,    // N134BC (SGS 1-34), N2471W (SGS 2-32), N48GD
-  towPlanes:          3,    // N4337Y, N4384A (Super Cub), N6719Z (Pawnees)
-  journeysFleet:     11,    // Journeys Aviation fleet
+  towPlanes:          5,    // N4337Y, N4384A, N6719Z (Journeys) + N4593Y, N4785F (SSB)
+  journeysFleet:     11,
+  ssbFleet:           2,    // SSB tow planes
 }
