@@ -17,7 +17,7 @@ export const TOW_SETTINGS = {
 
 // Per-aircraft tow profile
 export const TOW_PLANE_PROFILE = {
-  'ac-010': {  // N5678P  Piper PA-25-235 Pawnee
+  'ja-006': {  // N4337Y  Piper PA-25 Pawnee
     climbFtMin:      450,     // ft/min on tow at ISA, field elev
     fuelCapGal:      36,      // usable fuel capacity (gallons)
     fuelBurnGalHr:   12,      // gallons per hour (engine running: tow, taxi, idle)
@@ -26,7 +26,7 @@ export const TOW_PLANE_PROFILE = {
     maxGrossLbs:     2000,
     // endurance: 36/12 = 3.0 hrs → refuel after ~3 hrs of ops
   },
-  'ac-011': {  // N7890C  Piper PA-18-150 Super Cub
+  'ja-007': {  // N4384A  Piper PA-18 Super Cub
     climbFtMin:      300,
     fuelCapGal:      18,
     fuelBurnGalHr:   9,
@@ -35,13 +35,14 @@ export const TOW_PLANE_PROFILE = {
     maxGrossLbs:     1750,
     // endurance: 18/9 = 2.0 hrs → refuel after ~2 hrs of ops
   },
-  'ac-012': {  // N1234C  Piper PA-18-150 Super Cub
-    climbFtMin:      300,
-    fuelCapGal:      18,
-    fuelBurnGalHr:   9,
+  'ja-011': {  // N6719Z  Piper PA-25 Pawnee
+    climbFtMin:      450,
+    fuelCapGal:      36,
+    fuelBurnGalHr:   12,
     pilotWeightLbs:  180,
-    emptyWeightLbs:  930,
-    maxGrossLbs:     1750,
+    emptyWeightLbs:  1230,
+    maxGrossLbs:     2000,
+    // endurance: 36/12 = 3.0 hrs → refuel after ~3 hrs of ops
   },
 }
 // Legacy compat
@@ -64,8 +65,9 @@ export const TOW_HEIGHTS = [1000, 2000, 3000, 4000, 5000]  // feet
 // Baseline: 170 lb solo pilot in a clean glider at 800 lbs AUW → 0% penalty.
 
 const GLIDER_DRAG_COEFF = {
-  'ac-008': 1.25,   // SGS 2-33A — 1940s-era strut-braced, high drag on tow
-  'ac-009': 1.05,   // Grob G 103 — glass composite, relatively clean
+  'ja-002': 1.10,   // SGS 1-34 — single-seat metal glider, moderate drag
+  'ja-004': 1.25,   // SGS 2-32 — large 2-seat metal glider, high drag on tow
+  'ac-010': 1.10,   // N48GD — glider (unknown type), assume moderate drag
 }
 const DEFAULT_DRAG_COEFF = 1.1
 
@@ -538,7 +540,7 @@ export function getTowAvailability(flights, airport, depMs, towHeights) {
 
 /**
  * @typedef {Object} MaintenanceWindow
- * @property {string} aircraftId  — tow aircraft id (e.g. 'ac-010')
+ * @property {string} aircraftId  — tow aircraft id (e.g. 'ja-006')
  * @property {number} startMs     — epoch ms
  * @property {number} endMs       — epoch ms
  * @property {string} [reason]    — human label ('Annual inspection', '100-hr', etc.)

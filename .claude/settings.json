@@ -30,7 +30,21 @@
       "Bash(curl -s https://flightsafe-production.up.railway.app/assets/index-CZrqsl14.js)",
       "Bash(grep -oE '.{0,80}active-tow.{0,80}')",
       "Bash(grep -oE '.{0,100}Climbing.{0,100}')",
-      "Bash(grep -oE '.{0,60}Climbing.{0,60}')"
+      "Bash(grep -oE '.{0,60}Climbing.{0,60}')",
+      "Bash(curl -s \"https://flightsafe-production.up.railway.app/?v=$\\(date +%s\\)\")",
+      "Bash(MSYS_NO_PATHCONV=1 railway logs --num 30)",
+      "Bash(MSYS_NO_PATHCONV=1 railway logs -n 30)",
+      "Bash(curl -s \"https://flightsafe-production.up.railway.app/assets/index-CZrqsl14.js?v=$\\(date +%s\\)\")",
+      "Bash(grep -oE '.{0,30}ADS-B.{0,30}')",
+      "Bash(MSYS_NO_PATHCONV=1 railway redeploy)",
+      "Bash(MSYS_NO_PATHCONV=1 railway redeploy --yes)",
+      "Bash(MSYS_NO_PATHCONV=1 railway logs -n 10)",
+      "Bash(curl -sI \"https://flightsafe-production.up.railway.app/\")",
+      "Bash(curl -s \"https://flightsafe-production.up.railway.app/assets/index-CZrqsl14.js\")",
+      "Bash(curl -s \"https://flightsafe-production.up.railway.app/\")",
+      "Bash(MSYS_NO_PATHCONV=1 railway up --detach)",
+      "Bash(curl -s \"https://flightsafe-production.up.railway.app/assets/index-DiQluDws.js\")",
+      "Bash(grep -oE '.{0,20}ADS-B.{0,20}')"
     ]
   }
 }

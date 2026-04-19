@@ -22,7 +22,6 @@ import {
   fetchActiveExcursions,
   fetchOffenseSegments,
   fetchNearbyTracks,
-  fetchLivePositions,
   fetchMyComplaints,
   fetchMyReports,
   postComplaint,
@@ -463,7 +462,7 @@ export function NoiseStudio() {
     setActiveStatus((prev) => prev === 'ok' ? 'ok' : 'loading')
     try {
       const data = await fetchActiveExcursions({
-        hours: 2,
+        hours: 1,
         include: 'reports,notifications',
         signal,
       })
@@ -618,107 +617,7 @@ export function NoiseStudio() {
     })
   }
 
-  /* ── Segments for every active tail (bulk, with error protection) ─ */
-  const didInitialFitRef = useRef(false)
-  useEffect(() => {
-    const L = window.L
-    const map = mapRef.current
-    if (!L || !map) return
-    for (const p of tracesRef.current) p.remove()
-    tracesRef.current = []
-    const tails = Object.keys(segmentsByTail)
-    if (!tails.length) return
-
-
-
-    const bounds = L.latLngBounds([])
-    for (const tail of tails) {
-      const data = segmentsByTail[tail]
-      if (!data?.tracks?.length) continue
-      const isDim = selectedTail != null && selectedTail !== tail
-
-      for (const track of data.tracks) {
-        for (const seg of track.segments || []) {
-          if (!seg.points || seg.points.length < 2) continue
-          const latlngs = seg.points.map((p) => [p[0], p[1]])
-          // Grab the most recent per-point timestamp in this segment (p[3] = epoch-ms).
-          let segLastMs = 0
-          for (const p of seg.points) {
-            if (typeof p[3] === 'number' && p[3] > segLastMs) segLastMs = p[3]
-          }
-          const type = (activeList.find((a) => a.tail === tail))?.type || data.type || ''
-          const { showHover, hideHover, clickSelect } = makeHoverHandlers(tail, segLastMs || null, {
-            klass: seg.klass, zone: seg.zone, points: seg.points, type,
-          })
-          const color = KLASS_COLORS[seg.klass] || 'rgba(200,200,200,0.7)'
-          const baseWeight = seg.klass === 'red' ? 6 : seg.klass === 'orange' ? 5.5 : seg.klass === 'yellow' ? 5 : 3.5
-          const weight = selectedTail === tail ? baseWeight + 1.5 : baseWeight
-          // Time-based fade: live = full, 2 hours old = faint
-          const WINDOW_MS = 2 * 60 * 60 * 1000
-          const age = segLastMs ? (Date.now() - segLastMs) / WINDOW_MS : 0
-          const timeOpacity = Math.max(0.15, 1 - age * 0.85)
-          const opacity = isDim ? 0.25 : timeOpacity
-          const line = L.polyline(latlngs, {
-            color,
-            weight,
-            opacity,
-            lineCap: 'round',
-            lineJoin: 'round',
-            className: 'flight-trace',
-          }).addTo(map)
-          line._segLastMs = segLastMs || 0 // tag for animation sort
-          // Invisible wider hit target per-segment
-          const hit = L.polyline(latlngs, {
-            color: '#ffffff',
-            weight: weight + 20,
-            opacity: 0,
-            lineCap: 'round',
-            lineJoin: 'round',
-            interactive: true,
-          }).addTo(map)
-          hit.on('mouseover', showHover)
-          hit.on('mouseout', hideHover)
-          hit.on('click', clickSelect)
-          tracesRef.current.push(line, hit)
-          // Only contribute to fit bounds when this tail is the focus or
-          // when nothing is focused (initial/all-shown state).
-          if (!selectedTail || selectedTail === tail) {
-            latlngs.forEach((ll) => bounds.extend(ll))
-          }
-        }
-      }
-    }
-
-    // Snake-draw animation: sort all drawn lines newest-first, stagger.
-    const animQueue = []
-    for (const p of tracesRef.current) {
-      if (p._segLastMs != null) animQueue.push(p)
-    }
-    animQueue.sort((a, b) => (b._segLastMs || 0) - (a._segLastMs || 0))
-    const DRAW_MS = 900  // each segment draws over 900ms
-    const STAGGER = 150  // 150ms between each segment start
-    for (let i = 0; i < animQueue.length; i++) {
-      snakeDraw(animQueue[i], DRAW_MS, i * STAGGER)
-    }
-
-    // Keep the user's location ring on top of the traces so it's never
-    // obscured by the newly-added polylines.
-    if (areaRef.current) areaRef.current.bringToFront()
-
-    if (reportOpen) return
-    if (selectedTail) {
-      // Explicit user click → fly to that trace + user location.
-      if (bounds.isValid()) {
-        if (rawCoords) bounds.extend([rawCoords.lat, rawCoords.lng])
-        map.flyToBounds(bounds.pad(0.18), { duration: 1, maxZoom: 14 })
-      }
-    } else if (!didInitialFitRef.current && bounds.isValid() && !rawCoords) {
-      // First load with no known location → frame the traces.
-      // When we DO have a location, leave the user's ring-centred view alone.
-      map.flyToBounds(bounds.pad(0.15), { duration: 1, maxZoom: 12 })
-      didInitialFitRef.current = true
-    }
-  }, [segmentsByTail, selectedTail, reportOpen, rawCoords])
+  /* ── (offense draw removed — nearby draw handles everything) ────── */
 
   /* ── Auto-request location after a delay so the map renders first ── */
   useEffect(() => {
@@ -871,17 +770,7 @@ export function NoiseStudio() {
     return () => ctrl.abort()
   }, [rawCoords?.lat, rawCoords?.lng, rawCoords?.source])
 
-  /* ── Cross-street lookup when precision = cross ──────────────────── */
-  useEffect(() => {
-    if (!rawCoords || precision !== 'cross' || crossStreet) return
-    const ctrl = new AbortController()
-    setCrossLoading(true)
-    fetchNearestCrossStreet(rawCoords.lat, rawCoords.lng, { signal: ctrl.signal })
-      .then((r) => { if (!ctrl.signal.aborted) setCrossStreet(r) })
-      .catch(() => {})
-      .finally(() => { if (!ctrl.signal.aborted) setCrossLoading(false) })
-    return () => ctrl.abort()
-  }, [rawCoords, precision, crossStreet])
+  /* ── Cross-street lookup removed — slow and unnecessary ────────── */
 
   // 4 NM audibility radius for GA aircraft at pattern altitude (~7408 meters)
   const AUDIBLE_RADIUS_M = 4 * 1852
@@ -921,23 +810,35 @@ export function NoiseStudio() {
       // tracks in the time window and let client-side distance sort handle it.
       console.log('[noise-report] fetching nearby tracks, coords:', rawCoords?.lat, rawCoords?.lng)
       fetchNearbyTracks({
-        hours: 2,
-        limit: 20,
+        hours: 1,
+        limit: 100,
         signal: ctrl.signal,
       })
         .then((data) => {
           if (ctrl.signal.aborted) return
           // Thin points: keep every Nth point to cap at ~500 per segment
           const MAX_PTS = 500
-          const tracks = (data.tracks || []).map((t) => ({
-            ...t,
-            segments: (t.segments || []).map((s) => {
-              if (!s.points || s.points.length <= MAX_PTS) return s
-              const step = Math.ceil(s.points.length / MAX_PTS)
-              return { ...s, points: s.points.filter((_, i) => i % step === 0 || i === s.points.length - 1) }
-            }),
-          }))
-          console.log('[noise-report] nearby tracks:', tracks.length, 'segments:', tracks.reduce((n, t) => n + (t.segments?.length || 0), 0))
+          const now = Date.now()
+          const WINDOW = 30 * 60 * 1000 // 30 minutes
+          const tracks = (data.tracks || [])
+            .filter((t) => {
+              const segs = t.segments || []
+              if (!segs.length) return false
+              const lastSeg = segs[segs.length - 1]
+              const lastPt = lastSeg?.points?.[lastSeg.points.length - 1]
+              if (!lastPt) return false
+              if (typeof lastPt[3] !== 'number') return true
+              return now - lastPt[3] < WINDOW
+            })
+            .map((t) => ({
+              ...t,
+              segments: (t.segments || []).map((s) => {
+                if (!s.points || s.points.length <= MAX_PTS) return s
+                const step = Math.ceil(s.points.length / MAX_PTS)
+                return { ...s, points: s.points.filter((_, i) => i % step === 0 || i === s.points.length - 1) }
+              }),
+            }))
+          console.log('[noise-report] nearby tracks:', tracks.length, '(filtered from', data.tracks?.length, ')')
           setNearbyTracks(tracks)
         })
         .catch((err) => { console.error('[noise-report] nearby fetch failed', err) })
@@ -976,11 +877,9 @@ export function NoiseStudio() {
     if (!nearbyTracks.length) return
 
     const now = Date.now()
-    const WINDOW_MS = 2 * 60 * 60 * 1000 // 2 hours
+    const WINDOW_MS = 30 * 60 * 1000 // 30 minutes
 
     for (const track of nearbyTracks) {
-      // Skip tracks already rendered by the offense draw effect
-      if (segmentsByTail[track.tail]) continue
       const lastSeg = track.segments?.[track.segments.length - 1]
       const lastPt = lastSeg?.points?.[lastSeg.points.length - 1]
       for (const seg of track.segments || []) {
@@ -1051,76 +950,56 @@ export function NoiseStudio() {
       console.error('[noise-report] draw crash:', err)
       try { localStorage.setItem('noise-report-crash', `${new Date().toISOString()} ${err.message}\n${err.stack}`) } catch {}
     }
-  }, [nearbyTracks, segmentsByTail])
+  }, [nearbyTracks])
 
-  /* ── Live aircraft positions: poll every 5s, animate icons ────────── */
-  const liveMarkersRef = useRef(new Map()) // hex → L.Marker
+  /* ── Aircraft icons at the leading edge of each drawn live track ── */
+  const liveMarkersRef = useRef(new Map()) // tail → L.Marker
   useEffect(() => {
-    let active = true
-    const tick = async () => {
-      if (!active) return
-      const L = window.L
-      const map = mapRef.current
-      if (!L || !map) return
-      try {
-        const data = await fetchLivePositions({})
-        if (!active) return
-        // Only show icons for aircraft that:
-        // 1. Have a visible track on the map
-        // 2. Are actively broadcasting (updated in the last 60s)
-        const visibleTails = new Set()
-        for (const t of nearbyTracks) if (t.tail && t.live) visibleTails.add(t.tail)
-        for (const t of Object.keys(segmentsByTail)) visibleTails.add(t)
-        const now = Date.now()
+    const L = window.L
+    const map = mapRef.current
+    if (!L || !map) return
 
-        const seen = new Set()
-        for (const pos of data.positions || []) {
-          if (!pos.lat || !pos.lon) continue
-          if (!visibleTails.has(pos.tail)) continue
-          // Skip stale positions (aircraft likely landed)
-          if (pos.updated && now - pos.updated > 60000) continue
-          seen.add(pos.hex)
-          const existing = liveMarkersRef.current.get(pos.hex)
-          if (existing) {
-            // Smooth move: CSS transition on the marker's transform
-            const el = existing.getElement?.()
-            if (el) el.style.transition = 'transform 4.5s linear'
-            existing.setLatLng([pos.lat, pos.lon])
-            // Update rotation
-            if (pos.track != null) {
-              const inner = el?.querySelector?.('img')
-              if (inner) inner.style.transform = `rotate(${pos.track}deg)`
-            }
-          } else {
-            const photo = typePhotos?.[pos.type]
-            const iconHtml = photo
-              ? `<img src="${photo}" alt="${pos.type}" style="width:26px;height:26px;border-radius:50%;border:2px solid rgba(255,255,255,0.7);object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.7);${pos.track != null ? `transform:rotate(${pos.track}deg);` : ''}" />`
-              : `<div style="width:22px;height:22px;border-radius:50%;background:#333;border:2px solid rgba(255,255,255,0.5);display:flex;align-items:center;justify-content:center;font-size:7px;color:#aaa;font-weight:bold">${(pos.type || '?').slice(0,3)}</div>`
-            const icon = L.divIcon({
-              className: 'live-aircraft-icon',
-              html: iconHtml,
-              iconSize: [26, 26],
-              iconAnchor: [13, 13],
-            })
-            const marker = L.marker([pos.lat, pos.lon], { icon, interactive: false, zIndexOffset: 1000 }).addTo(map)
-            liveMarkersRef.current.set(pos.hex, marker)
-          }
-        }
-        // Remove stale markers (aircraft no longer in feed)
-        for (const [hex, marker] of liveMarkersRef.current.entries()) {
-          if (!seen.has(hex)) {
-            marker.remove()
-            liveMarkersRef.current.delete(hex)
-          }
-        }
-      } catch (err) {
-        console.error('[noise-report] live positions error:', err.message)
+    // Clear all existing icons
+    for (const [, marker] of liveMarkersRef.current) marker.remove()
+    liveMarkersRef.current.clear()
+
+    const now = Date.now()
+    for (const track of nearbyTracks) {
+      if (!track.live || !track.segments?.length) continue
+      // Get the very last point of the last segment — that's the leading edge
+      const lastSeg = track.segments[track.segments.length - 1]
+      const lastPt = lastSeg?.points?.[lastSeg.points.length - 1]
+      if (!lastPt) continue
+      // Only show if the last point is recent (< 5 minutes)
+      if (typeof lastPt[3] === 'number' && now - lastPt[3] > 5 * 60 * 1000) continue
+
+      // Compute heading from last two points
+      let hdg = null
+      if (lastSeg.points.length >= 2) {
+        const prev = lastSeg.points[lastSeg.points.length - 2]
+        const toRad = (d) => d * Math.PI / 180
+        const toDeg = (r) => r * 180 / Math.PI
+        const dLon = toRad(lastPt[1] - prev[1])
+        const y = Math.sin(dLon) * Math.cos(toRad(lastPt[0]))
+        const x = Math.cos(toRad(prev[0])) * Math.sin(toRad(lastPt[0])) -
+                  Math.sin(toRad(prev[0])) * Math.cos(toRad(lastPt[0])) * Math.cos(dLon)
+        hdg = Math.round((toDeg(Math.atan2(y, x)) + 360) % 360)
       }
+
+      const photo = typePhotos?.[track.type]
+      const iconHtml = photo
+        ? `<img src="${photo}" alt="${track.type}" style="width:26px;height:26px;border-radius:50%;border:2px solid rgba(255,255,255,0.7);object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.7);${hdg != null ? `transform:rotate(${hdg}deg);` : ''}" />`
+        : `<div style="width:22px;height:22px;border-radius:50%;background:#333;border:2px solid rgba(255,255,255,0.5);display:flex;align-items:center;justify-content:center;font-size:7px;color:#aaa;font-weight:bold">${(track.type || '?').slice(0, 3)}</div>`
+      const icon = L.divIcon({
+        className: 'live-aircraft-icon',
+        html: iconHtml,
+        iconSize: [26, 26],
+        iconAnchor: [13, 13],
+      })
+      const marker = L.marker([lastPt[0], lastPt[1]], { icon, interactive: false, zIndexOffset: 1000 }).addTo(map)
+      liveMarkersRef.current.set(track.tail, marker)
     }
-    tick()
-    const id = setInterval(tick, 5000)
-    return () => { active = false; clearInterval(id) }
-  }, [typePhotos, nearbyTracks, segmentsByTail])
+  }, [nearbyTracks, typePhotos])
 
   /* ── Displayed location text ─────────────────────────────────────── */
   const displayedLocation = useMemo(() => {

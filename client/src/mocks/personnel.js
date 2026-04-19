@@ -466,7 +466,7 @@ export const mockPersonnel = [
     role: 'pilot_pic',
     roleLabel: 'Tow Pilot',
     towCertified: true,
-    towCheckouts: ['ac-010', 'ac-011'],  // Pawnee, Super Cub N7890C
+    towCheckouts: ['ja-006', 'ja-007'],  // Pawnee N4337Y, Super Cub N4384A
     towBaseSchedule: { mon: ['am'], tue: ['am', 'pm'], wed: [], thu: ['am', 'pm'], fri: ['am'], sat: ['am', 'pm'], sun: [] },
     department: 'Flight Operations',
     certificateNumber: 'CPL-3341077',
@@ -491,7 +491,7 @@ export const mockPersonnel = [
     role: 'pilot_pic',
     roleLabel: 'Tow Pilot',
     towCertified: true,
-    towCheckouts: ['ac-011', 'ac-012'],  // both Super Cubs
+    towCheckouts: ['ja-007', 'ja-011'],  // Super Cub N4384A, Pawnee N6719Z
     towBaseSchedule: { mon: [], tue: ['am'], wed: ['am', 'pm'], thu: [], fri: ['pm'], sat: ['am'], sun: ['am', 'pm'] },
     department: 'Flight Operations',
     certificateNumber: 'PPL-7712034',
@@ -516,7 +516,7 @@ export const mockPersonnel = [
     role: 'pilot_pic',
     roleLabel: 'Tow Pilot',
     towCertified: true,
-    towCheckouts: ['ac-010', 'ac-011', 'ac-012'],  // all three
+    towCheckouts: ['ja-006', 'ja-007', 'ja-011'],  // all three tow planes
     towBaseSchedule: { mon: ['pm'], tue: [], wed: ['am'], thu: ['pm'], fri: ['am', 'pm'], sat: [], sun: ['am'] },
     department: 'Flight Operations',
     certificateNumber: 'CPL-4490228',
@@ -545,7 +545,7 @@ export const mockPersonnel = [
     role: 'pilot_pic',
     roleLabel: 'Pilot — Taildragger / Tow',
     towCertified: true,
-    towCheckouts: ['ac-010', 'ac-011', 'ac-012'],  // all three — taildragger endorsed
+    towCheckouts: ['ja-006', 'ja-007', 'ja-011'],  // all three — taildragger endorsed
     towBaseSchedule: { mon: ['am', 'pm'], tue: [], wed: ['pm'], thu: ['am'], fri: [], sat: ['am', 'pm'], sun: ['am', 'pm'] },
     taildragherEndorsement: true,
     department: 'Flight Operations',
@@ -572,7 +572,7 @@ export const mockPersonnel = [
     role: 'pilot_pic',
     roleLabel: 'Pilot — Taildragger / Tow',
     towCertified: true,
-    towCheckouts: ['ac-010', 'ac-012'],  // Pawnee, Super Cub N1234C
+    towCheckouts: ['ja-006', 'ja-011'],  // Pawnee N4337Y, Pawnee N6719Z
     towBaseSchedule: { mon: [], tue: ['pm'], wed: ['am', 'pm'], thu: [], fri: ['am'], sat: ['pm'], sun: [] },
     taildragherEndorsement: true,
     department: 'Flight Operations',

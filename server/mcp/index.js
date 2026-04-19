@@ -184,12 +184,12 @@ server.tool(
     const gliders = db.prepare(
       `SELECT tail_number, make_model, airworthy, passenger_capacity,
               max_gross_weight_lbs, empty_weight_lbs, total_airframe_hours
-       FROM aircraft WHERE operator = 'mhg' AND (icao_type LIKE '%glid%' OR make_model LIKE '%Schweizer%')
+       FROM aircraft WHERE operator IN ('mhg', 'journeys') AND (icao_type LIKE '%GLID%' OR make_model LIKE '%Schweizer%' OR make_model LIKE '%Glider%')
        ORDER BY tail_number`
     ).all()
     const towPlanes = db.prepare(
       `SELECT tail_number, make_model, airworthy, total_airframe_hours
-       FROM aircraft WHERE operator = 'mhg' AND (make_model LIKE '%Pawnee%' OR make_model LIKE '%Cub%')
+       FROM aircraft WHERE (make_model LIKE '%Pawnee%' OR make_model LIKE '%Cub%')
        ORDER BY tail_number`
     ).all()
     return {
@@ -292,7 +292,7 @@ server.tool(
     // Count airworthy tow planes
     const towReady = db.prepare(
       `SELECT COUNT(*) as n FROM aircraft
-       WHERE operator = 'mhg' AND airworthy = 1
+       WHERE airworthy = 1
          AND (make_model LIKE '%Pawnee%' OR make_model LIKE '%Cub%')`
     ).get()
 
