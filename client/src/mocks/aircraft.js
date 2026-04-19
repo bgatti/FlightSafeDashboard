@@ -544,6 +544,7 @@ export const mockAircraft = [
     tailNumber: 'N8001G',
     makeModel: 'Schweizer SGS 2-33A',
     icaoType: 'S33',
+    icaoHex: 'a7b301',
     passengerCapacity: 1,        // instructor + student
     opCostPerHour: 85,           // glider + tow combined wet rate
     fuelCapacityGal: 0,
@@ -610,6 +611,7 @@ export const mockAircraft = [
     tailNumber: 'N8002G',
     makeModel: 'Grob G 103 Twin Astir',
     icaoType: 'G103',
+    icaoHex: 'a7b402',
     passengerCapacity: 1,        // 2-seat cross-country glider
     opCostPerHour: 95,
     fuelCapacityGal: 0,
@@ -677,6 +679,7 @@ export const mockAircraft = [
     tailNumber: 'N3456P',
     makeModel: 'Piper PA-25-235 Pawnee',
     icaoType: 'PA25',
+    icaoHex: 'a59663',
     passengerCapacity: 0,        // solo tow pilot only
     opCostPerHour: 110,
     fuelCapacityGal: 36,
@@ -742,6 +745,7 @@ export const mockAircraft = [
     tailNumber: 'N7890C',
     makeModel: 'Piper PA-18-150 Super Cub',
     icaoType: 'PA18',
+    icaoHex: 'a5f99b',
     passengerCapacity: 1,        // tow pilot + 1 passenger (not used for tow pax)
     opCostPerHour: 90,
     fuelCapacityGal: 18,
@@ -807,6 +811,7 @@ export const mockAircraft = [
     tailNumber: 'N1234C',
     makeModel: 'Piper PA-18-150 Super Cub',
     icaoType: 'PA18',
+    icaoHex: 'a4e8b7',
     passengerCapacity: 1,
     opCostPerHour: 90,
     fuelCapacityGal: 18,

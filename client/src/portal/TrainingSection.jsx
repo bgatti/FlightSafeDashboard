@@ -12,6 +12,7 @@ import { fmt$ } from './portalConstants'
  * @param {object} [props.insurance] — { note, liability, medical, physicalDamage, providers: [{name, url}] }
  * @param {string} [props.heading] — section heading override
  * @param {string} [props.subtitle] — section subtitle
+ * @param {function} [props.onSelectProgram] — callback(program) when a program card is clicked
  */
 export function TrainingSection({
   programs = [],
@@ -21,6 +22,7 @@ export function TrainingSection({
   insurance,
   heading = 'Flight Training',
   subtitle = 'Private through Commercial, Instrument, Multi-Engine, Mountain Flying, and more',
+  onSelectProgram,
 }) {
   const rateEntries = [rates.primary, rates.advanced, rates.specialty].filter(Boolean)
 
@@ -36,9 +38,11 @@ export function TrainingSection({
         {rateEntries.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-10">
             {rateEntries.map((r) => (
-              <div key={r.label} className="bg-surface-card border border-surface-border rounded-2xl p-6 text-center">
+              <div key={r.label} onClick={() => onSelectProgram?.({ id: r.label.toLowerCase().replace(/\s+/g, '-'), name: r.label, desc: `Instruction at $${r.rate}/hr`, rate: r.rate })}
+                className={`bg-surface-card border border-surface-border rounded-2xl p-6 text-center transition-colors ${onSelectProgram ? 'cursor-pointer hover:border-sky-400/30 group' : ''}`}>
                 <div className="text-sky-400 font-bold text-3xl">${r.rate}<span className="text-sky-400/50 text-base font-normal">/hr</span></div>
                 <div className="text-white text-sm font-semibold">{r.label}</div>
+                {onSelectProgram && <div className="text-sky-400/0 group-hover:text-sky-400/60 text-[10px] mt-1 transition-colors">Click to get started →</div>}
               </div>
             ))}
           </div>
@@ -47,9 +51,11 @@ export function TrainingSection({
         {/* Programs grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {programs.map((pgm) => (
-            <div key={pgm.id} className="bg-surface-card border border-surface-border rounded-2xl p-5 hover:border-sky-400/30 transition-colors">
-              <h3 className="text-white text-sm font-bold mb-1">{pgm.name}</h3>
+            <div key={pgm.id} onClick={() => onSelectProgram?.(pgm)}
+              className={`bg-surface-card border border-surface-border rounded-2xl p-5 transition-colors ${onSelectProgram ? 'cursor-pointer hover:border-sky-400/30 group' : 'hover:border-sky-400/30'}`}>
+              <h3 className="text-white text-sm font-bold mb-1 group-hover:text-sky-300 transition-colors">{pgm.name}</h3>
               <p className="text-slate-400 text-xs leading-relaxed">{pgm.desc}</p>
+              {onSelectProgram && <div className="text-sky-400/0 group-hover:text-sky-400/60 text-[10px] mt-2 transition-colors">Learn more →</div>}
             </div>
           ))}
         </div>

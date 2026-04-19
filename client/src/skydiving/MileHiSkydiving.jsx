@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import {
   PortalNav, PortalLoginModal, AirportOps, PortalFooter, GalleryGrid,
-  STATUS_COLOR, fmt$, GALLERY_GRADIENTS,
+  STATUS_COLOR, fmt$, GALLERY_GRADIENTS, ProspectsBoard,
 } from '../portal'
+import { FleetCard } from '../components/shared/FleetCard'
 import {
   DZ_INFO, JUMP_PLANES, JUMP_PILOTS, JUMP_INSTRUCTORS, JUMP_PRICING,
   REGULAR_JUMPERS, AFF_STUDENTS, JUMP_PROGRAMS, DZ_WEATHER_LIMITS, getTodayLoads,
@@ -19,7 +20,7 @@ const SKY_PERSONAS = [
 const USER_KEY = 'milehi_sky_user'
 
 const NAV_ITEMS = ['packages', 'fleet', 'training', 'team', 'operations', 'gallery']
-const NAV_LABELS = { packages: 'Jump!', fleet: 'Aircraft', training: 'Learn', team: 'Team', operations: 'DZ Status', gallery: 'Gallery' }
+const NAV_LABELS = { packages: 'Jump!', fleet: 'Aircraft', training: 'Learn', team: 'Team', operations: 'DZ Status', gallery: 'Gallery', prospects: 'Prospects' }
 
 const WEATHER_LINKS = [
   { label: 'METAR / TAF', url: 'https://aviationweather.gov/data/metar/?id=KBDU&hours=6' },
@@ -192,46 +193,34 @@ function FleetSection() {
     <section id="sec-fleet" className="py-20 px-6 bg-gradient-to-b from-surface to-surface-card/30">
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-12">
-          <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">Jump Fleet</h2>
+          <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">Fleet</h2>
           <p className="text-slate-400">Turbine power — fast climbs, more jumps, less waiting.</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {JUMP_PLANES.map((p) => {
-            const sc = STATUS_COLOR[p.status] ?? STATUS_COLOR.airworthy
-            const isOpen = expanded === p.id
-            return (
-              <div key={p.id} onClick={() => setExpanded(isOpen ? null : p.id)}
-                className={`${sc.bg} border ${sc.border} rounded-2xl overflow-hidden cursor-pointer transition-all hover:scale-[1.01]`}>
-                <div className="p-6">
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <h3 className="text-white font-bold text-lg">{p.type}</h3>
-                      <span className="text-sky-400 font-mono text-sm">{p.tailNumber}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${sc.dot}`} />
-                      <span className={`text-xs ${sc.text}`}>{sc.label}</span>
-                    </div>
-                  </div>
-                  <p className="text-slate-400 text-sm mb-3">{p.role}</p>
-                  <div className="flex gap-6 text-xs text-slate-400">
-                    <span>{p.seats} jumpers</span>
-                    <span>{p.climbRate}</span>
-                    <span>{p.jumpDoor}</span>
-                  </div>
-                  {isOpen && (
-                    <div className="mt-4 pt-4 border-t border-surface-border grid grid-cols-2 gap-3 text-xs">
-                      <div><span className="text-slate-500">Max Gross:</span> <span className="text-slate-200">{p.maxGross.toLocaleString()} lbs</span></div>
-                      <div><span className="text-slate-500">Empty Weight:</span> <span className="text-slate-200">{p.emptyWeight.toLocaleString()} lbs</span></div>
-                      <div><span className="text-slate-500">Useful Load:</span> <span className="text-slate-200">{p.usefulLoad.toLocaleString()} lbs</span></div>
-                      <div><span className="text-slate-500">Door:</span> <span className="text-slate-200">{p.jumpDoor}</span></div>
-                      {p.notes && <div className="col-span-2 text-slate-500 italic">{p.notes}</div>}
-                    </div>
-                  )}
+          {JUMP_PLANES.map((p) => (
+            <FleetCard
+              key={p.id}
+              aircraft={p}
+              expanded={expanded === p.id}
+              onToggle={() => setExpanded(expanded === p.id ? null : p.id)}
+              renderSpecs={(a) => (
+                <span className="flex gap-4 mt-1 text-slate-400">
+                  <span>{a.seats} jumpers</span>
+                  <span>{a.climbRate}</span>
+                  <span>{a.jumpDoor}</span>
+                </span>
+              )}
+              renderDetail={(a) => (
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div><span className="text-slate-500">Max Gross:</span> <span className="text-slate-200">{a.maxGross.toLocaleString()} lbs</span></div>
+                  <div><span className="text-slate-500">Empty Weight:</span> <span className="text-slate-200">{a.emptyWeight.toLocaleString()} lbs</span></div>
+                  <div><span className="text-slate-500">Useful Load:</span> <span className="text-slate-200">{a.usefulLoad.toLocaleString()} lbs</span></div>
+                  <div><span className="text-slate-500">Door:</span> <span className="text-slate-200">{a.jumpDoor}</span></div>
+                  {a.notes && <div className="col-span-2 text-slate-500 italic">{a.notes}</div>}
                 </div>
-              </div>
-            )
-          })}
+              )}
+            />
+          ))}
         </div>
       </div>
     </section>
@@ -446,13 +435,15 @@ export function MileHiSkydiving() {
 
   const isStudent = user?.role === 'student'
   const isJumper = user?.role === 'jumper'
+  const isStaff = user?.role === 'instructor' || user?.role === 'admin'
+  const navItems = isStaff ? [...NAV_ITEMS.slice(0, 5), 'prospects', 'gallery'] : NAV_ITEMS
 
   return (
     <div className="min-h-screen bg-surface text-white">
       <PortalNav
         brand="Mile Hi Skydiving"
         phone={DZ_INFO.phone}
-        navItems={NAV_ITEMS}
+        navItems={navItems}
         navLabels={NAV_LABELS}
         user={user}
         onSection={scrollTo}
@@ -488,6 +479,8 @@ export function MileHiSkydiving() {
         weatherLinks={WEATHER_LINKS}
         fields={OPS_FIELDS.map(f => ({ ...f, value: f.value ?? undefined }))}
       />
+
+      {isStaff && <ProspectsBoard operator="skydiving" heading="Sales Pipeline" subtitle="Mile Hi Skydiving — prospect tracking & follow-up" />}
 
       <section id="sec-gallery" className="py-20 px-6 bg-surface">
         <div className="max-w-6xl mx-auto">

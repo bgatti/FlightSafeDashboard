@@ -3,6 +3,9 @@
   "private": true,
   "scripts": {
     "dev": "cd client && npm run dev",
+    "postinstall": "npm install --prefix server && npm install --prefix client",
+    "build": "npm run build --prefix client",
+    "start": "node server/index.js",
     "test": "cd client && npm run test:run",
     "check-services": "node check-services.js"
   }

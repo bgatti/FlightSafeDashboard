@@ -20,8 +20,12 @@ import { SkydivingOps } from './skydiving/SkydivingOps'
 import { MileHiSkydiving } from './skydiving/MileHiSkydiving'
 import { MileHighGliding } from './glider/MileHighGliding'
 import { JourneysBoulder } from './glider/JourneysBoulder'
+import { FrontRangeNoise } from './frnaa/FrontRangeNoise'
 import { Clients } from './pages/Clients'
 import { Settings } from './pages/Settings'
+import { MapTest } from './pages/MapTest'
+import { NoiseReport } from './pages/NoiseReport'
+import { NoiseStudio } from './pages/NoiseStudio'
 
 export function AppRoutes() {
   return (
@@ -44,12 +48,16 @@ export function AppRoutes() {
       <Route path="/mile-hi-skydiving" element={<MileHiSkydiving />} />
       <Route path="/mile-high-gliding" element={<MileHighGliding />} />
       <Route path="/journeys-boulder" element={<JourneysBoulder />} />
+      <Route path="/frnaa" element={<FrontRangeNoise />} />
       <Route path="/clients"     element={<Navigate to="/management" replace />} />
       <Route path="/sim"         element={<Sim />} />
       <Route path="/comms"       element={<Navigate to="/" replace />} />
       <Route path="/compliance"  element={<Navigate to="/" replace />} />
       <Route path="/reports"     element={<PilotReports />} />
       <Route path="/settings"    element={<Settings />} />
+      <Route path="/map-test"    element={<MapTest />} />
+      <Route path="/noise-report" element={<NoiseReport />} />
+      <Route path="/noise"        element={<NoiseStudio />} />
     </Routes>
   )
 }

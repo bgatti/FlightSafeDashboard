@@ -1,17 +1,17 @@
 import { useState, useEffect, useRef } from 'react'
+import { FleetCard } from '../components/shared/FleetCard'
 import {
   MHG_INFO, MHG_FLEET, MHG_TOW_PLANES, MHG_FLIGHTS, MHG_INSTRUCTION,
-  MHG_STAFF, MHG_INSTRUCTORS, MHG_TOW_FEES, MHG_RESTRICTIONS, MHG_GALLERY, MHG_PERSONAS, getTodayOps,
+  MHG_STAFF, MHG_INSTRUCTORS, MHG_RESTRICTIONS, MHG_GALLERY, MHG_PERSONAS, getTodayOps,
 } from './mhgData'
 import {
   PortalNav, PortalLoginModal, MiniGalleryStrip, GalleryGrid,
-  AirportOps, PortalFooter, SquawkPanel, STATUS_COLOR, fmt$, getAircraftPhoto, PortalIcon,
-  FlightLog, InstructorsDisplay,
-} from '../portal'
-import {
+  AirportOps, PortalFooter, SquawkPanel, STATUS_COLOR, fmt$, PortalIcon,
+  FlightLog, InstructorsDisplay, ProspectsBoard,
   ScheduleSection, FleetSection as JBFleetSection, StudentDashboard,
   MyFleetSection,
-} from './JourneysBoulder'
+} from '../portal'
+import { TOW_SETTINGS } from './gliderUtils'
 
 /* ═══════════════════════════════════════════════════════════
    Mile High Gliding — Full-Screen Client-Facing Portal
@@ -339,58 +339,39 @@ function FleetSection({ user, onSquawk }) {
     <section id="sec-fleet" className="py-20 px-6 bg-surface">
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-12">
-          <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">Our Fleet</h2>
-          <p className="text-slate-400">{airworthy} of {MHG_FLEET.length} aircraft airworthy · Tow fee: ${MHG_TOW_FEES.hookup} hookup + ${MHG_TOW_FEES.perThousandFt}/1,000 ft</p>
+          <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">Fleet</h2>
+          <p className="text-slate-400">{airworthy} of {MHG_FLEET.length} aircraft airworthy · Tow fee: ${TOW_SETTINGS.towBaseFee} hookup + ${TOW_SETTINGS.towPer1000ftFee}/1,000 ft</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {MHG_FLEET.map((ac) => {
-            const s = STATUS_COLOR[ac.status]
-            const open = expanded === ac.id
-            return (
-              <div key={ac.id} onClick={() => setExpanded(open ? null : ac.id)}
-                className={`${s.bg} border ${s.border} rounded-2xl overflow-hidden cursor-pointer transition-all hover:scale-[1.01]`}>
-                {(() => { const photo = getAircraftPhoto(ac.type); return photo ? (
-                  <div className="h-32 bg-surface">
-                    <img src={photo} alt={ac.type} loading="lazy" className="w-full h-full object-cover" />
+          {MHG_FLEET.map((ac) => (
+            <FleetCard
+              key={ac.id}
+              aircraft={ac}
+              expanded={expanded === ac.id}
+              onToggle={() => setExpanded(expanded === ac.id ? null : ac.id)}
+              renderSpecs={(a) => ` · ${a.seats}-seat · ${a.wing}`}
+              renderDetail={(a) => (
+                <>
+                  <h4 className="text-slate-400 text-[10px] uppercase tracking-wide mb-2">Weight & Balance</h4>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div><span className="text-slate-500">Empty:</span> <span className="text-slate-200">{a.emptyWeight} lbs</span></div>
+                    <div><span className="text-slate-500">Max gross:</span> <span className="text-slate-200">{a.maxGross} lbs</span></div>
+                    <div><span className="text-slate-500">Payload:</span> <span className="text-slate-200">{a.maxPayload} lbs</span></div>
+                    <div><span className="text-slate-500">Wingspan:</span> <span className="text-slate-200">{a.wingSpan}</span></div>
+                    <div><span className="text-slate-500">L/D:</span> <span className="text-slate-200">{a.glideRatio}</span></div>
+                    <div><span className="text-slate-500">Vne:</span> <span className="text-slate-200">{a.vne} kts</span></div>
                   </div>
-                ) : null })()}
-                <div className="p-5">
-                <div className="flex items-start justify-between mb-2">
-                  <div>
-                    <div className="text-white text-base font-bold">{ac.type}</div>
-                    <div className="text-slate-400 text-xs">{ac.tailNumber} · {ac.seats}-seat · {ac.wing}</div>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className={`w-2.5 h-2.5 rounded-full ${s.dot}`} />
-                    <span className={`text-xs font-medium ${s.text}`}>{s.label}</span>
-                  </div>
-                </div>
-                <div className="text-slate-300 text-xs mb-1">{ac.role}</div>
-                <div className="text-slate-500 text-[11px]">{ac.notes}</div>
-                {open && (
-                  <div className="mt-4 pt-4 border-t border-white/10">
-                    <h4 className="text-slate-400 text-[10px] uppercase tracking-wide mb-2">Weight & Balance</h4>
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div><span className="text-slate-500">Empty:</span> <span className="text-slate-200">{ac.emptyWeight} lbs</span></div>
-                      <div><span className="text-slate-500">Max gross:</span> <span className="text-slate-200">{ac.maxGross} lbs</span></div>
-                      <div><span className="text-slate-500">Payload:</span> <span className="text-slate-200">{ac.maxPayload} lbs</span></div>
-                      <div><span className="text-slate-500">Wingspan:</span> <span className="text-slate-200">{ac.wingSpan}</span></div>
-                      <div><span className="text-slate-500">L/D:</span> <span className="text-slate-200">{ac.glideRatio}</span></div>
-                      <div><span className="text-slate-500">Vne:</span> <span className="text-slate-200">{ac.vne} kts</span></div>
-                    </div>
-                    <PayloadCalc aircraft={ac} />
-                    {user && (
-                      <button onClick={(e) => { e.stopPropagation(); onSquawk?.(ac.tailNumber) }}
-                        className="mt-3 w-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 py-2 rounded-xl text-xs transition-all border border-amber-500/20">
-                        Report Squawk — {ac.tailNumber}
-                      </button>
-                    )}
-                  </div>
-                )}
-                </div>{/* close p-5 wrapper */}
-              </div>
-            )
-          })}
+                  <PayloadCalc aircraft={a} />
+                  {user && (
+                    <button onClick={(e) => { e.stopPropagation(); onSquawk?.(a.tailNumber) }}
+                      className="mt-3 w-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 py-2 rounded-xl text-xs transition-all border border-amber-500/20">
+                      Report Squawk — {a.tailNumber}
+                    </button>
+                  )}
+                </>
+              )}
+            />
+          ))}
         </div>
       </div>
     </section>
@@ -584,7 +565,7 @@ function StartSoaringSection({ onBook }) {
    ═══════════════════════════════════════════════════════════ */
 
 const MHG_NAV_ITEMS = ['flights', 'fleet', 'instructors', 'instruction', 'operations', 'gallery', 'leaderboard']
-const MHG_NAV_LABELS = { flights: 'Flights', fleet: 'Fleet', instructors: 'Instructors', instruction: 'Training', operations: 'Ops', gallery: 'Gallery', leaderboard: 'Leaderboard', log: 'Flight Log' }
+const MHG_NAV_LABELS = { dashboard: 'Dashboard', flights: 'Flights', fleet: 'Fleet', instructors: 'Instructors', instruction: 'Training', operations: 'Ops', gallery: 'Gallery', leaderboard: 'Leaderboard', log: 'Flight Log', prospects: 'Prospects' }
 
 const MHG_WEATHER_LINKS = [
   { label: 'METAR / TAF', url: MHG_INFO.metarUrl },
@@ -657,17 +638,38 @@ export function MileHighGliding() {
 
   const handleLogin = (u) => { setUser(u); localStorage.setItem(MHG_USER_KEY, JSON.stringify(u)); setShowLogin(false) }
   const handleLogout = () => { setUser(null); localStorage.removeItem(MHG_USER_KEY) }
-  const scrollTo = (id) => document.getElementById(`sec-${id}`)?.scrollIntoView({ behavior: 'smooth' })
+  const scrollTo = (id) => {
+    window.history.replaceState(null, '', `#${id}`)
+    document.getElementById(`sec-${id}`)?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  // On mount (or hash change), scroll to the hash target
+  useEffect(() => {
+    const handleHash = () => {
+      const h = window.location.hash.replace('#', '')
+      if (h) {
+        setTimeout(() => {
+          document.getElementById(`sec-${h}`)?.scrollIntoView({ behavior: 'smooth' })
+        }, 100)
+      }
+    }
+    handleHash()
+    window.addEventListener('hashchange', handleHash)
+    return () => window.removeEventListener('hashchange', handleHash)
+  }, [])
 
   const isStudent = user?.role === 'student'
   const isLoggedIn = !!user && user.role !== 'visitor'
 
   // Adjust nav items based on role
+  const isCFI = user?.role === 'cfi' || user?.role === 'admin' || user?.role === 'instructor'
   const navItems = !isLoggedIn
     ? MHG_NAV_ITEMS
     : isStudent
-      ? ['schedule', 'fleet', 'instructors', 'log', 'instruction', 'operations', 'leaderboard']
-      : ['schedule', 'fleet', 'instructors', 'log', 'instruction', 'operations', 'gallery', 'leaderboard']
+      ? ['dashboard', 'schedule', 'fleet', 'instructors', 'log', 'instruction', 'operations', 'leaderboard']
+      : isCFI
+        ? ['schedule', 'fleet', 'instructors', 'log', 'prospects', 'instruction', 'operations', 'gallery', 'leaderboard']
+        : ['schedule', 'fleet', 'instructors', 'log', 'instruction', 'operations', 'gallery', 'leaderboard']
 
   return (
     <div className="min-h-screen bg-surface text-slate-100">
@@ -711,6 +713,7 @@ export function MileHighGliding() {
           <JBFleetSection user={user} onBookAircraft={setBookingAircraft} onSquawk={(tail) => { setSquawkTail(tail); setSquawkVersion((v) => v + 1) }} squawkVersion={squawkVersion} operator="mhg" />
           {squawkTail && user && <SquawkPanel tailNumber={squawkTail} user={user} onClose={() => setSquawkTail(null)} />}
           <InstructorsDisplay instructors={MHG_INSTRUCTORS} brand="Mile High Gliding" user={user} onBookInstructor={setBookingInstructor} heading="Our Pilots & Instructors" subtitle="Experienced glider pilots and certified flight instructors" />
+          {isCFI && <ProspectsBoard operator="mhg" heading="Sales Pipeline" subtitle="Mile High Gliding — prospect tracking & follow-up" />}
           <MiniGalleryStrip gallery={MHG_GALLERY} category="scenery" />
           <InstructionSection />
           <AirportOps getOps={getMHGOps} title="Current Operations" openLabel="We're flying today!" closedLabel="Operations closed — check back during daylight hours" weatherLinks={MHG_WEATHER_LINKS} fields={MHG_OPS_DISPLAY} />

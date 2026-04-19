@@ -69,7 +69,7 @@ squawksRouter.patch('/:id/resolve', (req, res) => {
       resolution_notes = ?
     WHERE id = ?
   `).run(
-    new Date().toISOString().split('T')[0],
+    new Date().toISOString(),
     req.body.resolvedBy ?? null,
     req.body.resolutionNotes ?? null,
     req.params.id

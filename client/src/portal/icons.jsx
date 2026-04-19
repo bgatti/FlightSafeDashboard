@@ -19,6 +19,15 @@ import {
   IconScale, IconWeight,
   IconBrandSpeedtest, IconPropeller,
   IconMapPin, IconListDetails, IconDeviceGamepad2,
+  // STEM & sector icons
+  IconAtom, IconFlask, IconMathSymbols, IconEngine,
+  IconBriefcase, IconShieldLock, IconHelicopter, IconTruck,
+  IconBuildingHospital, IconRadar, IconSatellite, IconBrain,
+  IconMicroscope, IconCalculator, IconSettingsAutomation,
+  // Noise / community icons
+  IconVolume, IconVolumeOff, IconEar, IconHomeHeart,
+  IconFlame, IconFirstAidKit, IconMessageCircle, IconSend,
+  IconHeartHandshake, IconThumbUp,
 } from '@tabler/icons-react'
 
 // Defaults: sharp, thin, small, neutral
@@ -73,6 +82,35 @@ export const IcTimer      = wrap(IconClock)
 export const IcMoney      = wrap(IconCurrencyDollar)
 export const IcChart      = wrap(IconChartBar)
 export const IcWave       = wrap(IconWaveSine)
+
+// ── STEM & sector ──
+export const IcScience     = wrap(IconAtom)
+export const IcTechnology  = wrap(IconRadar)
+export const IcEngineering = wrap(IconEngine)
+export const IcMath        = wrap(IconMathSymbols)
+export const IcFlask       = wrap(IconFlask)
+export const IcMicroscope  = wrap(IconMicroscope)
+export const IcCalculator  = wrap(IconCalculator)
+export const IcBrain       = wrap(IconBrain)
+export const IcSatellite   = wrap(IconSatellite)
+export const IcCareer      = wrap(IconBriefcase)
+export const IcAIHardened  = wrap(IconShieldLock)
+export const IcMedical     = wrap(IconBuildingHospital)
+export const IcHelicopter  = wrap(IconHelicopter)
+export const IcLogistics   = wrap(IconTruck)
+export const IcAutomation  = wrap(IconSettingsAutomation)
+
+// ── Noise / community ──
+export const IcVolume     = wrap(IconVolume)
+export const IcVolumeOff  = wrap(IconVolumeOff)
+export const IcEar        = wrap(IconEar)
+export const IcHomeHeart  = wrap(IconHomeHeart)
+export const IcFire       = wrap(IconFlame)
+export const IcFirstAid   = wrap(IconFirstAidKit)
+export const IcMessage    = wrap(IconMessageCircle)
+export const IcSend       = wrap(IconSend)
+export const IcSupport    = wrap(IconHeartHandshake)
+export const IcThumbUp    = wrap(IconThumbUp)
 
 // ── General utility ──
 export const IcPlane      = wrap(IconPlane)

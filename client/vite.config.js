@@ -22,6 +22,11 @@ export default defineConfig({
         target: 'http://localhost:5002',
         rewrite: (path) => path.replace(/^\/pilot-risk/, ''),
       },
+      '/noise-api': {
+        target: 'http://localhost:5174',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/noise-api/, ''),
+      },
     },
   },
   test: {

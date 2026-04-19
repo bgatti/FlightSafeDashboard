@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e ':*)",
+      "Bash(curl -s \"http://localhost:5174/api/offenses?tail=N12JA\")",
+      "Bash(curl -s -I -H \"Origin: http://localhost:5173\" \"http://localhost:5174/api/offenses?tail=N12JA\")",
+      "Bash(railway whoami:*)",
+      "Bash(railway link:*)",
+      "Bash(railway add:*)",
+      "Bash(railway volume:*)",
+      "Bash(railway up:*)",
+      "Bash(railway domain:*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" https://flightsafe-production.up.railway.app/)",
+      "Bash(railway logs:*)",
+      "Bash(railway deployment:*)",
+      "Bash(railway service:*)",
+      "Bash(curl -s https://flightsafe-production.up.railway.app/api/flights)",
+      "WebFetch(domain:web-app-production-fedf.up.railway.app)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" https://flightsafeweather-production.up.railway.app/api/metar/KBDU)",
+      "Bash(railway vars:*)",
+      "Bash(railway --version)",
+      "Bash(railway status:*)",
+      "Bash(railway variables:*)",
+      "Bash(node -e \"const d=require\\('fs'\\).readFileSync\\(0,'utf8'\\); const j=JSON.parse\\(d\\); console.log\\('DATABASE_PATH:', j.DATABASE_PATH\\); console.log\\('DATA_DIR:', j.DATA_DIR\\)\")",
+      "Bash(DATABASE_PATH='//data/flightsafe.db' railway variables --set 'DATABASE_PATH=//data/flightsafe.db')",
+      "Bash(MSYS_NO_PATHCONV=1 railway variables --set \"DATABASE_PATH=/data/flightsafe.db\")",
+      "Bash(MSYS_NO_PATHCONV=1 railway variables --set \"DATA_DIR=/data\")",
+      "WebFetch(domain:flightsafe-production.up.railway.app)",
+      "Bash(curl -s https://flightsafe-production.up.railway.app/)",
+      "Bash(curl -s https://flightsafe-production.up.railway.app/assets/index-CZrqsl14.js)",
+      "Bash(grep -oE '.{0,80}active-tow.{0,80}')",
+      "Bash(grep -oE '.{0,100}Climbing.{0,100}')",
+      "Bash(grep -oE '.{0,60}Climbing.{0,60}')"
+    ]
+  }
+}

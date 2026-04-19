@@ -8,6 +8,8 @@ import { useState, useMemo, lazy, Suspense } from 'react'
 import { Personnel } from '../pages/Personnel'
 import { AircraftRegistry } from '../pages/AircraftRegistry'
 import { Clients } from '../pages/Clients'
+import { ProspectsBoard } from '../portal'
+import { EmailSettingsPanel } from '../crm/ProspectsBoard'
 import {
   BarChart, Bar, LineChart, Line, ComposedChart, ScatterChart, Scatter,
   XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
@@ -936,6 +938,42 @@ function FBOTab({ demandData }) {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+// ── CRM Tab — unified view across all operators ──
+const CRM_OPERATORS = [
+  { id: 'journeys',  label: 'Journeys Aviation' },
+  { id: 'mhg',       label: 'Mile High Gliding' },
+  { id: 'skydiving', label: 'Mile Hi Skydiving' },
+]
+
+function CRMTab() {
+  const [op, setOp] = useState(0)
+  const showSettings = op === CRM_OPERATORS.length // last tab
+  const cur = CRM_OPERATORS[op] || CRM_OPERATORS[0]
+  return (
+    <div>
+      <div className="flex gap-0.5 border-b border-surface-border mb-1 overflow-x-auto">
+        {CRM_OPERATORS.map((o, i) => (
+          <button key={o.id} onClick={() => setOp(i)}
+            className={`px-3 py-2 text-xs whitespace-nowrap transition-colors border-b-2 -mb-px ${i === op && !showSettings ? 'border-sky-400 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-100'}`}>
+            {o.label}
+          </button>
+        ))}
+        <button onClick={() => setOp(CRM_OPERATORS.length)}
+          className={`px-3 py-2 text-xs whitespace-nowrap transition-colors border-b-2 -mb-px ml-auto ${showSettings ? 'border-sky-400 text-sky-400' : 'border-transparent text-slate-400 hover:text-slate-100'}`}>
+          Settings
+        </button>
+      </div>
+      {showSettings ? (
+        <div className="py-8 px-4 sm:px-6 max-w-3xl mx-auto">
+          <EmailSettingsPanel />
+        </div>
+      ) : (
+        <ProspectsBoard operator={cur.id} heading={`${cur.label} — Sales Pipeline`} subtitle="Prospect tracking, follow-up, and conversion" />
+      )}
+    </div>
+  )
+}
+
 export function Management() {
   const [tab, setTab] = useState(0)
   const demandData = useDemandData()
@@ -950,7 +988,7 @@ export function Management() {
       <TabBar
         tabs={['Schedule', 'Demand Forecast', 'Weather Outlook', 'ML Model',
                'Flight Ops', 'Operations', 'Maintenance', 'FBO',
-               'Personnel', 'Aircraft Registry', 'Clients']}
+               'Personnel', 'Aircraft Registry', 'Clients', 'Sales CRM']}
         active={tab}
         onChange={setTab}
       />
@@ -966,6 +1004,7 @@ export function Management() {
       {tab === 8 && <Personnel />}
       {tab === 9 && <AircraftRegistry />}
       {tab === 10 && <Clients />}
+      {tab === 11 && <CRMTab />}
     </div>
   )
 }

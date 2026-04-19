@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getGliderSettings, subscribeGliderSettings } from '../store/gliderSettings'
+import { densityAltitude } from './gliderUtils'
 
-const WEATHER = '/weather-api'
+const WEATHER = import.meta.env.VITE_WEATHER_URL || '/weather-api'
 const DAY_START_HOUR = 7
 const NUM_HOURS      = 13   // 07:00–19:00  — matches violin chart
 
@@ -347,6 +348,12 @@ export function WeatherBar() {
   const dewpt    = baseMetar?.dewp != null ? `/${baseMetar.dewp}°C` : (baseMetar?.parsed?.dewpoint != null ? `/${baseMetar.parsed.dewpoint}°C` : '')
   const altim    = baseMetar?.parsed?.altimeter ? `A${baseMetar.parsed.altimeter.value.toFixed(2)}` : (baseMetar?.altim != null ? `A${(baseMetar.altim / 33.8639).toFixed(2)}` : null)
 
+  // Density altitude from METAR temp + altimeter
+  const tempC   = baseMetar?.temp ?? baseMetar?.parsed?.temperature ?? null
+  const altimHg = baseMetar?.parsed?.altimeter ? baseMetar.parsed.altimeter.value
+    : baseMetar?.altim != null ? baseMetar.altim / 33.8639 : null
+  const da = tempC != null && altimHg != null ? densityAltitude(tempC, altimHg) : null
+
   const sigmetTypes = [...new Set(allSigmets.map((f) => f.properties?.hazard ?? f.properties?.airsigmet_type ?? 'SIGMET'))]
   const airmetTypes = [...new Set(allAirmets.map((f) => f.properties?.hazard ?? f.properties?.airsigmet_type ?? 'AIRMET'))]
 
@@ -381,26 +388,36 @@ export function WeatherBar() {
     <div className="rounded-xl border border-surface-border bg-surface-card overflow-hidden">
 
       {/* ── Thin summary strip ── */}
-      {/* Uses the EXACT same flex layout as the violin chart:
-          40px left gutter → flex-1 columns (gap:1, minWidth:24) → 4px right spacer.
-          Winds aloft + badges float in an overlay so they don't affect column widths. */}
+      {/* Aligned with violin chart inside its p-4 container:
+          violin container has 16px padding + LABEL_COL=40/SVG_W=800 (5%) left gutter.
+          We mirror that: 16px left pad + 5%-width gutter, 16px right pad. */}
       <div className="relative">
-        <div className="flex gap-0 overflow-x-auto py-1.5">
+        <div className="flex gap-0 overflow-x-auto py-2.5 px-4">
 
-          {/* Left gutter — 40px, same as violin y-axis labels */}
+          {/* Left gutter — 5% of chart width, matches violin LABEL_COL/SVG_W ratio */}
           <div
-            className="flex items-center justify-end pr-1.5 flex-shrink-0"
-            style={{ width: 40 }}
+            className="flex flex-col items-end justify-center pr-2 flex-shrink-0 gap-1"
+            style={{ width: 'calc(5% + 4px)', minWidth: 64 }}
           >
             {cat ? (
-              <span className={`text-[9px] font-bold px-1 py-0.5 rounded border leading-none ${CAT_STYLE[cat]}`}>{cat}</span>
+              <span className={`text-[16px] font-bold px-1.5 py-1 rounded border leading-none ${CAT_STYLE[cat]}`}>{cat}</span>
             ) : (
-              <span className="text-[9px] text-slate-600">WX</span>
+              <span className="text-[16px] text-slate-600">WX</span>
+            )}
+            {da != null && (
+              <span
+                className={`text-[12px] font-mono font-bold leading-none ${
+                  da >= 9000 ? 'text-red-400' : da >= 7500 ? 'text-yellow-400' : 'text-slate-400'
+                }`}
+                title={`Density Altitude: ${da.toLocaleString()}′`}
+              >
+                DA {(da / 1000).toFixed(1)}k
+              </span>
             )}
           </div>
 
           {/* ── Hourly columns — identical flex container to violin ── */}
-          <div className="relative flex flex-1 min-w-0" style={{ gap: 1 }}>
+          <div className="relative flex flex-1 min-w-0" style={{ gap: 2 }}>
             {/* NOW line */}
             {showNow && (
               <div
@@ -426,7 +443,7 @@ export function WeatherBar() {
                 <div
                   key={i}
                   className={`flex flex-col items-center flex-1 min-w-0 rounded-sm overflow-hidden ${opacity}`}
-                  style={{ minWidth: 24 }}
+                  style={{ minWidth: 36 }}
                   title={[
                     `${String(h.hour).padStart(2, '0')}:00`,
                     h.cat,
@@ -440,32 +457,32 @@ export function WeatherBar() {
                   ].filter(Boolean).join(' · ')}
                 >
                   {/* Category color band */}
-                  <div className={`w-full h-1.5 ${bg}`} />
+                  <div className={`w-full h-2 ${bg}`} />
 
                   {/* Symbolic column */}
-                  <div className="flex flex-col items-center py-0.5 gap-0 w-full min-h-[36px] justify-center">
-                    <span className={`text-[10px] leading-none ${
+                  <div className="flex flex-col items-center py-1 gap-0.5 w-full min-h-[48px] justify-center">
+                    <span className={`text-[20px] leading-none ${
                       h.cover === 'OVC' || h.cover === 'VV' ? 'text-slate-300' :
                       h.cover === 'BKN' ? 'text-slate-400' :
                       h.cover === 'SCT' ? 'text-slate-500' : 'text-slate-600'
                     }`}>{cover}</span>
 
                     {sym ? (
-                      <span className={`text-[10px] leading-none ${wxColor}`}>{sym}</span>
+                      <span className={`text-[20px] leading-none ${wxColor}`}>{sym}</span>
                     ) : (
                       arrow && <span
-                        className="text-[9px] text-slate-500 leading-none inline-block"
+                        className="text-[18px] text-slate-500 leading-none inline-block"
                         style={{ transform: `rotate(${arrowRot}deg)` }}
                       >{arrow}</span>
                     )}
 
                     {h.tempo && (tSym || tCover) && (
-                      <span className="text-[7px] text-amber-500/60 leading-none" title="TEMPO">
+                      <span className="text-[14px] text-amber-500/60 leading-none" title="TEMPO">
                         {tSym ?? tCover}
                       </span>
                     )}
 
-                    <span className={`text-[7px] font-mono leading-none ${
+                    <span className={`text-[14px] font-mono leading-none ${
                       (h.gust ?? 0) >= 25 ? 'text-red-400' :
                       (h.windSpd ?? 0) >= 15 ? 'text-yellow-400' : 'text-slate-500'
                     }`}>
@@ -477,8 +494,7 @@ export function WeatherBar() {
             })}
           </div>
 
-          {/* Right spacer — 4px, same as violin */}
-          <div style={{ width: 4 }} className="flex-shrink-0" />
+          {/* No right spacer needed — px-4 on parent matches violin container p-4 */}
         </div>
 
         {/* ── Overlay: winds aloft + badges (absolute, right-aligned, no layout impact) ── */}
@@ -498,10 +514,10 @@ export function WeatherBar() {
                   : spd >= 15 ? 'text-slate-300' : 'text-slate-500'
                 const quad = dirQuadrant(r.w.dir)
                 return (
-                  <div key={r.alt} className="flex items-center gap-0.5 leading-none" title={r.w.display ?? r.w.raw}>
-                    <span className="text-[7px] text-slate-600 font-mono w-6 text-right">{r.label}</span>
-                    <span className="text-[8px] text-slate-500 w-5 text-center">{quad}</span>
-                    <span className={`text-[8px] font-mono font-bold w-5 text-right ${spdColor}`}>
+                  <div key={r.alt} className="flex items-center gap-1 leading-none" title={r.w.display ?? r.w.raw}>
+                    <span className="text-[12px] text-slate-600 font-mono w-8 text-right">{r.label}</span>
+                    <span className="text-[13px] text-slate-500 w-7 text-center">{quad}</span>
+                    <span className={`text-[13px] font-mono font-bold w-7 text-right ${spdColor}`}>
                       {spd ?? '—'}
                     </span>
                   </div>
@@ -513,25 +529,25 @@ export function WeatherBar() {
           {/* Badges + controls */}
           <div className="flex items-center gap-1 pointer-events-auto bg-surface-card/90 backdrop-blur-sm rounded-l px-1 py-0.5">
             {allSigmets.length > 0 && (
-              <span className="text-[9px] font-bold px-1 py-0.5 rounded border border-red-500/40 bg-red-500/15 text-red-400 leading-none whitespace-nowrap">
+              <span className="text-[16px] font-bold px-1.5 py-1 rounded border border-red-500/40 bg-red-500/15 text-red-400 leading-none whitespace-nowrap">
                 {allSigmets.length}S
               </span>
             )}
             {allAirmets.length > 0 && (
-              <span className="text-[9px] font-bold px-1 py-0.5 rounded border border-yellow-500/40 bg-yellow-500/15 text-yellow-400 leading-none whitespace-nowrap">
+              <span className="text-[16px] font-bold px-1.5 py-1 rounded border border-yellow-500/40 bg-yellow-500/15 text-yellow-400 leading-none whitespace-nowrap">
                 {allAirmets.length}A
               </span>
             )}
-            {loading && <span className="text-[8px] text-sky-400 animate-pulse">…</span>}
+            {loading && <span className="text-[14px] text-sky-400 animate-pulse">…</span>}
             <button
               onClick={(e) => { e.stopPropagation(); refresh() }}
               disabled={loading}
-              className="text-[9px] px-1 py-0.5 rounded border border-sky-500/30 text-sky-400 hover:bg-sky-500/10 transition-colors disabled:opacity-40"
+              className="text-[16px] px-1.5 py-1 rounded border border-sky-500/30 text-sky-400 hover:bg-sky-500/10 transition-colors disabled:opacity-40"
               title="Refresh weather"
             >↺</button>
             <button
               onClick={() => setExpanded((v) => !v)}
-              className="text-[10px] text-slate-500 hover:text-slate-300 transition-all px-1"
+              className="text-[18px] text-slate-500 hover:text-slate-300 transition-all px-1"
               title={expanded ? 'Collapse' : 'Expand weather details'}
             >
               <span className={`inline-block transition-transform ${expanded ? 'rotate-90' : ''}`}>▸</span>
@@ -562,6 +578,14 @@ export function WeatherBar() {
               <span className="text-slate-600">·</span>
               <span className="text-slate-400">{temp}{dewpt}</span>
               {altim && <><span className="text-slate-600">·</span><span className="text-slate-400">{altim}</span></>}
+              {da != null && (
+                <>
+                  <span className="text-slate-600">·</span>
+                  <span className={da >= 9000 ? 'text-red-400 font-bold' : da >= 7500 ? 'text-yellow-400' : 'text-slate-300'}>
+                    DA {da.toLocaleString()}′
+                  </span>
+                </>
+              )}
               {baseMetar.parsed?.weather?.length > 0 && (
                 <span className="text-amber-400">{baseMetar.parsed.weather.join(' ')}</span>
               )}

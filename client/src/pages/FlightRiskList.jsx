@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react'
 import { getAllFlights, subscribe } from '../store/flights'
 import { RiskBadge } from '../components/shared/RiskBadge'
 import { PaveBadge } from '../components/shared/PaveBadge'
+import { AircraftSilhouette } from '../components/shared/AircraftSilhouette'
+import { getAircraftPhoto } from '../portal/portalConstants'
+import { mockAircraft } from '../mocks/aircraft'
 import { useUiStore } from '../stores/uiStore'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
@@ -36,6 +39,19 @@ export function FlightRiskRow({ flight, isSelected, onSelect }) {
     >
       <td className="py-2.5 px-3 w-10">
         <RiskBadge score={flight.riskScore} size="sm" />
+      </td>
+      <td className="py-2.5 px-1 w-10">
+        {(() => {
+          const ac = mockAircraft.find((a) => a.tailNumber === flight.callsign)
+          const photo = getAircraftPhoto(ac?.makeModel || flight.aircraftType || '')
+          return photo ? (
+            <div className="w-8 h-5 rounded overflow-hidden bg-surface">
+              <img src={photo} alt="" loading="lazy" className="w-full h-full object-cover" />
+            </div>
+          ) : (
+            <AircraftSilhouette icaoType={flight.aircraftType} className="w-8 h-5 text-slate-600" />
+          )
+        })()}
       </td>
       <td className="py-2.5 px-3 font-mono text-slate-100 font-bold">
         {flight.callsign}
@@ -219,6 +235,7 @@ export function FlightRiskList() {
             <thead>
               <tr className="border-b border-surface-border text-xs text-slate-400 uppercase tracking-wide">
                 <th className="py-2 px-3 text-left font-medium">Risk</th>
+                <th className="py-2 px-1 w-10"></th>
                 <th className="py-2 px-3 text-left font-medium">Callsign</th>
                 <th className="py-2 px-3 text-left font-medium">Route</th>
                 <th className="py-2 px-3 text-left font-medium">Dept</th>

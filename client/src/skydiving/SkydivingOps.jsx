@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { FleetCard } from '../components/shared/FleetCard'
 import { getAllFlights, subscribe } from '../store/flights'
 import {
   DZ_INFO,
@@ -74,27 +75,24 @@ function StatusBadge({ status }) {
 function FleetTab() {
   return (
     <div className="space-y-4">
-      <h2 className="text-sm font-semibold text-slate-200">Jump Plane Fleet</h2>
+      <h2 className="text-sm font-semibold text-slate-200">Fleet</h2>
       <div className="grid gap-4 md:grid-cols-2">
         {JUMP_PLANES.map((p) => (
-          <div key={p.id} className="bg-surface-card border border-surface-border rounded-xl p-4">
-            <div className="flex items-start justify-between mb-2">
-              <div>
-                <div className="text-slate-100 font-semibold text-sm">{p.type}</div>
-                <div className="text-xs text-sky-400 font-mono">{p.tailNumber}</div>
+          <FleetCard
+            key={p.id}
+            aircraft={p}
+            showPhoto={true}
+            renderHeaderRight={(a) => <StatusBadge status={a.status} />}
+            renderSpecs={(a) => (
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs mt-2">
+                <div><span className="text-slate-500">Capacity:</span> <span className="text-slate-200">{a.seats} jumpers</span></div>
+                <div><span className="text-slate-500">Max Gross:</span> <span className="text-slate-200">{a.maxGross.toLocaleString()} lbs</span></div>
+                <div><span className="text-slate-500">Useful Load:</span> <span className="text-slate-200">{a.usefulLoad.toLocaleString()} lbs</span></div>
+                <div><span className="text-slate-500">Climb:</span> <span className="text-slate-200">{a.climbRate}</span></div>
+                <div><span className="text-slate-500">Jump Door:</span> <span className="text-slate-200">{a.jumpDoor}</span></div>
               </div>
-              <StatusBadge status={p.status} />
-            </div>
-            <div className="text-xs text-slate-400 mb-3">{p.role}</div>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
-              <div><span className="text-slate-500">Capacity:</span> <span className="text-slate-200">{p.seats} jumpers</span></div>
-              <div><span className="text-slate-500">Max Gross:</span> <span className="text-slate-200">{p.maxGross.toLocaleString()} lbs</span></div>
-              <div><span className="text-slate-500">Useful Load:</span> <span className="text-slate-200">{p.usefulLoad.toLocaleString()} lbs</span></div>
-              <div><span className="text-slate-500">Climb:</span> <span className="text-slate-200">{p.climbRate}</span></div>
-              <div><span className="text-slate-500">Jump Door:</span> <span className="text-slate-200">{p.jumpDoor}</span></div>
-            </div>
-            {p.notes && <div className="text-[10px] text-slate-500 mt-2 italic">{p.notes}</div>}
-          </div>
+            )}
+          />
         ))}
       </div>
 

@@ -7,9 +7,10 @@ import { readFileSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { seed } from './seed.js'
+import { mockAircraft } from '../../client/src/mocks/aircraft.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const DB_PATH = join(__dirname, '..', 'data', 'flightsafe.db')
+const DB_PATH = process.env.DATABASE_PATH || join(__dirname, '..', 'data', 'flightsafe.db')
 
 let db
 
@@ -23,6 +24,17 @@ export function getDb() {
   // Run schema DDL (idempotent — all CREATE IF NOT EXISTS)
   const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf8')
   db.exec(schema)
+
+  // Migrations — add columns that may not exist in older databases
+  const cols = db.prepare("PRAGMA table_info(aircraft)").all().map((c) => c.name)
+  if (!cols.includes('icao_hex')) {
+    db.exec("ALTER TABLE aircraft ADD COLUMN icao_hex TEXT")
+  }
+  // Backfill icao_hex from mock data for any existing aircraft missing it
+  const backfill = db.prepare("UPDATE aircraft SET icao_hex = ? WHERE id = ? AND icao_hex IS NULL")
+  for (const a of mockAircraft) {
+    if (a.icaoHex) backfill.run(a.icaoHex, a.id)
+  }
 
   // Seed if the database is fresh (no aircraft rows)
   const { n } = db.prepare('SELECT COUNT(*) as n FROM aircraft').get()

@@ -3,6 +3,7 @@
 
 import express from 'express'
 import { appendFile, readFile, writeFile, mkdir } from 'fs/promises'
+import { existsSync } from 'fs'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { getDb } from './db/index.js'
@@ -16,9 +17,11 @@ import { settingsRouter } from './routes/settings.js'
 import { pricingRouter } from './routes/pricing.js'
 import { towScheduleRouter } from './routes/towSchedule.js'
 import { updatesRouter, broadcast } from './routes/updates.js'
+import { emailRouter } from './routes/email.js'
+import { adsbRouter } from './routes/adsb.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const DATA_DIR  = join(__dirname, 'data')
+const DATA_DIR  = process.env.DATA_DIR || join(__dirname, 'data')
 const LOG_FILE  = join(DATA_DIR, 'sim_events.jsonl')
 
 await mkdir(DATA_DIR, { recursive: true })
@@ -116,6 +119,18 @@ app.use('/api/settings',         settingsRouter)
 app.use('/api/pricing',          pricingRouter)
 app.use('/api/tow-schedule',     towScheduleRouter)
 app.use('/api/updates',          updatesRouter)
+app.use('/api/email',            emailRouter)
+app.use('/api/adsb',             adsbRouter)
+
+// ── Serve client build in production ─────────────────────────────────────────
+const CLIENT_DIST = join(__dirname, '..', 'client', 'dist')
+if (existsSync(CLIENT_DIST)) {
+  app.use(express.static(CLIENT_DIST))
+  // SPA fallback — let React Router handle client routes
+  app.get('*', (_req, res) => {
+    res.sendFile(join(CLIENT_DIST, 'index.html'))
+  })
+}
 
 // ── Error handling ───────────────────────────────────────────────────────────
 app.use((err, _req, res, _next) => {
@@ -123,7 +138,8 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: err.message ?? 'Internal server error' })
 })
 
-app.listen(4000, () => {
-  console.log('FlightSafe API server listening on http://localhost:4000')
+const PORT = process.env.PORT || 4000
+app.listen(PORT, () => {
+  console.log(`FlightSafe API server listening on http://localhost:${PORT}`)
   console.log(`Event log: ${LOG_FILE}`)
 })

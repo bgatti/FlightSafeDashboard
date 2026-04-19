@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { WeatherBar } from './WeatherBar'
 import { getAllFlights, addFlight, updateFlight } from '../store/flights'
 import { getSquawks, addSquawk, resolveSquawk, isAircraftGrounded, subscribeSquawks } from '../store/squawks'
@@ -6,6 +6,7 @@ import { getInvoices, findOrCreateInvoice, upsertInvoice, addLineItem, markPaid,
 import { getClients, upsertClient, findClientByTail, subscribeClients } from '../store/clients'
 import { addServiceRequest } from '../store/serviceRequests'
 import { mockAircraft } from '../mocks/aircraft'
+import { pollAdsbState, estimateGliderReturn } from '../lib/adsbApi'
 import { mockPersonnel } from '../mocks/personnel'
 import { mockStudents, mockClubMembers } from '../training/mockTraining'
 import {
@@ -20,7 +21,38 @@ import {
   TOW_HEIGHTS,
   towCycleMin,
   timeAloftMin,
+  buildSegments,
+  gaussianSmooth,
+  violinPath,
+  isInMaintenance,
+  squawksToMaintenanceWindows,
+  densityAltitude,
+  towCycleMinDA,
+  towClimbRate,
+  planeSegmentFt,
+  towPrice,
+  gliderTowDemandFactor,
+  TOW_PLANE_CLIMB,
+  TOW_PLANE_PROFILE,
+  SEGMENT_MINUTES,
 } from './gliderUtils'
+// Mini flight-type icons — clean SVG silhouettes, purpose-built for small card headers
+const FiDual = ({ size = 14, className = '' }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" className={className} fill="currentColor">
+    <circle cx="5" cy="4" r="2" /><path d="M1 12c0-2 2-3.5 4-3.5s4 1.5 4 3.5" />
+    <circle cx="11" cy="4" r="2" /><path d="M8 12c0-2 1.5-3.5 3-3.5s3 1.5 3 3.5" opacity="0.5" />
+  </svg>
+)
+const FiSolo = ({ size = 14, className = '' }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" className={className} fill="currentColor">
+    <circle cx="8" cy="4" r="2.5" /><path d="M3 14c0-2.5 2.2-4.5 5-4.5s5 2 5 4.5" />
+  </svg>
+)
+const FiScenic = ({ size = 14, className = '' }) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" className={className} fill="currentColor">
+    <path d="M0 14 L4 6 L7 10 L10 4 L16 14 Z" opacity="0.7" />
+  </svg>
+)
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -44,15 +76,10 @@ const AIRPORT = 'KBDU'
 
 // ─── Glider Services Pricing ─────────────────────────────────────────────────
 const GLIDER_PRICING = {
-  towPer1000ft:       20,    // $ per 1,000 ft of tow height
   gliderRentalPerHr:  85,    // $ per hour — club glider wet rental
   instructionPerHr:   65,    // $ per hour — dual instruction
-  towMinimum:         30,    // $ minimum tow charge (1,000 ft)
 }
-
-function towPrice(heightFt) {
-  return Math.max(GLIDER_PRICING.towMinimum, Math.ceil(heightFt / 1000) * GLIDER_PRICING.towPer1000ft)
-}
+// towPrice is imported from gliderUtils: $15 hookup + $16 per 1,000 ft
 
 function todayStartMs() {
   const d = new Date()
@@ -184,282 +211,853 @@ function towCapacityBg(h) {
   return 'rgba(239,68,68,0.07)'                                 // red — deficit
 }
 
-function TowViolinChart({ flights, previewFlight = null, schedCtx = null, wwCountAm: _wwAm, wwCountPm: _wwPm }) {
-  // Self-compute wing walker counts if not provided
-  const wwCountAm = _wwAm ?? wwCountForBlock(new Date(), 'am', getWwBaseOverrides(), getWwAdjustments())
-  const wwCountPm = _wwPm ?? wwCountForBlock(new Date(), 'pm', getWwBaseOverrides(), getWwAdjustments())
-  const hours     = buildHourBuckets(flights, schedCtx)
-  const SECTION_H = 80   // px
-  const WW_H      = 28   // px — wing walker row
+function TowViolinChart({ flights, previewFlight = null, schedCtx = null, squawks = [], mxWindows = [], onConfirmStandby = null, date = null, compact = false, wwCountAm: _wwAm, wwCountPm: _wwPm }) {
+  const [selectedSeg, setSelectedSeg] = useState(null)
+  const [popoverPos, setPopoverPos]   = useState({ x: 0, y: 0 })
+  const [selectedPlane, setSelectedPlane] = useState(null)  // planeId for performance card
+  const [planeSegIdx, setPlaneSegIdx]     = useState(0)     // which segment was clicked
+  const [planePopPos, setPlanePopPos]     = useState({ x: 0, y: 0 })
+  const refDate = date ?? new Date()
+  const wwCountAm = _wwAm ?? wwCountForBlock(refDate, 'am', getWwBaseOverrides(), getWwAdjustments())
+  const wwCountPm = _wwPm ?? wwCountForBlock(refDate, 'pm', getWwBaseOverrides(), getWwAdjustments())
 
-  // Direct preview impact — add preview's demand/supply to the right hour buckets
-  // without re-running the queue simulation (avoids cascade artifacts)
-  const previewHours = (() => {
-    if (!previewFlight) return null
-    const depMs  = new Date(previewFlight.plannedDepartureUtc).getTime()
-    const endMs  = previewFlight.plannedArrivalUtc
-      ? new Date(previewFlight.plannedArrivalUtc).getTime() : depMs
-    const isTow  = previewFlight.missionType !== 'tow_session'
-    const isTowBlock = previewFlight.missionType === 'tow_session'
-    return hours.map((h) => {
-      const copy = { ...h, byPlane: { ...h.byPlane } }
-      if (isTow) {
-        // Demand: if departure falls in this hour, add tow cycle minutes
-        if (depMs >= h.startMs && depMs < h.endMs) {
-          const heights = previewFlight.towInfo?.towHeights ?? [2000]
-          const addMin  = heights.reduce((s, ht) => s + towCycleMin(ht), 0)
-          copy.reservedMin += addMin
-        }
-      }
-      if (isTowBlock) {
-        // Supply: overlap of duty block with this hour
-        const overlapMin = Math.max(0, (Math.min(endMs, h.endMs) - Math.max(depMs, h.startMs)) / 60_000)
-        if (overlapMin > 0) {
-          const pid = previewFlight.towInfo?.towPlaneId ?? '_preview'
-          copy.byPlane[pid] = (copy.byPlane[pid] ?? 0) + overlapMin
-          copy.supplyMin += overlapMin
-        }
-      }
-      return copy
+  // Build pilot schedule functions for pilot-constrained supply
+  const segSchedCtx = schedCtx ? {
+    towPilots: schedCtx.towPilots,
+    effectiveBlocksFn: (pilot, date) =>
+      effectiveBlocksForDate(pilot, date, schedCtx.baseOverrides, schedCtx.adjustments, schedCtx.noShows),
+    matchingFn: maxPilotPlaneMatching,
+  } : null
+
+  // Auto-generate maintenance windows from closed grounding squawks (historical unavailability)
+  const implicitMx = squawksToMaintenanceWindows(squawks, mockAircraft)
+  const allMxWindows = [...mxWindows, ...implicitMx]
+
+  // Build 20-minute segments with maintenance/grounding + pilot awareness
+  const segments = buildSegments({
+    flights,
+    airport: AIRPORT,
+    towPlanes: ALL_TOW_AIRCRAFT,
+    aircraftList: mockAircraft,
+    squawks,
+    mxWindows: allMxWindows,
+    isGroundedFn: isAircraftGrounded,
+    schedCtx: segSchedCtx,
+    date: refDate,
+  })
+
+  // Extract raw demand arrays by tow type (stacked: pattern → scenic → mountain)
+  const rawPattern  = segments.map((s) => s.demandByType.pattern)
+  const rawScenic   = segments.map((s) => s.demandByType.scenic)
+  const rawMountain = segments.map((s) => s.demandByType.mountain)
+  const rawStandby  = segments.map((s) => s.standbyFt)
+  const rawDemand   = segments.map((s) => s.reservedFt + s.standbyFt)
+
+  // Per-plane supply arrays
+  const planeSupply = {}
+  for (const ac of ALL_TOW_AIRCRAFT) {
+    planeSupply[ac.id] = segments.map((s) => s.byPlane[ac.id] ?? 0)
+  }
+  const rawTotalSupply = segments.map((s) =>
+    Object.values(s.byPlane).reduce((sum, v) => sum + v, 0)
+  )
+
+  // Gaussian smooth: σ = 0.5 segments ≈ 10-minute ramp (single inflection)
+  // Monotone cubic hermite spline prevents overshoot/oscillation
+  const DEMAND_SIGMA   = 0.5
+  const SUPPLY_SIGMA   = 0.5
+  const smoothPattern  = gaussianSmooth(rawPattern, DEMAND_SIGMA)
+  const smoothScenic   = gaussianSmooth(rawScenic, DEMAND_SIGMA)
+  const smoothMountain = gaussianSmooth(rawMountain, DEMAND_SIGMA)
+  const smoothStandby  = gaussianSmooth(rawStandby, DEMAND_SIGMA)
+  const smoothDemand   = gaussianSmooth(rawDemand, DEMAND_SIGMA)
+  const smoothPlane    = {}
+  for (const ac of ALL_TOW_AIRCRAFT) {
+    smoothPlane[ac.id] = gaussianSmooth(planeSupply[ac.id], SUPPLY_SIGMA)
+  }
+  const smoothTotalSupply = gaussianSmooth(rawTotalSupply, SUPPLY_SIGMA)
+
+  // Scale
+  const maxDemand = Math.max(1, ...smoothDemand)
+  const maxSupply = Math.max(1, ...smoothTotalSupply)
+  const MAX_MIN   = Math.max(maxDemand, maxSupply, SEGMENT_MINUTES)
+
+  const nowDate = new Date()
+  const isToday = refDate.toDateString() === nowDate.toDateString()
+
+  // Grounded aircraft rows — one per grounded or recently-grounded plane
+  const groundedRows = (() => {
+    const dayBaseMs = new Date(refDate.getFullYear(), refDate.getMonth(), refDate.getDate(), DAY_START_HOUR, 0, 0, 0).getTime()
+    const dayEndMs  = dayBaseMs + NUM_HOURS * 3_600_000
+    const rows = []
+
+    // Currently grounded (open squawk) — bar from report time to end of day
+    for (const ac of ALL_TOW_AIRCRAFT) {
+      if (!isAircraftGrounded(ac.id, mockAircraft, squawks)) continue
+      const gSquawk = squawks.find((s) =>
+        (s.aircraftId === ac.id || s.tailNumber === ac.tailNumber || s.tail_number === ac.tailNumber) &&
+        s.severity === 'grounding' && s.status !== 'closed'
+      )
+      const reportMs = gSquawk?.reportedAt ? new Date(gSquawk.reportedAt).getTime()
+        : gSquawk?.reportedDate ? new Date(gSquawk.reportedDate).getTime() : dayBaseMs
+      rows.push({
+        tail: ac.tailNumber,
+        startFrac: Math.max(0, (reportMs - dayBaseMs) / (dayEndMs - dayBaseMs)),
+        endFrac: 1,
+        label: 'GROUNDED',
+        ongoing: true,
+      })
+    }
+
+    // Resolved today (closed grounding squawk with implicit mx window) — bar from report to resolve
+    for (const w of allMxWindows) {
+      if (w.endMs <= dayBaseMs || w.startMs >= dayEndMs) continue
+      const ac = ALL_TOW_AIRCRAFT.find((a) => a.id === w.aircraftId)
+      if (!ac || isAircraftGrounded(ac.id, mockAircraft, squawks)) continue  // skip still-grounded (already shown)
+      rows.push({
+        tail: ac.tailNumber,
+        startFrac: Math.max(0, (w.startMs - dayBaseMs) / (dayEndMs - dayBaseMs)),
+        endFrac: Math.min(1, (w.endMs - dayBaseMs) / (dayEndMs - dayBaseMs)),
+        label: w.reason?.slice(0, 25) ?? 'WAS GROUNDED',
+        ongoing: false,
+      })
+    }
+    return rows
+  })()
+
+  // Chart dimensions — scaled by mode
+  // Compact: narrower SVG so curves fill more vertical space at the same rendered height
+  const SVG_W      = compact ? 400 : 800
+  const LABEL_COL  = compact ? 12 : 40
+  const CHART_W    = SVG_W - LABEL_COL
+  const SECTION_H  = compact ? 80 : 65
+  const CENTRE_H   = compact ? 6 : 18
+  const WW_H       = compact ? 0 : 28
+  const GND_ROW_H  = compact ? 0 : 18
+  const GND_H      = compact ? 0 : groundedRows.length * GND_ROW_H
+  const SVG_H      = SECTION_H * 2 + CENTRE_H + WW_H + GND_H
+
+  const n = segments.length
+
+  // NOW line
+  const nowMinutes  = (nowDate.getHours() - DAY_START_HOUR) * 60 + nowDate.getMinutes()
+  const totalMinutes = NUM_HOURS * 60
+  const nowFrac     = nowMinutes / totalMinutes
+  const showNow     = isToday && nowFrac >= 0 && nowFrac <= 1
+  const nowX        = LABEL_COL + nowFrac * CHART_W
+
+  // Hour tick positions
+  const hourTicks = Array.from({ length: NUM_HOURS + 1 }, (_, i) => ({
+    x: LABEL_COL + (i * 60 / totalMinutes) * CHART_W,
+    label: `${String(DAY_START_HOUR + i).padStart(2, '0')}`,
+  }))
+
+  // Demand type colours
+  const DEMAND_TYPES = [
+    { key: 'pattern',  smooth: smoothPattern,  fill: 'rgba(56,189,248,0.6)',  label: 'Pattern (≤1k ft)' },
+    { key: 'scenic',   smooth: smoothScenic,   fill: 'rgba(139,92,246,0.55)', label: 'Scenic (2k ft)' },
+    { key: 'mountain', smooth: smoothMountain, fill: 'rgba(244,63,94,0.55)',  label: 'Mountain (≥3k ft)' },
+  ]
+
+  // Build stacked demand paths (pattern on bottom, mountain on top)
+  const centreY = SECTION_H
+
+  /** Monotone cubic hermite spline path — no overshoot/oscillation */
+  function monotonePath(pts) {
+    if (pts.length < 2) return pts.length === 1 ? `M ${pts[0].x} ${pts[0].y}` : ''
+    // Compute tangent slopes with Fritsch-Carlson monotone method
+    const m = new Array(pts.length).fill(0)
+    const delta = []
+    for (let i = 0; i < pts.length - 1; i++) {
+      delta.push((pts[i + 1].y - pts[i].y) / (pts[i + 1].x - pts[i].x))
+    }
+    m[0] = delta[0]
+    m[pts.length - 1] = delta[delta.length - 1]
+    for (let i = 1; i < pts.length - 1; i++) {
+      if (delta[i - 1] * delta[i] <= 0) { m[i] = 0 }
+      else { m[i] = (delta[i - 1] + delta[i]) / 2 }
+    }
+    // Clamp to monotone
+    for (let i = 0; i < delta.length; i++) {
+      if (Math.abs(delta[i]) < 1e-10) { m[i] = 0; m[i + 1] = 0; continue }
+      const a = m[i] / delta[i], b = m[i + 1] / delta[i]
+      const s = a * a + b * b
+      if (s > 9) { const t = 3 / Math.sqrt(s); m[i] = t * a * delta[i]; m[i + 1] = t * b * delta[i] }
+    }
+    let d = `M ${pts[0].x} ${pts[0].y}`
+    for (let i = 0; i < pts.length - 1; i++) {
+      const dx = (pts[i + 1].x - pts[i].x) / 3
+      d += ` C ${pts[i].x + dx} ${pts[i].y + m[i] * dx}, ${pts[i + 1].x - dx} ${pts[i + 1].y - m[i + 1] * dx}, ${pts[i + 1].x} ${pts[i + 1].y}`
+    }
+    return d
+  }
+
+  function smoothCurvePath(values, baseValues) {
+    if (n === 0) return ''
+    const dx = CHART_W / n
+    const topPts = values.map((v, i) => ({
+      x: LABEL_COL + i * dx + dx / 2,
+      y: centreY - (v / MAX_MIN) * SECTION_H,
+    }))
+    const botPts = baseValues.map((v, i) => ({
+      x: LABEL_COL + i * dx + dx / 2,
+      y: centreY - (v / MAX_MIN) * SECTION_H,
+    }))
+
+    // Forward along top, then back along bottom
+    const fwd = monotonePath(topPts)
+    const rev = [...botPts].reverse()
+    const revPath = monotonePath(rev)
+
+    // Combine: forward path + line to last bottom point + reversed bottom path + close
+    return fwd + ` L ${rev[0].x} ${rev[0].y} ` + revPath.replace(/^M [^ ]+ [^ ]+/, '') + ' Z'
+  }
+
+  // Stacked cumulative: pattern, +scenic, +mountain
+  const cumBase     = new Array(n).fill(0)
+  const cumPattern  = smoothPattern.map((v, i) => cumBase[i] + v)
+  const cumScenic   = smoothScenic.map((v, i) => cumPattern[i] + v)
+  const cumMountain = smoothMountain.map((v, i) => cumScenic[i] + v)
+
+  const demandPaths = [
+    { ...DEMAND_TYPES[0], d: smoothCurvePath(cumPattern, cumBase) },
+    { ...DEMAND_TYPES[1], d: smoothCurvePath(cumScenic, cumPattern) },
+    { ...DEMAND_TYPES[2], d: smoothCurvePath(cumMountain, cumScenic) },
+  ]
+
+  // Standby overlay on top of the stack
+  const cumWithStandby = smoothStandby.map((v, i) => cumMountain[i] + v)
+  const standbyPath = smoothCurvePath(cumWithStandby, cumMountain)
+
+  // Supply paths per plane (bottom, growing downward from centre)
+  const supplyBase = centreY + CENTRE_H
+  // Per-plane cumulative bands (for label y-positioning)
+  const planeBands = {}  // planeId → { midY: number[] } — vertical midpoint per segment
+  const planePathData = (() => {
+    const cumulative = new Array(n).fill(0)
+    const dx = CHART_W / n
+    return ALL_TOW_AIRCRAFT.map((ac, pi) => {
+      const prevCum = [...cumulative]
+      const thisCum = smoothPlane[ac.id].map((v, i) => {
+        cumulative[i] += v
+        return cumulative[i]
+      })
+
+      const topPts = thisCum.map((v, i) => ({
+        x: LABEL_COL + i * dx + dx / 2,
+        y: supplyBase + (v / MAX_MIN) * SECTION_H,
+      }))
+      const botPts = prevCum.map((v, i) => ({
+        x: LABEL_COL + i * dx + dx / 2,
+        y: supplyBase + (v / MAX_MIN) * SECTION_H,
+      }))
+
+      // Store band midpoints for label positioning
+      planeBands[ac.id] = topPts.map((tp, i) => (tp.y + botPts[i].y) / 2)
+
+      const fwd = monotonePath(topPts)
+      const rev = [...botPts].reverse()
+      const revPath = monotonePath(rev)
+      const d = fwd + ` L ${rev[0].x} ${rev[0].y} ` + revPath.replace(/^M [^ ]+ [^ ]+/, '') + ' Z'
+      return { ac, pi, d }
     })
   })()
 
-  // Scale to max across both actual and preview so ghost doesn't break the axis
-  const maxDemand = Math.max(1,
-    ...hours.map((h) => h.reservedMin + h.standbyMin),
-    ...(previewHours ?? hours).map((h) => h.reservedMin + h.standbyMin),
-  )
-  const maxSupply = Math.max(1,
-    ...hours.map((h) => Object.values(h.byPlane).reduce((s, v) => s + v, 0)),
-    ...(previewHours ?? hours).map((h) => Object.values(h.byPlane).reduce((s, v) => s + v, 0)),
-  )
-  const MAX_MIN = Math.max(maxDemand, maxSupply)
+  // Maintenance window rects on the supply side
+  const mxRects = allMxWindows.map((w) => {
+    const dayBaseMs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate(), DAY_START_HOUR, 0, 0, 0).getTime()
+    const dayEndMs  = dayBaseMs + NUM_HOURS * 3_600_000
+    if (w.endMs <= dayBaseMs || w.startMs >= dayEndMs) return null
+    const x1 = LABEL_COL + Math.max(0, (w.startMs - dayBaseMs) / (totalMinutes * 60_000)) * CHART_W
+    const x2 = LABEL_COL + Math.min(1, (w.endMs - dayBaseMs) / (totalMinutes * 60_000)) * CHART_W
+    const acIdx = ALL_TOW_AIRCRAFT.findIndex((a) => a.id === w.aircraftId)
+    return { x: x1, width: x2 - x1, reason: w.reason ?? 'Maintenance', tail: ALL_TOW_AIRCRAFT[acIdx]?.tailNumber ?? '?' }
+  }).filter(Boolean)
 
-  const pct = (min) => Math.min(100, (min / MAX_MIN) * 100)
+  // Capacity background bands (per-segment)
+  const capacityBands = (() => {
+    const dx = CHART_W / n
+    return segments.map((seg, i) => {
+      const totalDemand = seg.reservedFt + seg.standbyFt
+      const supply = Object.values(seg.byPlane).reduce((s, v) => s + v, 0)
+      if (totalDemand === 0 && supply === 0) return null
+      let fill
+      if (supply >= totalDemand) fill = 'rgba(34,197,94,0.06)'
+      else if (supply >= seg.reservedFt) fill = 'rgba(234,179,8,0.06)'
+      else fill = 'rgba(239,68,68,0.06)'
+      return { x: LABEL_COL + i * dx, width: dx, fill }
+    }).filter(Boolean)
+  })()
 
-  // NOW line — fraction of the 07:00–20:00 window elapsed
-  const nowDate        = new Date()
-  const nowMinutes     = (nowDate.getHours() - DAY_START_HOUR) * 60 + nowDate.getMinutes()
-  const totalMinutes   = NUM_HOURS * 60
-  const nowPct         = Math.min(100, Math.max(0, (nowMinutes / totalMinutes) * 100))
-  const showNow        = nowMinutes >= 0 && nowMinutes <= totalMinutes
-  const CHART_H        = SECTION_H * 2 + 20 + WW_H  // demand + centre label + supply + wing walkers
+  // Tow pilot + aircraft assignment labels (deduped — only where they change)
+  const assignmentLabels = (() => {
+    const schedule = buildTowSchedule(flights, AIRPORT, TOW_SETTINGS, ALL_TOW_AIRCRAFT.filter((a) => !isAircraftGrounded(a.id, mockAircraft, squawks)), allMxWindows)
+    if (schedule.length === 0) return []
+    const sorted = [...schedule].sort((a, b) => a.actualStartMs - b.actualStartMs)
+
+    const dayBaseMs = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate(), DAY_START_HOUR, 0, 0, 0).getTime()
+    const labels = []
+    let lastKey = null
+    for (const ev of sorted) {
+      const plane = mockAircraft.find((a) => a.id === ev.assignedPlaneId)
+      const fullName = ev.flight.towInfo?.towPilotName ?? ev.flight.pic ?? ''
+      const pilot = fullName.split(/[, ]+/)[0]?.split(' ')[0] || ''
+      const tail  = plane?.tailNumber ?? '?'
+      const key   = `${tail}|${pilot}`
+      if (key !== lastKey) {
+        const frac = (ev.actualStartMs - dayBaseMs) / (totalMinutes * 60_000)
+        if (frac >= 0 && frac <= 1) {
+          labels.push({ x: LABEL_COL + frac * CHART_W, tail, pilot, key })
+        }
+        lastKey = key
+      }
+    }
+    return labels
+  })()
+
+  // Supply band labels — each pilot-plane pair is tracked independently.
+  // A label is only printed when THAT pair first appears, not when other pairs change.
+  const pilotLabels = (() => {
+    const dx = CHART_W / n
+    const labels = []
+    const lastSeen = {}  // planeId → "pilotName" last printed
+
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i]
+      const availIds = seg.availablePlaneIds
+      if (availIds.length === 0) continue
+
+      // Build pilot map from assignments
+      const pilotMap = {}
+      for (const a of (seg.pilotAssignments ?? [])) {
+        pilotMap[a.planeId] = a.pilotName.split(' ')[0]
+      }
+
+      // Check each plane independently — only label if THIS plane's state changed
+      let cumVal = 0
+      for (const pid of availIds) {
+        const ac = ALL_TOW_AIRCRAFT.find((a) => a.id === pid)
+        if (!ac) continue
+        const val = seg.byPlane[pid] ?? 0
+        const bottomY = supplyBase + (cumVal / MAX_MIN) * SECTION_H
+        cumVal += val
+        const topY = supplyBase + (cumVal / MAX_MIN) * SECTION_H
+
+        const pilot = pilotMap[pid] ?? ''
+        const key = `${pid}:${pilot}`
+        if (key === lastSeen[pid]) continue  // no change for THIS plane
+        lastSeen[pid] = key
+
+        if (topY - bottomY < 3) continue
+        const midY = (bottomY + topY) / 2
+        labels.push({
+          x: LABEL_COL + i * dx + dx / 2,
+          y: midY,
+          text: pilot ? `${pilot} ${ac.tailNumber}` : ac.tailNumber,
+          planeId: pid,
+          segIdx: i,
+        })
+      }
+    }
+    return labels
+  })()
+
+  // Wing walker names resolved per-segment via schedule (using wwEffectiveBlocks)
+  const wwBaseOvLocal = getWwBaseOverrides()
+  const wwAdjLocal    = getWwAdjustments()
+  const allWingWalkers = mockPersonnel.filter((p) => p.wingWalker)
+
+  /** Get scheduled wing walker names for a segment */
+  function wwNamesForSegment(seg) {
+    const segDate = new Date(seg.startMs)
+    const hourFrac = segDate.getHours() + segDate.getMinutes() / 60
+    const block = hourFrac >= 8 && hourFrac < 12.5 ? 'am' : hourFrac >= 12.5 && hourFrac < 17 ? 'pm' : null
+    if (!block) return []
+    return allWingWalkers
+      .filter((ww) => wwEffectiveBlocks(ww, segDate, wwBaseOvLocal, wwAdjLocal).has(block))
+      .map((ww) => ww.name.split(' ')[0])
+  }
+
+  // Wing walker data per segment: count + names
+  const wwData = segments.map((seg) => {
+    const names = wwNamesForSegment(seg)
+    return { count: names.length, names }
+  })
+  const maxWw = Math.max(...wwData.map((w) => w.count), 1)
+
+  // Wing walker labels (individual, deduped — show each name at staggered heights)
+  const wwLabels = (() => {
+    const dx = CHART_W / n
+    const labels = []
+    let lastKey = null
+    for (let i = 0; i < wwData.length; i++) {
+      const key = wwData[i].names.sort().join(',')
+      if (key !== lastKey) {
+        wwData[i].names.forEach((name, j) => {
+          labels.push({
+            x: LABEL_COL + i * dx + dx / 2,
+            name,
+            rank: j,  // for vertical staggering
+          })
+        })
+        lastKey = key
+      }
+    }
+    return labels
+  })()
+
+  // Clickable standby segments
+  const standbySegments = segments
+    .map((seg, i) => seg.standbyFlights.length > 0 ? { idx: i, flights: seg.standbyFlights, startMs: seg.startMs } : null)
+    .filter(Boolean)
+
+  const empty = segments.every((s) => s.reservedFt === 0 && s.standbyFt === 0 && Object.keys(s.byPlane).length === 0)
+
+  // Date label for compact mode
+  const dayLabel = refDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 
   return (
     <div className="flex flex-col gap-3">
       {/* Header + legend */}
-      <div className="flex items-center justify-between flex-wrap gap-2">
+      {!compact && <div className="flex items-center justify-between flex-wrap gap-2">
         <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">
-          Hourly Tow Load
+          Tow Load
         </span>
         <div className="flex items-center gap-3 flex-wrap text-[10px] text-slate-400">
           <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-sm bg-sky-500/80 inline-block" />Reserved
+            <span className="w-2 h-2 rounded-sm inline-block" style={{ background: 'rgba(56,189,248,0.6)' }} />Pattern
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-sm inline-block" style={{ background: 'rgba(139,92,246,0.55)' }} />Scenic
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-sm inline-block" style={{ background: 'rgba(244,63,94,0.55)' }} />Mountain
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-sm bg-yellow-400/80 inline-block" />Standby
           </span>
-          <span className="text-slate-600">·</span>
-          {ALL_TOW_AIRCRAFT.map((ac, i) => (
-            <span key={ac.id} className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-sm ${PLANE_PALETTE[i % PLANE_PALETTE.length].bg} opacity-80 inline-block`} />
-              {ac.tailNumber}
-            </span>
-          ))}
-          <span className="text-slate-600">·</span>
-          <span className="text-slate-500">Tow capacity:</span>
-          {[
-            { bg: 'rgba(34,197,94,0.35)',  label: 'Surplus' },
-            { bg: 'rgba(234,179,8,0.35)',  label: 'Standby at risk' },
-            { bg: 'rgba(239,68,68,0.35)',  label: 'Deficit' },
-          ].map(({ bg, label }) => (
-            <span key={label} className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-sm inline-block" style={{ background: bg }} />
-              {label}
-            </span>
-          ))}
         </div>
-      </div>
+      </div>}
 
-      {/* Chart body */}
-      <div className="flex gap-0 overflow-x-auto">
-
-        {/* Left labels — tick values derived from dynamic MAX_MIN */}
-        <div
-          className="flex flex-col flex-shrink-0 items-end pr-1.5 text-[9px] text-slate-500 select-none"
-          style={{ width: 40 }}
-        >
-          <div style={{ height: SECTION_H }} className="flex flex-col justify-between items-end w-full">
-            <span>{MAX_MIN}m</span>
-            <span className="text-slate-600">{Math.round(MAX_MIN / 2)}m</span>
-            <span>0</span>
-          </div>
-          <div style={{ height: 20 }} />
-          <div style={{ height: SECTION_H }} className="flex flex-col justify-between items-end w-full">
-            <span>0</span>
-            <span className="text-slate-600">{Math.round(MAX_MIN / 2)}m</span>
-            <span>{MAX_MIN}m</span>
-          </div>
-          <div style={{ height: WW_H }} className="flex items-center justify-end w-full">
-            <span className="text-amber-400 text-[8px]">🚶WW</span>
-          </div>
+      {/* Compact date label */}
+      {compact && (
+        <div className="text-xs text-slate-300 font-semibold text-center truncate">
+          {dayLabel}
         </div>
+      )}
 
-        {/* Hour columns */}
-        <div className="relative flex flex-1 min-w-0" style={{ gap: 1 }}>
-          {/* NOW line */}
-          {showNow && (
-            <div
-              className="absolute top-0 bottom-0 pointer-events-none z-10"
-              style={{ left: `${nowPct}%`, width: 1.5, height: CHART_H, background: 'rgba(251,191,36,0.9)' }}
-            >
-              <span
-                className="absolute -top-4 left-1 text-[9px] font-semibold text-yellow-400 whitespace-nowrap select-none"
-              >
-                NOW
-              </span>
+      {/* SVG violin chart */}
+      <div className="relative"
+        onKeyDown={(e) => { if (e.key === 'Escape') setSelectedSeg(null) }}
+        tabIndex={-1}
+      >
+      <svg
+        viewBox={`0 0 ${SVG_W} ${SVG_H}`}
+        className="w-full"
+        style={{ minHeight: compact ? 120 : 160 }}
+        preserveAspectRatio="xMidYMid meet"
+        onClick={(e) => {
+          // Click on empty area dismisses popover
+          if (e.target.tagName === 'svg') setSelectedSeg(null)
+        }}
+      >
+        {/* Capacity background bands */}
+        {capacityBands.map((b, i) => (
+          <rect key={i} x={b.x} y={0} width={b.width} height={SECTION_H * 2 + CENTRE_H} fill={b.fill} />
+        ))}
+
+        {/* Hour grid lines */}
+        {compact
+          ? (() => {
+              // Compact: just a single light vertical line at noon
+              const noonHour = 12
+              const noonX = LABEL_COL + ((noonHour - DAY_START_HOUR) * 60 / totalMinutes) * CHART_W
+              return <line x1={noonX} y1={0} x2={noonX} y2={SVG_H} stroke="rgba(148,163,184,0.15)" strokeWidth={0.5} />
+            })()
+          : hourTicks.map((t, i) => (
+              <g key={i}>
+                <line x1={t.x} y1={0} x2={t.x} y2={SVG_H} stroke="rgba(148,163,184,0.15)" strokeWidth={0.5} />
+                <text x={t.x} y={centreY + CENTRE_H / 2 + 3} textAnchor="middle"
+                  className="fill-slate-500" style={{ fontSize: 9 }}>
+                  {t.label}
+                </text>
+              </g>
+            ))
+        }
+
+        {/* Centre line */}
+        <line x1={LABEL_COL} y1={centreY} x2={SVG_W} y2={centreY} stroke="rgba(148,163,184,0.3)" strokeWidth={0.5} />
+        <line x1={LABEL_COL} y1={supplyBase} x2={SVG_W} y2={supplyBase} stroke="rgba(148,163,184,0.3)" strokeWidth={0.5} />
+
+        {/* Half-height guidelines */}
+        <line x1={LABEL_COL} y1={centreY - SECTION_H / 2} x2={SVG_W} y2={centreY - SECTION_H / 2}
+          stroke="rgba(148,163,184,0.08)" strokeWidth={0.5} strokeDasharray="4 4" />
+        <line x1={LABEL_COL} y1={supplyBase + SECTION_H / 2} x2={SVG_W} y2={supplyBase + SECTION_H / 2}
+          stroke="rgba(148,163,184,0.08)" strokeWidth={0.5} strokeDasharray="4 4" />
+
+        {/* Demand violin — stacked by tow type: pattern (blue), scenic (violet), mountain (rose) */}
+        {demandPaths.map((dp) => dp.d && <path key={dp.key} d={dp.d} fill={dp.fill} />)}
+        {/* Standby overlay (yellow, on top of reserved stack) */}
+        {standbyPath && <path d={standbyPath} fill="rgba(234,179,8,0.35)" />}
+
+        {/* Demand segment hit zones — click to show reservation cards (full mode only) */}
+        {!compact && segments.map((seg, i) => {
+          const dx = CHART_W / n
+          const x  = LABEL_COL + i * dx
+          const df = seg.demandFlights ?? []
+          if (df.length === 0) return null
+          return (
+            <rect
+              key={`dem-${i}`}
+              x={x} y={0} width={dx} height={centreY}
+              fill={selectedSeg === i ? 'rgba(56,189,248,0.08)' : 'transparent'}
+              className="cursor-pointer"
+              onClick={(e) => {
+                if (selectedSeg === i) { setSelectedSeg(null); return }
+                const rect = e.currentTarget.closest('svg').getBoundingClientRect()
+                setPopoverPos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                setSelectedSeg(i)
+              }}
+            />
+          )
+        })}
+
+        {/* Supply violin — stacked per plane (skip grounded), clickable for performance card */}
+        {planePathData.map(({ ac, pi, d }) => {
+          const grounded = isAircraftGrounded(ac.id, mockAircraft, squawks)
+          if (grounded) return null
+          return <path key={ac.id} d={d}
+            fill={PLANE_PALETTE[pi % PLANE_PALETTE.length].hex} opacity={0.6}
+            className={compact ? '' : 'cursor-pointer'}
+            onClick={compact ? undefined : (e) => {
+              e.stopPropagation()
+              const svg = e.currentTarget.closest('svg')
+              const rect = svg.getBoundingClientRect()
+              const svgX = (e.clientX - rect.left) / rect.width * SVG_W
+              const segIdx = Math.floor((svgX - LABEL_COL) / (CHART_W / n))
+              setPlanePopPos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+              setPlaneSegIdx(Math.max(0, Math.min(n - 1, segIdx)))
+              setSelectedPlane(selectedPlane === ac.id ? null : ac.id)
+              setSelectedSeg(null)
+            }}
+          />
+        })}
+
+        {/* Refuelling indicators — gas pump icon where a plane is offline */}
+        {!compact && (() => {
+          const dx = CHART_W / n
+          const icons = []
+          for (let si = 0; si < segments.length; si++) {
+            const seg = segments[si]
+            for (const pid of seg.availablePlaneIds) {
+              const fs = seg.planeFuel?.[pid]
+              if (!fs?.refuelling) continue
+              const x = LABEL_COL + si * dx + dx / 2
+              icons.push(
+                <g key={`fuel-${pid}-${si}`} transform={`translate(${x - 5}, ${supplyBase + 2})`}>
+                  {/* Gas pump icon */}
+                  <rect x={1} y={2} width={6} height={7} rx={0.5} fill="none" stroke="rgba(59,130,246,0.7)" strokeWidth="0.6" />
+                  <rect x={2} y={3} width={4} height={2.5} rx={0.3} fill="rgba(59,130,246,0.4)" />
+                  <path d="M7 3.5 L8.5 2.5 L8.5 6 L7 5.5" fill="none" stroke="rgba(59,130,246,0.6)" strokeWidth="0.5" />
+                  <line x1={3} y1={1} x2={5} y2={1} stroke="rgba(59,130,246,0.5)" strokeWidth="0.6" />
+                  <text x={4.5} y={14} textAnchor="middle"
+                    className="fill-sky-400" style={{ fontSize: 5 }}>
+                    {mockAircraft.find((a) => a.id === pid)?.tailNumber?.slice(-4) ?? ''}
+                  </text>
+                </g>
+              )
+            }
+          }
+          return icons
+        })()}
+
+        {/* Pilot + plane labels inside each plane's colored supply band — clickable */}
+        {pilotLabels.map((lbl, i) => (
+          <text key={`pilot-${i}`} x={lbl.x + 3} y={lbl.y}
+            className="fill-white cursor-pointer"
+            style={{ fontSize: compact ? 12 : 7.5, fontFamily: 'inherit', fontWeight: 600 }}
+            dominantBaseline="middle"
+            onClick={(e) => {
+              e.stopPropagation()
+              const rect = e.currentTarget.closest('svg').getBoundingClientRect()
+              setPlanePopPos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+              setPlaneSegIdx(lbl.segIdx ?? 0)
+              setSelectedPlane(selectedPlane === lbl.planeId ? null : lbl.planeId)
+              setSelectedSeg(null)
+            }}>
+            {lbl.text}
+          </text>
+        ))}
+
+        {/* NOW line */}
+        {showNow && (
+          <g>
+            <line x1={nowX} y1={0} x2={nowX} y2={SVG_H} stroke="rgba(251,191,36,0.9)" strokeWidth={1.5} />
+            <text x={nowX + 2} y={8} className="fill-yellow-400" style={{ fontSize: 6.5, fontWeight: 600 }}>
+              now
+            </text>
+          </g>
+        )}
+
+        {/* Section labels */}
+        {!compact && <>
+          <text x={4} y={centreY / 2 + 3} className="fill-slate-500"
+            style={{ fontSize: 7.5, fontWeight: 600 }}>Demand</text>
+          <text x={4} y={supplyBase + SECTION_H / 2 + 3} className="fill-slate-500"
+            style={{ fontSize: 7.5, fontWeight: 600 }}>Supply</text>
+        </>}
+        {/* Scale — ft/min (segment totals ÷ segment minutes) */}
+        {!compact && (() => {
+          const ftPerMin = Math.round(MAX_MIN / SEGMENT_MINUTES)
+          return <>
+            <text x={LABEL_COL - 2} y={8} textAnchor="end" className="fill-slate-600" style={{ fontSize: 7 }}>
+              {ftPerMin} ft/m
+            </text>
+            <text x={LABEL_COL - 2} y={SECTION_H * 2 + CENTRE_H - 2} textAnchor="end" className="fill-slate-600" style={{ fontSize: 7 }}>
+              {ftPerMin} ft/m
+            </text>
+          </>
+        })()}
+
+        {/* Wing walker row — smoothed violin + deduped name labels (full mode only) */}
+        {!compact && (() => {
+          const dx = CHART_W / n
+          const wwY = SECTION_H * 2 + CENTRE_H  // fixed position: right after supply section
+          // Smooth the wing walker counts the same way as other curves
+          const rawWw = wwData.map((w) => w.count)
+          const smoothWw = gaussianSmooth(rawWw, DEMAND_SIGMA)
+          // Build monotone path for WW violin (grows downward from top of WW row)
+          const wwPts = smoothWw.map((v, i) => ({
+            x: LABEL_COL + i * dx + dx / 2,
+            y: wwY + (v / maxWw) * WW_H,
+          }))
+          const wwBasePts = smoothWw.map((_, i) => ({
+            x: LABEL_COL + i * dx + dx / 2,
+            y: wwY,
+          }))
+          const wwFwd = monotonePath(wwPts)
+          const wwRev = [...wwBasePts].reverse()
+          const wwRevPath = monotonePath(wwRev)
+          const wwPath = wwPts.length >= 2
+            ? wwFwd + ` L ${wwRev[0].x} ${wwRev[0].y} ` + wwRevPath.replace(/^M [^ ]+ [^ ]+/, '') + ' Z'
+            : ''
+
+          return (
+            <g>
+              <line x1={LABEL_COL} y1={wwY} x2={SVG_W} y2={wwY} stroke="rgba(148,163,184,0.2)" strokeWidth={0.5} />
+              <text x={LABEL_COL - 4} y={wwY + WW_H / 2 + 3} textAnchor="end"
+                className="fill-slate-500" style={{ fontSize: 7, fontWeight: 600 }}>
+                Wing Walk
+              </text>
+              {wwPath && <path d={wwPath} fill="rgba(148,163,184,0.25)" />}
+              {/* Wing walker name labels (individual, staggered) */}
+              {wwLabels.map((lbl, i) => (
+                <text key={`ww-${i}`} x={lbl.x + 2} y={wwY + 9 + lbl.rank * 8}
+                  className="fill-slate-400"
+                  style={{ fontSize: 7, fontFamily: 'inherit' }}>
+                  {lbl.name}
+                </text>
+              ))}
+            </g>
+          )
+        })()}
+
+        {/* Grounded / was-grounded rows — below wing walkers (full mode only) */}
+        {!compact && groundedRows.map((row, ri) => {
+          const rowY = SVG_H - GND_H + ri * GND_ROW_H
+          const x1 = LABEL_COL + row.startFrac * CHART_W
+          const x2 = LABEL_COL + row.endFrac * CHART_W
+          const barW = Math.max(2, x2 - x1)
+          return (
+            <g key={`gnd-${ri}`}>
+              {ri === 0 && (
+                <line x1={LABEL_COL} y1={rowY} x2={SVG_W} y2={rowY}
+                  stroke="rgba(239,68,68,0.2)" strokeWidth={0.5} />
+              )}
+              <text x={LABEL_COL - 4} y={rowY + GND_ROW_H / 2 + 3} textAnchor="end"
+                className="fill-red-400" style={{ fontSize: 7.5, fontFamily: 'inherit', fontWeight: 600 }}>
+                {row.tail}
+              </text>
+              <rect x={x1} y={rowY + 2} width={barW} height={GND_ROW_H - 4}
+                rx={2}
+                fill={row.ongoing ? 'rgba(239,68,68,0.25)' : 'rgba(239,68,68,0.12)'}
+                stroke={row.ongoing ? 'rgba(239,68,68,0.6)' : 'rgba(239,68,68,0.35)'}
+                strokeWidth={0.5}
+                strokeDasharray={row.ongoing ? undefined : '3 2'}
+              />
+              <text x={x1 + 4} y={rowY + GND_ROW_H / 2 + 3}
+                className={row.ongoing ? 'fill-red-300' : 'fill-red-400/60'}
+                style={{ fontSize: 7, fontFamily: 'inherit', fontWeight: 500 }}>
+                {row.label}
+              </text>
+              {row.startFrac > 0.01 && (
+                <text x={x1 + 1} y={rowY + GND_ROW_H - 1}
+                  className="fill-red-500/40" style={{ fontSize: 6 }}>
+                  {new Date(new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate(), DAY_START_HOUR).getTime() + row.startFrac * NUM_HOURS * 3_600_000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
+                </text>
+              )}
+              {row.endFrac < 0.99 && (
+                <text x={x2 - 1} y={rowY + GND_ROW_H - 1} textAnchor="end"
+                  className="fill-red-500/40" style={{ fontSize: 6 }}>
+                  {new Date(new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate(), DAY_START_HOUR).getTime() + row.endFrac * NUM_HOURS * 3_600_000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
+                </text>
+              )}
+            </g>
+          )
+        })}
+      </svg>
+
+      {/* Click-outside backdrop to dismiss popovers (full mode only) */}
+      {!compact && (selectedSeg !== null || selectedPlane) && (
+        <div className="fixed inset-0 z-10" onClick={() => { setSelectedSeg(null); setSelectedPlane(null) }} />
+      )}
+
+      {/* Floating tow plane performance card */}
+      {!compact && selectedPlane && (() => {
+        const ac = mockAircraft.find((a) => a.id === selectedPlane)
+        const prof = TOW_PLANE_PROFILE[selectedPlane]
+        if (!ac || !prof) return null
+        // Use the clicked segment for context
+        const clickedSeg = segments[planeSegIdx] ?? segments[0]
+        const segTime = clickedSeg?.label ?? ''
+        // Find pilot assigned to this plane
+        const pilotAssign = clickedSeg?.pilotAssignments?.find((a) => a.planeId === selectedPlane)
+          ?? segments.find((s) => s.pilotAssignments?.some((a) => a.planeId === selectedPlane))?.pilotAssignments?.find((a) => a.planeId === selectedPlane)
+        const pilotObj = pilotAssign ? mockPersonnel.find((p) => p.name === pilotAssign.pilotName) : null
+        // Fuel state at clicked segment
+        const fs = clickedSeg?.planeFuel?.[selectedPlane]
+        // DA — use a rough estimate (15°C at field elev = ISA, adjust if weather available)
+        const estDA = TOW_SETTINGS.fieldElevFt + 1500  // typical summer DA offset at KBDU
+        const climbISA = towClimbRate(selectedPlane)
+        const climbDA  = towClimbRate(selectedPlane, estDA, fs?.fuelGal)
+        const fuelPct  = fs?.fuelPct ?? 100
+        const enduranceHr = (prof.fuelCapGal / prof.fuelBurnGalHr).toFixed(1)
+        const fuelWeightLbs = Math.round((fs?.fuelGal ?? prof.fuelCapGal) * TOW_SETTINGS.fuelWeightLbsPerGal)
+        const pilotWt = prof.pilotWeightLbs
+        const totalWt = prof.emptyWeightLbs + pilotWt + fuelWeightLbs
+        // Default glider (2-33A dual)
+        const defGliderWt = 575 + 170 + 170  // empty + pilot + instructor
+        const segFtISA = planeSegmentFt(selectedPlane)
+        const segFtDA  = planeSegmentFt(selectedPlane, estDA, TOW_SETTINGS, fs?.fuelGal)
+
+        return (
+          <div
+            className="absolute z-30 w-80 rounded-xl border border-slate-700/60 bg-slate-900/95 backdrop-blur-sm shadow-xl p-4 flex flex-col gap-3"
+            style={{ left: planePopPos.x, top: planePopPos.y }}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-semibold text-slate-200">{ac.tailNumber} — {ac.makeModel}</div>
+                <div className="text-[10px] text-slate-400">
+                  {pilotObj ? pilotObj.name : 'No pilot assigned'}{segTime ? ` · ${segTime}` : ''}
+                </div>
+              </div>
+              <button onClick={() => setSelectedPlane(null)}
+                className="text-[10px] text-slate-500 hover:text-slate-300 px-1">x</button>
             </div>
-          )}
-          {hours.map((h, i) => {
-            const rPct   = pct(h.reservedMin)
-            const sPct   = pct(h.standbyMin)
-            const colBg  = towCapacityBg(h)
 
-            // Pre-compute stacked offsets for tow planes
-            let planeOffset = 0
-            const planeSegments = ALL_TOW_AIRCRAFT.map((ac, pi) => {
-              const thisPct = pct(h.byPlane[ac.id] ?? 0)
-              const seg = { ac, pi, topPct: planeOffset, pct: thisPct }
-              planeOffset += thisPct
-              return seg
-            })
+            {/* Weight breakdown */}
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px]">
+              <span className="text-slate-500">Empty weight</span>
+              <span className="text-slate-300 text-right">{prof.emptyWeightLbs.toLocaleString()} lbs</span>
+              <span className="text-slate-500">Pilot</span>
+              <span className="text-slate-300 text-right">{pilotWt} lbs</span>
+              <span className="text-slate-500">Fuel ({fuelPct}%)</span>
+              <span className="text-slate-300 text-right">{fuelWeightLbs} lbs</span>
+              <span className="text-slate-500 font-semibold border-t border-slate-700/40 pt-1">Tow plane total</span>
+              <span className="text-slate-200 font-semibold text-right border-t border-slate-700/40 pt-1">{totalWt.toLocaleString()} lbs</span>
+              <span className="text-slate-500">Default glider (2-33A dual)</span>
+              <span className="text-slate-300 text-right">{defGliderWt} lbs</span>
+              <span className="text-slate-500 font-semibold">Combined on tow</span>
+              <span className="text-slate-200 font-semibold text-right">{(totalWt + defGliderWt).toLocaleString()} lbs</span>
+            </div>
 
-            // Ghost deltas from preview flight
-            const ph = previewHours?.[i]
-            const ghostDemandPct  = ph ? Math.max(0, pct(ph.reservedMin) - rPct) : 0
-            const ghostStandbyPct = ph ? Math.max(0, pct(ph.standbyMin)  - sPct) : 0
-            let ghostPlaneOffset  = planeOffset
-            const ghostPlaneSegs  = ph ? ALL_TOW_AIRCRAFT.map((ac, pi) => {
-              const existingPct = pct(h.byPlane[ac.id] ?? 0)
-              const previewPct  = pct(ph.byPlane[ac.id] ?? 0)
-              const deltaPct    = Math.max(0, previewPct - existingPct)
-              const seg = { ac, pi, topPct: ghostPlaneOffset, pct: deltaPct }
-              ghostPlaneOffset += deltaPct
-              return seg
-            }) : []
+            {/* Fuel bar */}
+            <div className="flex items-center gap-2">
+              <svg width={14} height={14} viewBox="0 0 12 12" className="text-sky-400 flex-shrink-0">
+                <rect x={1} y={2.5} width={6} height={7} rx={0.7} fill="none" stroke="currentColor" strokeWidth="0.8" />
+                <rect x={2} y={3.5} width={4} height={2.5} rx={0.3} fill="currentColor" opacity="0.4" />
+                <path d="M7 4 L9 3 L9 7 L7 6.5" fill="none" stroke="currentColor" strokeWidth="0.6" />
+                <line x1={3} y1={1.5} x2={5} y2={1.5} stroke="currentColor" strokeWidth="0.8" />
+              </svg>
+              <div className="flex-1 h-2 rounded-full bg-slate-700 overflow-hidden">
+                <div className={`h-full rounded-full transition-all ${fuelPct > 30 ? 'bg-sky-500' : fuelPct > 15 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                  style={{ width: `${fuelPct}%` }} />
+              </div>
+              <span className="text-[10px] text-slate-400 w-12 text-right">{prof.fuelCapGal} gal</span>
+            </div>
+            <div className="text-[10px] text-slate-500">
+              {prof.fuelBurnGalHr} gal/hr · {enduranceHr} hr endurance · refuel {TOW_SETTINGS.refuelTimeMin} min
+            </div>
 
-            return (
-              <div
-                key={i}
-                className="flex flex-col flex-1 min-w-0"
-                style={{ minWidth: 24, background: colBg ?? undefined }}
-                title={`${Math.round(h.reservedMin)}m reserved + ${Math.round(h.standbyMin)}m standby · ${Math.round(h.supplyMin)}m duty blocks${h.schedSupplyMin ? ` · ${Math.round(h.schedSupplyMin)}m pilot capacity` : ''}`}
-              >
+            {/* Performance */}
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] border-t border-slate-700/40 pt-2">
+              <span className="text-slate-500">Climb rate (ISA)</span>
+              <span className="text-slate-300 text-right">{climbISA} ft/min</span>
+              <span className="text-slate-500">Climb rate (DA {estDA.toLocaleString()})</span>
+              <span className="text-slate-300 text-right">{climbDA} ft/min</span>
+              <span className="text-slate-500">Capacity/segment (ISA)</span>
+              <span className="text-slate-300 text-right">{segFtISA.toLocaleString()} ft</span>
+              <span className="text-slate-500">Capacity/segment (DA)</span>
+              <span className={`text-right font-semibold ${segFtDA < segFtISA * 0.8 ? 'text-yellow-400' : 'text-slate-200'}`}>
+                {segFtDA.toLocaleString()} ft
+              </span>
+              <span className="text-slate-500">Max gross</span>
+              <span className="text-slate-300 text-right">{prof.maxGrossLbs.toLocaleString()} lbs</span>
+            </div>
 
-                {/* ── Top: glider demand (bars grow upward) ── */}
-                <div className="relative" style={{ height: SECTION_H, background: 'rgba(148,163,184,0.03)' }}>
-                  <div className="absolute inset-x-0 border-b border-slate-700/25" style={{ bottom: '50%' }} />
-                  {rPct > 0 && (
-                    <div className="absolute inset-x-0 bottom-0 bg-sky-500/75" style={{ height: `${rPct}%` }} />
-                  )}
-                  {sPct > 0 && (
-                    <div className="absolute inset-x-0 bg-yellow-400/75" style={{ bottom: `${rPct}%`, height: `${sPct}%` }} />
-                  )}
-                  {/* ghost demand — breathing overlay stacked above existing */}
-                  {ghostDemandPct > 0 && (
-                    <div
-                      className="absolute inset-x-0 bg-sky-300/50 animate-breathe"
-                      style={{ bottom: `${rPct + sPct}%`, height: `${ghostDemandPct}%` }}
-                    />
-                  )}
-                  {ghostStandbyPct > 0 && (
-                    <div
-                      className="absolute inset-x-0"
-                      style={{ bottom: `${rPct + sPct + ghostDemandPct}%`, height: `${ghostStandbyPct}%` }}
-                    >
-                      {/* Crossfade: yellow (standby) fades out while sky (confirmed) fades in */}
-                      <div className="absolute inset-0 bg-yellow-400/60 animate-breathe" />
-                      <div className="absolute inset-0 bg-sky-400/60 animate-breathe-in" />
-                    </div>
-                  )}
-                </div>
-
-                {/* ── Centre: hour label ── */}
-                <div
-                  className="flex items-center justify-center border-t border-b border-slate-700/60"
-                  style={{ height: 20 }}
-                >
-                  <span className="text-[9px] text-slate-500 font-mono">{h.label}</span>
-                </div>
-
-                {/* ── Bottom: tow plane supply (bars grow downward) ── */}
-                <div className="relative" style={{ height: SECTION_H, background: 'rgba(148,163,184,0.03)' }}>
-                  <div className="absolute inset-x-0 border-b border-slate-700/25" style={{ top: '50%' }} />
-                  {planeSegments.map((seg) =>
-                    seg.pct > 0 ? (
-                      <div
-                        key={seg.ac.id}
-                        className={`absolute inset-x-0 ${PLANE_PALETTE[seg.pi % PLANE_PALETTE.length].bg} opacity-75`}
-                        style={{ top: `${seg.topPct}%`, height: `${seg.pct}%` }}
-                      />
-                    ) : null
-                  )}
-                  {/* ghost supply — breathing overlay stacked below existing */}
-                  {ghostPlaneSegs.map((seg) =>
-                    seg.pct > 0 ? (
-                      <div
-                        key={`ghost-${seg.ac.id}`}
-                        className={`absolute inset-x-0 ${PLANE_PALETTE[seg.pi % PLANE_PALETTE.length].bg} opacity-40 animate-breathe`}
-                        style={{ top: `${seg.topPct}%`, height: `${seg.pct}%` }}
-                      />
-                    ) : null
-                  )}
-                </div>
-
-                {/* ── Wing walkers ── */}
-                {(() => {
-                  const hourNum = DAY_START_HOUR + i
-                  // Match shift boundaries: AM 8-12:30, PM 12:30-17
-                  const wwBlock = hourNum >= 8 && hourNum < 13 ? 'am' : hourNum >= 13 && hourNum < 17 ? 'pm' : null
-                  const ww = wwBlock === 'am' ? wwCountAm : wwBlock === 'pm' ? wwCountPm : 0
-                  const maxWw = Math.max(wwCountAm, wwCountPm, 1)
-                  const barPct = Math.min(100, (ww / maxWw) * 100)
+            {/* Tow time to altitude — with default glider at current DA */}
+            <div className="border-t border-slate-700/40 pt-2">
+              <div className="text-[10px] text-slate-500 mb-1.5">
+                Time to altitude (DA {estDA.toLocaleString()} ft · 2-33A dual {defGliderWt} lbs)
+              </div>
+              <div className="flex gap-2">
+                {[1000, 2000, 3000, 4000].map((ht) => {
+                  const mins = (ht / climbDA).toFixed(1)
+                  const price = towPrice(ht)
                   return (
-                    <div
-                      className="relative border-t border-slate-700/40"
-                      style={{ height: WW_H }}
-                      title={wwBlock ? `${ww} wing walker${ww !== 1 ? 's' : ''} (${wwBlock.toUpperCase()} shift)` : 'Outside shift hours'}
-                    >
-                      {ww > 0 && (
-                        <div
-                          className="absolute inset-x-0 top-0 bg-amber-500/40"
-                          style={{ height: `${barPct}%` }}
-                        />
-                      )}
-                      <div className={`absolute inset-0 flex items-center justify-center text-[8px] font-bold ${ww > 0 ? 'text-amber-300' : wwBlock ? 'text-red-400/60' : 'text-slate-700'}`}>
-                        {wwBlock ? ww : ''}
-                      </div>
+                    <div key={ht} className="flex-1 text-center rounded bg-slate-800/60 border border-slate-700/30 px-1 py-1.5">
+                      <div className="text-[10px] text-slate-400">{ht / 1000}k ft</div>
+                      <div className="text-xs text-slate-200 font-semibold">{mins} min</div>
+                      <div className="text-[9px] text-green-400/70">${price}</div>
                     </div>
                   )
-                })()}
-
+                })}
               </div>
-            )
-          })}
-        </div>
+            </div>
+          </div>
+        )
+      })()}
 
-        {/* Right spacer so last column label isn't clipped */}
-        <div style={{ width: 4 }} className="flex-shrink-0" />
+      {/* Floating flight cards at click position — reuses full FlightCard with billing */}
+      {!compact && selectedSeg !== null && (() => {
+        const seg = segments[selectedSeg]
+        const df = seg?.demandFlights ?? []
+        if (df.length === 0) return null
+        return (
+            <div
+              className="absolute z-30 w-[420px] max-h-[70vh] overflow-y-auto rounded-xl border border-slate-700/60 bg-slate-900/95 backdrop-blur-sm shadow-xl p-3 flex flex-col gap-2"
+              style={{ left: popoverPos.x, top: popoverPos.y }}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide">
+                  {seg.label} — {df.length} reservation{df.length !== 1 ? 's' : ''}
+                </span>
+                <button onClick={() => setSelectedSeg(null)}
+                  className="text-[10px] text-slate-500 hover:text-slate-300 px-1">
+                  x
+                </button>
+              </div>
+              {df.map((f) => (
+                <FlightCard key={f.id} f={f} />
+              ))}
+            </div>
+        )
+      })()}
       </div>
 
-      {/* Axis labels */}
-      <div className="flex text-[9px] text-slate-600 select-none" style={{ paddingLeft: 40 }}>
-        <div className="flex-1 text-left">Glider demand ↑  (reserved + standby)</div>
-        <div className="flex-1 text-center text-amber-500/60">🚶 Wing walkers (AM {wwCountAm} · PM {wwCountPm})</div>
-        <div className="flex-1 text-right">Tow plane supply ↓  (by aircraft)</div>
-      </div>
 
-      {hours.every((h) => h.reservedMin === 0 && h.standbyMin === 0 && Object.keys(h.byPlane).length === 0) && (
+      {!compact && empty && (
         <p className="text-[10px] text-slate-600 italic -mt-1">
           Add reservations to populate the load chart.
         </p>
@@ -491,12 +1089,18 @@ function evDelay(ev) {
 const LABEL_W = 112   // px — fixed left label column
 const ROW_H   = 30    // px — row height
 
-function TowGantt({ flights, squawks = [] }) {
+function TowGantt({ flights, squawks = [], mxWindows = [] }) {
   const [view, setView] = useStickyState('glider_ganttView', 'daily')  // daily | weekly | monthly
+  const [selectedFlight, setSelectedFlight] = useState(null)
+  const [ganttPopPos, setGanttPopPos] = useState({ x: 0, y: 0 })
+
+  // Time-aware grounding: convert closed grounding squawks to maintenance windows
+  const implicitMx = squawksToMaintenanceWindows(squawks, mockAircraft)
+  const allMx = [...mxWindows, ...implicitMx]
 
   const availablePlanes = ALL_TOW_AIRCRAFT.filter((a) => !isAircraftGrounded(a.id, mockAircraft, squawks))
   const groundedPlanes  = ALL_TOW_AIRCRAFT.filter((a) => isAircraftGrounded(a.id, mockAircraft, squawks))
-  const schedule = buildTowSchedule(flights, AIRPORT, TOW_SETTINGS, availablePlanes.length > 0 ? availablePlanes : undefined)
+  const schedule = buildTowSchedule(flights, AIRPORT, TOW_SETTINGS, availablePlanes.length > 0 ? availablePlanes : undefined, allMx)
 
   const now   = Date.now()
   const today = new Date()
@@ -588,7 +1192,10 @@ function TowGantt({ flights, squawks = [] }) {
   }
 
   return (
-    <div className="flex flex-col gap-0.5 overflow-x-auto">
+    <div className="flex flex-col gap-0.5 overflow-x-auto relative"
+      onKeyDown={(e) => { if (e.key === 'Escape') setSelectedFlight(null) }}
+      tabIndex={-1}
+    >
       {/* ── View toggle ── */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex gap-1">
@@ -665,8 +1272,14 @@ function TowGantt({ flights, squawks = [] }) {
                   )}
                   <div
                     title={`Towing ${gldrLbl} · Tow ${ev.towIndex + 1} · ${ev.heightFt.toLocaleString()} ft · ${towCycleMin(ev.heightFt)} min${delay ? ` · ${delay}m delay` : ''} · ${st}`}
-                    className={`absolute rounded flex items-center justify-center overflow-hidden ${c.bar}`}
+                    className={`absolute rounded flex items-center justify-center overflow-hidden cursor-pointer ${c.bar}`}
                     style={{ left: `${lp(ev.actualStartMs)}%`, width: `${wp(ev.actualStartMs, ev.actualEndMs)}%`, top: 3, bottom: 3 }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const rect = e.currentTarget.closest('.flex.flex-col').getBoundingClientRect()
+                      setGanttPopPos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                      setSelectedFlight(selectedFlight?.id === ev.flight.id ? null : ev.flight)
+                    }}
                   >
                     <span className={`text-[9px] font-mono ${c.text} truncate px-0.5 pointer-events-none`}>
                       {gldrLbl}
@@ -679,41 +1292,60 @@ function TowGantt({ flights, squawks = [] }) {
         )
       })}
 
-      {/* ── Grounded tow planes ── */}
-      {groundedPlanes.length > 0 && groundedPlanes.map((ac) => {
-        // Find grounding squawk date
+      {/* ── Grounded tow planes — time-aware bars ── */}
+      {/* Currently grounded (open squawk): bar from squawk report to end of window */}
+      {groundedPlanes.map((ac) => {
         const gSquawk = squawks.find((s) =>
           (s.aircraftId === ac.id || s.tailNumber === ac.tailNumber) &&
           s.severity === 'grounding' && s.status !== 'closed'
         )
-        // Use reportedAt (full Zulu timestamp) if available, fall back to reportedDate
-        const gTimestamp = gSquawk?.reportedAt ?? gSquawk?.reportedDate ?? null
-        const gDateMs = gTimestamp ? new Date(gTimestamp).getTime() : null
-        const gInWindow = gDateMs && gDateMs >= windowStart && gDateMs <= windowEnd
-        const gLabel = gSquawk?.reportedAt
-          ? fmtTime(new Date(gSquawk.reportedAt)) + 'Z ' + (gSquawk.reportedDate ?? '')
-          : gSquawk?.reportedDate ?? ''
+        const reportStr = gSquawk?.reportedAt ?? gSquawk?.reportedDate
+        const startMs = reportStr ? new Date(reportStr).getTime() : windowStart
+        const barStart = Math.max(startMs, windowStart)
         return (
           <GanttRow key={`grnd-${ac.id}`} label={ac.tailNumber} sublabel="GROUNDED">
-            {/* Red bar from grounding date (or window start) to end */}
-            <div
-              className="absolute bg-red-500/15 border-t border-b border-red-500/30"
-              style={{
-                left:  gInWindow ? `${lp(gDateMs)}%` : '0%',
-                right: '0%',
-                top: 0, bottom: 0,
-              }}
-            />
-            {/* Grounding date marker */}
-            {gInWindow && (
-              <div
-                className="absolute top-0 bottom-0 w-0.5 bg-red-500/80 z-10"
-                style={{ left: `${lp(gDateMs)}%` }}
-              />
+            <div className="absolute rounded bg-red-500/20 border border-red-500/40"
+              style={{ left: `${lp(barStart)}%`, right: '0%', top: 3, bottom: 3 }} />
+            {startMs >= windowStart && startMs <= windowEnd && (
+              <div className="absolute top-0 bottom-0 w-0.5 bg-red-500/80 z-10"
+                style={{ left: `${lp(startMs)}%` }} />
             )}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <span className="text-[9px] font-semibold text-red-400 bg-slate-800/80 px-2 rounded">
-                GROUNDED{gLabel ? ` ${gLabel}` : ''}
+                GROUNDED
+              </span>
+            </div>
+          </GanttRow>
+        )
+      })}
+      {/* Was-grounded (closed squawk / resolved): bar from report to resolution */}
+      {allMx.filter((w) => {
+        const ac = ALL_TOW_AIRCRAFT.find((a) => a.id === w.aircraftId)
+        if (!ac) return false
+        if (isAircraftGrounded(ac.id, mockAircraft, squawks)) return false  // shown above
+        return w.endMs > windowStart && w.startMs < windowEnd
+      }).map((w, i) => {
+        const ac = ALL_TOW_AIRCRAFT.find((a) => a.id === w.aircraftId)
+        const barStart = Math.max(w.startMs, windowStart)
+        const barEnd   = Math.min(w.endMs, windowEnd)
+        const startLabel = w.startMs >= windowStart ? fmtTime(new Date(w.startMs)) : ''
+        const endLabel   = w.endMs <= windowEnd ? fmtTime(new Date(w.endMs)) : ''
+        return (
+          <GanttRow key={`mx-${i}`} label={ac.tailNumber} sublabel="was grounded">
+            <div className="absolute rounded bg-red-500/10 border border-dashed border-red-500/30"
+              style={{ left: `${lp(barStart)}%`, width: `${wp(barStart, barEnd)}%`, top: 3, bottom: 3 }}
+              title={`Grounded ${startLabel}–${endLabel}`} />
+            {w.startMs >= windowStart && w.startMs <= windowEnd && (
+              <div className="absolute top-0 bottom-0 w-0.5 bg-red-500/50"
+                style={{ left: `${lp(w.startMs)}%` }} />
+            )}
+            {w.endMs >= windowStart && w.endMs <= windowEnd && (
+              <div className="absolute top-0 bottom-0 w-0.5 bg-green-500/50"
+                style={{ left: `${lp(w.endMs)}%` }} />
+            )}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <span className="text-[9px] text-red-400/60 bg-slate-800/80 px-2 rounded">
+                {startLabel}{startLabel && endLabel ? ' – ' : ''}{endLabel}
               </span>
             </div>
           </GanttRow>
@@ -774,8 +1406,14 @@ function TowGantt({ flights, squawks = [] }) {
                   )}
                   <div
                     title={`Tow ${ev.towIndex + 1}: ${ev.heightFt.toLocaleString()} ft · ${towCycleMin(ev.heightFt)} min · ${st}${towPlaneTail ? ` · tow plane ${towPlaneTail}` : ''}${delay ? ` · ${delay}m delay` : ''}`}
-                    className={`absolute rounded flex items-center justify-center overflow-hidden ${c.bar}`}
+                    className={`absolute rounded flex items-center justify-center overflow-hidden cursor-pointer ${c.bar}`}
                     style={{ left: `${lp(ev.actualStartMs)}%`, width: `${wp(ev.actualStartMs, ev.actualEndMs)}%`, top: 3, bottom: 3 }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const rect = e.currentTarget.closest('.flex.flex-col').getBoundingClientRect()
+                      setGanttPopPos({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+                      setSelectedFlight(selectedFlight?.id === ev.flight.id ? null : ev.flight)
+                    }}
                   >
                     <span className={`text-[9px] font-mono ${c.text} truncate px-0.5 pointer-events-none`}>
                       {ev.heightFt / 1000}k↑{towPlaneTail ? ` ${towPlaneTail}` : ''}
@@ -817,6 +1455,27 @@ function TowGantt({ flights, squawks = [] }) {
           Grounded
         </span>
       </div>
+
+      {/* Click-outside backdrop */}
+      {selectedFlight && (
+        <div className="fixed inset-0 z-10" onClick={() => setSelectedFlight(null)} />
+      )}
+      {/* Floating FlightCard popover */}
+      {selectedFlight && (
+        <div
+          className="absolute z-30 w-[420px] max-h-[70vh] overflow-y-auto rounded-xl border border-slate-700/60 bg-slate-900/95 backdrop-blur-sm shadow-xl p-3 flex flex-col gap-2"
+          style={{ left: ganttPopPos.x, top: ganttPopPos.y }}
+        >
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide">
+              {selectedFlight.tailNumber ?? selectedFlight.tail_number}
+            </span>
+            <button onClick={() => setSelectedFlight(null)}
+              className="text-[10px] text-slate-500 hover:text-slate-300 px-1">x</button>
+          </div>
+          <FlightCard f={selectedFlight} />
+        </div>
+      )}
     </div>
   )
 }
@@ -2840,6 +3499,78 @@ function PilotSchedule({ squawks }) {
   )
 }
 
+// ─── 4-day forecast row ──────────────────────────────────────────────────────
+
+function ForecastRow({ flights, schedCtx, squawks }) {
+  const [offset, setOffset] = useState(0)
+  const [expandedDay, setExpandedDay] = useState(null)  // Date object or null
+  const expandedRef = useRef(null)
+  const today = new Date()
+
+  function selectDay(futureDate) {
+    // Clicking the same day just switches — never collapses
+    setExpandedDay(futureDate)
+    // Scroll to the expanded panel after React renders it
+    setTimeout(() => expandedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50)
+  }
+
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setOffset((v) => Math.max(0, v - 4))}
+          disabled={offset === 0}
+          className="text-slate-500 hover:text-slate-300 disabled:opacity-20 text-sm px-1 flex-shrink-0"
+        >‹</button>
+        <div className="grid grid-cols-4 gap-2 flex-1 min-w-0">
+          {[1, 2, 3, 4].map((d) => {
+            const dayOff = offset + d
+            const futureDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + dayOff)
+            const isSelected = expandedDay?.getTime() === futureDate.getTime()
+            return (
+              <div key={dayOff}
+                className={`bg-surface-card border rounded-lg p-2 min-w-0 cursor-pointer transition-colors ${
+                  isSelected ? 'border-sky-500/50 ring-1 ring-sky-500/20' : 'border-surface-border hover:border-sky-500/30'
+                }`}
+                onClick={() => selectDay(futureDate)}
+              >
+                <TowViolinChart
+                  flights={flights}
+                  schedCtx={schedCtx}
+                  squawks={squawks}
+                  mxWindows={[]}
+                  date={futureDate}
+                  compact
+                />
+              </div>
+            )
+          })}
+        </div>
+        <button
+          onClick={() => setOffset((v) => v + 4)}
+          className="text-slate-500 hover:text-slate-300 text-sm px-1 flex-shrink-0"
+        >›</button>
+      </div>
+
+      {/* Expanded day — full violin as inline panel */}
+      {expandedDay && (
+        <div ref={expandedRef} className="bg-surface-card border border-sky-500/30 rounded-xl p-4">
+          <div className="text-xs font-semibold text-slate-300 mb-2">
+            {expandedDay.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+          </div>
+          <TowViolinChart
+            flights={flights}
+            schedCtx={schedCtx}
+            squawks={squawks}
+            mxWindows={[]}
+            date={expandedDay}
+          />
+        </div>
+      )}
+    </>
+  )
+}
+
 // ─── Main page ─────────────────────────────────────────────────────────────────
 
 export function GliderOps() {
@@ -2850,6 +3581,8 @@ export function GliderOps() {
   const [activeTab,    setActiveTab]    = useStickyState('glider_activeTab', 'board')
   const [showSettings, setShowSettings] = useState(false)
   const [squawkFormFor, setSquawkFormFor] = useState(null)
+  const [adsbTowState, setAdsbTowState] = useState([])      // live tow plane state from ADS-B
+  const [adsbLivePositions, setAdsbLivePositions] = useState([])  // all fleet live positions
 
   useEffect(() => {
     setFlights(getAllFlights())
@@ -2858,7 +3591,11 @@ export function GliderOps() {
     const unsubSqk = subscribeSquawks(setSquawks)
     const unsubInv = subscribeInvoices(setInvoices)
     const unsubCli = subscribeClients(setClients)
-    return () => { window.removeEventListener('flightsafe:scheduled', handler); unsubSqk(); unsubInv(); unsubCli() }
+    const stopAdsb = pollAdsbState(({ towPlanes, livePositions }) => {
+      setAdsbTowState(towPlanes)
+      setAdsbLivePositions(livePositions)
+    })
+    return () => { window.removeEventListener('flightsafe:scheduled', handler); unsubSqk(); unsubInv(); unsubCli(); stopAdsb() }
   }, [])
 
   // Schedule context for violin supply
@@ -2929,7 +3666,7 @@ export function GliderOps() {
           </div>
           {[
             { label: 'Tows / hour',           value: TOW_SETTINGS.towsPerHour,        unit: 'tows' },
-            { label: 'Ground turnaround',      value: TOW_SETTINGS.groundTimeMin,      unit: 'min' },
+            { label: 'Hookup time',              value: TOW_SETTINGS.hookupTimeMin,      unit: 'min' },
             { label: 'Tow time / 1,000 ft',   value: TOW_SETTINGS.minutesPer1000ft,   unit: 'min' },
             { label: 'Aloft time / 1,000 ft', value: TOW_SETTINGS.timeAloftPer1000ft, unit: 'min' },
           ].map(({ label, value, unit }) => (
@@ -2939,9 +3676,9 @@ export function GliderOps() {
             </div>
           ))}
           <div className="w-full text-slate-600 text-[10px]">
-            Tow cycle examples — 1000 ft: {TOW_SETTINGS.groundTimeMin + TOW_SETTINGS.minutesPer1000ft} min ·
-            2000 ft: {TOW_SETTINGS.groundTimeMin + 2 * TOW_SETTINGS.minutesPer1000ft} min ·
-            3000 ft: {TOW_SETTINGS.groundTimeMin + 3 * TOW_SETTINGS.minutesPer1000ft} min
+            Tow cycle examples — 1000 ft: {TOW_SETTINGS.hookupTimeMin + TOW_SETTINGS.minutesPer1000ft} min ·
+            2000 ft: {TOW_SETTINGS.hookupTimeMin + 2 * TOW_SETTINGS.minutesPer1000ft} min ·
+            3000 ft: {TOW_SETTINGS.hookupTimeMin + 3 * TOW_SETTINGS.minutesPer1000ft} min
           </div>
         </div>
       )}
@@ -3016,9 +3753,80 @@ export function GliderOps() {
         <div className="flex flex-col gap-6">
           <WeatherBar />
 
+          {/* Live ADS-B tow plane status strip */}
+          {adsbTowState.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {adsbTowState.map((tp) => {
+                const phaseLabel = { climbing_on_tow: 'Climbing', descending: 'Descending', on_ground: 'On ground', taxiing: 'Taxiing' }
+                const phaseBg = { climbing_on_tow: 'bg-sky-500/15 border-sky-500/30', descending: 'bg-amber-500/15 border-amber-500/30', on_ground: 'bg-slate-500/15 border-slate-500/30', taxiing: 'bg-slate-500/15 border-slate-500/30' }
+                const phaseText = { climbing_on_tow: 'text-sky-400', descending: 'text-amber-400', on_ground: 'text-slate-400', taxiing: 'text-slate-400' }
+                return (
+                  <div key={tp.icao} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${phaseBg[tp.phase] ?? 'bg-slate-500/15 border-slate-500/30'}`}>
+                    <span className={`inline-block w-1.5 h-1.5 rounded-full ${tp.phase === 'climbing_on_tow' || tp.phase === 'descending' ? 'bg-current animate-pulse' : 'bg-current'} ${phaseText[tp.phase] ?? 'text-slate-400'}`} />
+                    <span className="text-xs font-mono font-bold text-slate-200">{tp.tail}</span>
+                    <span className={`text-[10px] font-semibold ${phaseText[tp.phase] ?? 'text-slate-400'}`}>
+                      {phaseLabel[tp.phase] ?? tp.phase}
+                    </span>
+                    {tp.current_alt_ft != null && (
+                      <span className="text-[10px] text-slate-400">{tp.current_alt_ft.toLocaleString()} ft</span>
+                    )}
+                    {tp.climb_rate_fpm != null && tp.phase === 'climbing_on_tow' && (
+                      <span className="text-[10px] text-sky-400">{tp.climb_rate_fpm} fpm</span>
+                    )}
+                    {tp.est_available_ts && (
+                      <span className="text-[10px] text-green-400">
+                        avail {new Date(tp.est_available_ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Live ADS-B gliders aloft */}
+          {(() => {
+            const glidersAloft = adsbLivePositions
+              .filter((ac) => ac.is_glider && ac.alt_ft > 5488) // >200 ft AGL
+              .map((ac) => ({ ...ac, ret: estimateGliderReturn(ac) }))
+            if (glidersAloft.length === 0) return null
+            return (
+              <div className="flex flex-wrap gap-2">
+                {glidersAloft.map((ac) => (
+                  <div key={ac.icao} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-violet-500/15 border-violet-500/30">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
+                    <span className="text-xs font-mono font-bold text-slate-200">{ac.tail}</span>
+                    <span className="text-[10px] text-violet-300">{ac.alt_ft.toLocaleString()} ft</span>
+                    {ac.ret && (
+                      <span className="text-[10px] text-slate-400">
+                        ~{ac.ret.estMinutes} min · {ac.ret.distNm} nm out
+                      </span>
+                    )}
+                    {ac.vs_fpm != null && ac.vs_fpm !== 0 && (
+                      <span className={`text-[10px] ${ac.vs_fpm > 0 ? 'text-green-400' : 'text-amber-400'}`}>
+                        {ac.vs_fpm > 0 ? '+' : ''}{ac.vs_fpm} fpm
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
+
           <div className="bg-surface-card border border-surface-border rounded-xl p-4">
-            <TowViolinChart flights={flights} schedCtx={schedCtx} />
+            <TowViolinChart
+              flights={flights}
+              schedCtx={schedCtx}
+              squawks={squawks}
+              mxWindows={[]}
+              onConfirmStandby={(f) => {
+                updateFlight(f.id, { towInfo: { ...f.towInfo, isStandby: false } })
+              }}
+            />
           </div>
+
+          {/* 4-day forecast row — compact violin charts */}
+          <ForecastRow flights={flights} schedCtx={schedCtx} squawks={squawks} />
 
           {standby.length > 0 && (() => {
             // Check each standby to see if it can now be supported
@@ -3210,6 +4018,23 @@ export function GliderOps() {
             const todayTows = reservations.filter((r) => !r.isStandby && r.towInfo?.towPlaneId === a.id).length
             const inspColor = a.inspectionStatus === 'current' ? 'text-green-400'
                             : a.inspectionStatus === 'due_soon' ? 'text-yellow-400' : 'text-red-400'
+            // Live ADS-B state for this tow plane (matched by icaoHex or tail)
+            const adsb = adsbTowState.find((tp) =>
+              (a.icaoHex && tp.icao?.toLowerCase() === a.icaoHex.toLowerCase()) ||
+              tp.tail === a.tailNumber
+            )
+            const adsbPhaseLabel = {
+              climbing_on_tow: 'Climbing on tow',
+              descending: 'Descending',
+              on_ground: 'On ground',
+              taxiing: 'Taxiing',
+            }
+            const adsbPhaseColor = {
+              climbing_on_tow: 'text-sky-400',
+              descending: 'text-amber-400',
+              on_ground: 'text-slate-400',
+              taxiing: 'text-slate-400',
+            }
             return (
               <div key={a.id} className="bg-surface-card border border-surface-border rounded-lg px-4 py-3 flex flex-col gap-1">
                 <div className="flex items-center justify-between gap-2">
@@ -3219,6 +4044,15 @@ export function GliderOps() {
                   </span>
                 </div>
                 <div className="text-xs text-slate-400">{a.makeModel.replace('Piper ', '')}</div>
+                {adsb && (
+                  <div className={`text-[10px] font-semibold ${adsbPhaseColor[adsb.phase] ?? 'text-slate-400'} flex items-center gap-1.5`}>
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                    {adsbPhaseLabel[adsb.phase] ?? adsb.phase}
+                    {adsb.current_alt_ft != null && ` · ${adsb.current_alt_ft.toLocaleString()} ft`}
+                    {adsb.climb_rate_fpm != null && adsb.phase === 'climbing_on_tow' && ` · ${adsb.climb_rate_fpm} fpm`}
+                    {adsb.est_available_ts && ` · avail ${new Date(adsb.est_available_ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                  </div>
+                )}
                 <div className={`text-[10px] ${inspColor}`}>
                   Insp: {a.inspectionStatus.replace('_', ' ')}
                   {a.next100hrDue && ` · 100hr ${a.next100hrDue}`}
@@ -3282,7 +4116,7 @@ export function GliderOps() {
               ))}
             </div>
             <div className="text-[10px] text-slate-600">
-              ${GLIDER_PRICING.towPer1000ft}/1,000 ft · ${GLIDER_PRICING.towMinimum} minimum
+              ${TOW_SETTINGS.towBaseFee} hookup + ${TOW_SETTINGS.towPer1000ftFee}/1,000 ft
             </div>
           </div>
 

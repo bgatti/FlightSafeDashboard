@@ -8,7 +8,7 @@ const SERVICES = [
     id:      'weather',
     name:    'FlightSafeWeather',
     port:    3000,
-    url:     '/weather-api/api/flight-weather',
+    url:     `${import.meta.env.VITE_WEATHER_URL || '/weather-api'}/api/flight-weather`,
     method:  'POST',
     body:    JSON.stringify({ dept: 'KBDU', arr: 'KDEN' }),
     okCodes: [200, 400, 422],

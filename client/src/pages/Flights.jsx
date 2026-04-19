@@ -9,7 +9,7 @@ import { estimateFlightDuration, formatHours, CRUISE_SPEEDS_KTS } from '../lib/f
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const WEATHER_BASE = 'http://localhost:3000'
+const WEATHER_BASE = import.meta.env.VITE_WEATHER_URL || '/weather-api'
 const STALE_MINUTES = 15
 
 // ─── User selector helpers ────────────────────────────────────────────────────

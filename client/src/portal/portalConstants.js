@@ -40,6 +40,14 @@ export const AIRCRAFT_TYPE_PHOTOS = {
   'Pipistrel Alpha': wm('F-WLAB_Pipistrel_Alpha_Electro_3_(cropped)_2.jpg'),
   'Pipistrel Virus': wm('G-PIVI_Pipistrel_Virus_SW127.jpg'),
   'Piper Cherokee':  wm('Piper_PA-28-140_Cherokee_(D-EHMM)_05.jpg'),
+  'Cessna 206':      wm('Cessna_TU206G_Turbo_Stationair_(D-EFLM).jpg'),
+  'Cessna 208':      wm('Cessna_208B_Grand_Caravan,_Scenic_Airlines_AN0696838.jpg'),
+  'Beechcraft King Air': wm('Beechcraft_Super_King_Air_350_AN1137735.jpg'),
+  'King Air':        wm('Beechcraft_Super_King_Air_350_AN1137735.jpg'),
+  // ── Twin / turboprop ──
+  'DHC-6':           wm('De_Havilland_Canada_DHC-6-300_Twin_Otter,_Zimex_Aviation_JP6864838.jpg'),
+  'Twin Otter':      wm('De_Havilland_Canada_DHC-6-300_Twin_Otter,_Zimex_Aviation_JP6864838.jpg'),
+  'PAC 750':         wm('Pacific_Aerospace_750XL_at_Avalon_2013.jpg'),
   // ── Gliders ──
   'Schweizer SGS 2-32': wm('Schweizer2-32-01.JPG'),
   'Schweizer SGS 2-33': wm('Schweizer_SGS_2-33A_N17968.jpg'),

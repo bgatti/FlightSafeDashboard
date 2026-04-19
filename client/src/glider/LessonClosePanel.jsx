@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { mockAircraft } from '../mocks/aircraft'
 import { mockStudents } from '../training/mockTraining'
 import { addSquawk } from '../store/squawks'
@@ -128,6 +128,109 @@ function getGenericAcs(programId) {
   return GENERIC_ACS
 }
 
+/* ── Inline SVG icons for noise status ── */
+const MedalIcon = ({ className }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="8" r="6" />
+    <path d="M8.5 14 6 22l6-3 6 3-2.5-8" />
+    <path d="m9 6 1.5 2L12 7l1.5 1L15 6" strokeWidth="1.2" />
+  </svg>
+)
+
+const NoiseIcon = ({ className }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="6,9 2,9 2,15 6,15 11,19 11,5" fill="currentColor" opacity="0.25" stroke="currentColor" />
+    <path d="M14 8.5a4 4 0 0 1 0 7" />
+    <path d="M17 6a8 8 0 0 1 0 12" />
+    <line x1="21" y1="3" x2="3" y2="21" strokeWidth="2" opacity="0.7" />
+  </svg>
+)
+
+function NoiseStatusStrip({ data, loading, tail }) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-surface-border bg-surface/50 px-3 py-2">
+        <div className="w-4 h-4 border-2 border-slate-600 border-t-sky-400 rounded-full animate-spin" />
+        <span className="text-slate-500 text-xs">Checking noise status for {tail}…</span>
+      </div>
+    )
+  }
+
+  if (!data) return null
+
+  const isClean = data.total_offenses === 0
+  const hasViolations = data.total_offenses > 0
+
+  // Days since last offense from stored scores
+  const daysSinceText = (() => {
+    if (!isClean) return null
+    const scores = JSON.parse(localStorage.getItem('noise_scores') || '{}')
+    const prev = scores[tail]
+    if (prev?.daysSinceLastOffense != null && prev.daysSinceLastOffense > 0) return `${prev.daysSinceLastOffense} days`
+    return null
+  })()
+
+  if (isClean) {
+    return (
+      <div className="flex items-center gap-3 rounded-lg border border-emerald-400/20 bg-emerald-500/5 px-3 py-2.5">
+        <MedalIcon className="w-7 h-7 text-emerald-400 shrink-0" />
+        <div className="min-w-0">
+          <div className="text-emerald-400 text-xs font-semibold leading-tight">Noise Compliant</div>
+          <div className="text-emerald-300/60 text-[10px] leading-tight mt-0.5">
+            {daysSinceText ? `${daysSinceText} since last incursion` : 'No noise offenses on record'}
+            {data.tracks_seen > 0 && <span className="text-slate-600"> · {data.tracks_seen} tracks reviewed</span>}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (hasViolations) {
+    const severity = data.worst === 'red' ? 'r' : data.worst === 'yellow' ? 'y' : 'o'
+    const styles = {
+      r: { border: 'border-red-400/25', bg: 'bg-red-500/5', text: 'text-red-400', dot: 'bg-red-400' },
+      y: { border: 'border-amber-400/25', bg: 'bg-amber-500/5', text: 'text-amber-400', dot: 'bg-amber-400' },
+      o: { border: 'border-orange-400/25', bg: 'bg-orange-500/5', text: 'text-orange-400', dot: 'bg-orange-400' },
+    }[severity]
+
+    return (
+      <div className={`rounded-lg border ${styles.border} ${styles.bg} px-3 py-2.5 space-y-2`}>
+        <div className="flex items-center gap-2.5">
+          <NoiseIcon className={`w-6 h-6 ${styles.text} shrink-0`} />
+          <div className="min-w-0 flex-1">
+            <div className={`${styles.text} text-xs font-semibold leading-tight`}>
+              {data.total_offenses} Noise Offense{data.total_offenses !== 1 ? 's' : ''}
+            </div>
+            <div className="text-slate-500 text-[10px] leading-tight mt-0.5">
+              {tail} · worst: <span className={`${styles.text} font-medium`}>{data.worst}</span>
+            </div>
+          </div>
+          <div className={`w-2 h-2 rounded-full ${styles.dot} animate-pulse`} />
+        </div>
+
+        {data.offenses?.slice(0, 2).map((o, i) => (
+          <div key={i} className="flex items-center justify-between text-[10px] border-t border-white/5 pt-1.5">
+            <span className="text-slate-400 truncate">{o.date} · {o.zone}</span>
+            <span className={`${o.worst === 'red' ? 'text-red-400' : 'text-amber-400'} font-medium shrink-0 ml-2`}>
+              {o.points}pts · {o.peakAlt?.toLocaleString()}ft
+            </span>
+          </div>
+        ))}
+
+        {data.landing_url && (
+          <a href={data.landing_url} target="_blank" rel="noopener noreferrer"
+            className="flex items-center justify-center gap-1 text-sky-400 hover:text-sky-300 text-[11px] font-medium pt-1 transition-colors">
+            View Full Report
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M7 17L17 7M17 7H7M17 7v10" /></svg>
+          </a>
+        )}
+      </div>
+    )
+  }
+
+  return null
+}
+
 export function LessonClosePanel({ flight, user, onClose, operator = 'journeys' }) {
   const [tachStart, setTachStart] = useState('')
   const [tachEnd, setTachEnd] = useState('')
@@ -188,6 +291,43 @@ export function LessonClosePanel({ flight, user, onClose, operator = 'journeys' 
     setNoSquawks(false)
   }
 
+  const [noiseData, setNoiseData] = useState(null)
+  const [noiseLoading, setNoiseLoading] = useState(false)
+
+  // Fetch noise offenses on mount so it's visible before close
+  const tail = flight.tailNumber || flight.callsign
+  useEffect(() => {
+    if (!tail || tail === 'SIM') return
+    setNoiseLoading(true)
+    fetch(`http://localhost:5174/api/offenses?tail=${encodeURIComponent(tail)}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data) {
+          setNoiseData(data)
+          // Store for scoring
+          const key = `noise_offenses_${tail}`
+          const history = JSON.parse(localStorage.getItem(key) || '[]')
+          history.push({ fetchedAt: new Date().toISOString(), flightId: flight.id, ...data })
+          localStorage.setItem(key, JSON.stringify(history))
+          // Update aggregate score
+          const scoreKey = 'noise_scores'
+          const scores = JSON.parse(localStorage.getItem(scoreKey) || '{}')
+          scores[tail] = {
+            lastChecked: new Date().toISOString(),
+            totalOffenses: data.total_offenses,
+            worst: data.worst,
+            tracksSeen: data.tracks_seen,
+            daysSinceLastOffense: data.total_offenses === 0
+              ? (scores[tail]?.daysSinceLastOffense || null)
+              : 0,
+          }
+          localStorage.setItem(scoreKey, JSON.stringify(scores))
+        }
+      })
+      .catch(() => {})
+      .finally(() => setNoiseLoading(false))
+  }, [tail])
+
   const handleClose = () => {
     updateStoreFlight(flight.id, {
       status: 'closed',
@@ -208,13 +348,83 @@ export function LessonClosePanel({ flight, user, onClose, operator = 'journeys' 
       },
     })
     setClosed(true)
-    setTimeout(() => onClose?.(), 2000)
   }
 
   if (closed) {
+    const isClean = noiseData && noiseData.total_offenses === 0
+    const hasViolations = noiseData && noiseData.total_offenses > 0
+
+    // Calculate days since last offense from stored history
+    const daysSinceText = (() => {
+      if (!isClean) return null
+      const scores = JSON.parse(localStorage.getItem('noise_scores') || '{}')
+      const prev = scores[tail]
+      if (prev?.daysSinceLastOffense != null && prev.daysSinceLastOffense > 0) return `${prev.daysSinceLastOffense} days`
+      return 'all clear'
+    })()
+
     return (
-      <div className="bg-green-400/10 border border-green-400/20 rounded-xl p-4 text-center animate-[fadeIn_0.3s_ease]">
-        <span className="text-green-400 font-semibold text-sm">✓ Lesson closed{billableTime ? ` — ${billableTime} ${billingLabel}` : ''}{isGlider && numLaunches ? ` · ${numLaunches} launch${numLaunches > 1 ? 'es' : ''}` : ''}</span>
+      <div className="bg-green-400/10 border border-green-400/20 rounded-xl p-4 space-y-3 animate-[fadeIn_0.3s_ease]">
+        <div className="text-center">
+          <span className="text-green-400 font-semibold text-sm">✓ Lesson closed{billableTime ? ` — ${billableTime} ${billingLabel}` : ''}{isGlider && numLaunches ? ` · ${numLaunches} launch${numLaunches > 1 ? 'es' : ''}` : ''}</span>
+        </div>
+
+        {/* Noise compliance section */}
+        {noiseLoading && (
+          <div className="flex items-center justify-center gap-2 text-slate-500 text-xs py-1">
+            <div className="w-3 h-3 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" />
+            Checking noise compliance…
+          </div>
+        )}
+
+        {isClean && (
+          <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-400/20 rounded-lg px-3 py-2">
+            <MedalIcon className="w-7 h-7 text-emerald-400 shrink-0" />
+            <div>
+              <div className="text-emerald-400 text-xs font-semibold">Noise Compliant</div>
+              <div className="text-emerald-300/70 text-[10px]">
+                {tail} — {daysSinceText ? `${daysSinceText} since last incursion` : 'no noise offenses on record'}
+                {noiseData.tracks_seen > 0 && ` · ${noiseData.tracks_seen} tracks reviewed`}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {hasViolations && (
+          <div className="bg-red-500/10 border border-red-400/20 rounded-lg px-3 py-2 space-y-2">
+            <div className="flex items-center gap-2.5">
+              <NoiseIcon className={`w-6 h-6 shrink-0 ${noiseData.worst === 'red' ? 'text-red-400' : noiseData.worst === 'yellow' ? 'text-amber-400' : 'text-orange-400'}`} />
+              <span className="text-red-400 text-xs font-semibold">
+                {noiseData.total_offenses} Noise Offense{noiseData.total_offenses !== 1 ? 's' : ''} — {tail}
+              </span>
+            </div>
+            {noiseData.offenses?.slice(0, 3).map((o, i) => (
+              <div key={i} className="flex items-center justify-between text-[10px] px-1">
+                <span className="text-slate-400">{o.date} — {o.zone}</span>
+                <span className={`font-medium ${o.worst === 'red' ? 'text-red-400' : 'text-amber-400'}`}>
+                  {o.points} pts · {o.peakAlt?.toLocaleString()} ft
+                </span>
+              </div>
+            ))}
+            {noiseData.offenses?.length > 3 && (
+              <div className="text-slate-500 text-[10px] px-1">+ {noiseData.offenses.length - 3} more</div>
+            )}
+            {noiseData.landing_url && (
+              <a href={noiseData.landing_url} target="_blank" rel="noopener noreferrer"
+                className="block text-center text-sky-400 hover:text-sky-300 text-[11px] font-medium mt-1 transition-colors">
+                View Details →
+              </a>
+            )}
+          </div>
+        )}
+
+        {!noiseLoading && !noiseData && tail !== 'SIM' && (
+          <div className="text-slate-600 text-[10px] text-center">Noise data unavailable</div>
+        )}
+
+        <button onClick={() => onClose?.()} className="w-full text-slate-500 hover:text-slate-300 text-xs py-1 transition-colors">
+          Dismiss
+        </button>
       </div>
     )
   }
@@ -381,6 +591,11 @@ export function LessonClosePanel({ flight, user, onClose, operator = 'journeys' 
           </div>
         )}
       </div>
+
+      {/* Noise compliance status */}
+      {tail && tail !== 'SIM' && (
+        <NoiseStatusStrip data={noiseData} loading={noiseLoading} tail={tail} />
+      )}
 
       {/* Close button */}
       <button onClick={handleClose}

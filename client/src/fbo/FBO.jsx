@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useSimBroadcast } from '../hooks/useSimBroadcast'
 import {
   mockServiceOrders, mockCrewVehicles,
@@ -6,6 +6,8 @@ import {
 } from './mockDb'
 import { mockAircraft } from '../mocks/aircraft'
 import { mockPersonnel } from '../mocks/personnel'
+import { apiClient } from '../lib/apiClient'
+import { addServiceRequest, getServiceRequests, subscribeServiceRequests } from '../store/serviceRequests'
 import {
   computeRiskScore, defconLevel, defconClasses, defconLabel,
   riskWarnings, riskBreakdown, fuelConfusionRisk,
@@ -1091,6 +1093,17 @@ function ServicesTab({ enrichedOrders }) {
 
   const serviceTypes = [...new Set(enrichedOrders.map((o) => o.serviceType))]
 
+  // Highest DEFCON level (lowest number = highest risk) per service type among active orders
+  const activeOrders = enrichedOrders.filter((o) => o.status === 'pending' || o.status === 'in_progress')
+  const highestRiskByType = useMemo(() => {
+    const map = {}
+    for (const o of activeOrders) {
+      const prev = map[o.serviceType]
+      if (!prev || o.defconLevel < prev) map[o.serviceType] = o.defconLevel
+    }
+    return map
+  }, [activeOrders])
+
   return (
     <div className="space-y-4">
       {/* Filters */}
@@ -1118,15 +1131,20 @@ function ServicesTab({ enrichedOrders }) {
           >
             All types
           </button>
-          {serviceTypes.map((t) => (
-            <button
-              key={t}
-              onClick={() => setTypeFilter(t)}
-              className={`px-2 py-1 rounded text-xs transition-colors ${typeFilter === t ? 'bg-sky-400/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'}`}
-            >
-              {serviceTypeLabel(t)}
-            </button>
-          ))}
+          {serviceTypes.map((t) => {
+            const topLevel = highestRiskByType[t]
+            const dotCls = topLevel != null ? defconClasses(topLevel).dot : null
+            return (
+              <button
+                key={t}
+                onClick={() => setTypeFilter(t)}
+                className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${typeFilter === t ? 'bg-sky-400/20 text-sky-300' : 'text-slate-400 hover:text-slate-200'}`}
+              >
+                {serviceTypeLabel(t)}
+                {dotCls && <span className={`w-2 h-2 rounded-full ${dotCls}`} />}
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -1504,6 +1522,489 @@ function StaffSafetyTab({ enrichedOrders }) {
   )
 }
 
+// ─── New Service Request Modal ────────────────────────────────────────────────
+
+const ALL_SERVICE_TYPES = Object.keys(BASE_TASK_RISK)
+
+// Fuel types that are valid for a given aircraft fuelType (exclude wrong fuel)
+function allowedFuelTypes(aircraftFuelType) {
+  if (aircraftFuelType === 'jet_a') return ['jet_a']
+  if (aircraftFuelType === 'avgas_100ll') return ['avgas_100ll']
+  if (aircraftFuelType === 'mogas') return ['mogas', 'avgas_100ll']
+  return ['jet_a', 'avgas_100ll', 'mogas'] // unknown — show all
+}
+
+function NewServiceRequestModal({ open, onClose }) {
+  const [step, setStep] = useState('search') // 'search' | 'services'
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [selectedAircraft, setSelectedAircraft] = useState(null)
+  const [selectedServices, setSelectedServices] = useState([])
+  const [fuelType, setFuelType] = useState(null)
+  const [fuelMode, setFuelMode] = useState('gallons') // 'gallons' | 'full' | 'tabs'
+  const [fuelQty, setFuelQty] = useState('')
+  const [fuelLeftQty, setFuelLeftQty] = useState('')
+  const [fuelRightQty, setFuelRightQty] = useState('')
+  const [notes, setNotes] = useState('')
+  const [priority, setPriority] = useState('normal')
+  const [submitting, setSubmitting] = useState(false)
+  const inputRef = useRef(null)
+  const debounceRef = useRef(null)
+
+  // Reset state when modal opens
+  useEffect(() => {
+    if (open) {
+      setStep('search')
+      setQuery('')
+      setResults([])
+      setSelectedAircraft(null)
+      setSelectedServices([])
+      setFuelType(null)
+      setFuelMode('gallons')
+      setFuelQty('')
+      setFuelLeftQty('')
+      setFuelRightQty('')
+      setNotes('')
+      setPriority('normal')
+      setSubmitting(false)
+      setTimeout(() => inputRef.current?.focus(), 50)
+    }
+  }, [open])
+
+  // Debounced search — searches API clients + local mock fleet
+  const doSearch = useCallback((q) => {
+    const trimmed = q.trim()
+    if (trimmed.length < 1) { setResults([]); return }
+    setLoading(true)
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(async () => {
+      const lc = trimmed.toLowerCase()
+      const matchRow = (c) => {
+        const tail = (c.tail_number ?? c.tailNumber ?? '').toLowerCase()
+        const owner = (c.owner_name ?? c.ownerName ?? c.operator ?? '').toLowerCase()
+        const phone = (c.phone ?? '')
+        const model = (c.make_model ?? c.makeModel ?? '').toLowerCase()
+        return tail.includes(lc) || owner.includes(lc) || phone.includes(trimmed) || model.includes(lc)
+      }
+      try {
+        const { data } = await apiClient.get('/clients')
+        const apiMatches = data.filter(matchRow)
+        // Also search local mock fleet (tail, operator, makeModel)
+        const apiTails = new Set(apiMatches.map((c) => (c.tail_number ?? c.tailNumber ?? '').toUpperCase()))
+        const fleetMatches = mockAircraft
+          .filter((a) => !apiTails.has(a.tailNumber?.toUpperCase()))
+          .filter(matchRow)
+          .map((a) => ({
+            tailNumber: a.tailNumber,
+            ownerName: a.operator,
+            makeModel: a.makeModel,
+            fuelType: a.fuelType,
+            fboCategory: a.fboCategory,
+            _fleet: true,
+          }))
+        setResults([...apiMatches, ...fleetMatches].slice(0, 12))
+      } catch {
+        // Fallback: search local fleet only
+        setResults(mockAircraft.filter(matchRow).map((a) => ({
+          tailNumber: a.tailNumber,
+          ownerName: a.operator,
+          makeModel: a.makeModel,
+          fuelType: a.fuelType,
+          fboCategory: a.fboCategory,
+          _fleet: true,
+        })).slice(0, 12))
+      } finally {
+        setLoading(false)
+      }
+    }, 200)
+  }, [])
+
+  useEffect(() => { doSearch(query) }, [query, doSearch])
+
+  // Accept transient — Enter with no selection uses typed text as tail/name
+  function handleSearchKeyDown(e) {
+    if (e.key === 'Enter' && query.trim()) {
+      e.preventDefault()
+      // Check if there's an exact tail match in results
+      const exact = results.find(
+        (r) => (r.tail_number ?? r.tailNumber ?? '').toUpperCase() === query.trim().toUpperCase()
+      )
+      if (exact) {
+        selectAircraft(exact)
+      } else {
+        // Accept as transient
+        selectAircraft({
+          tailNumber: query.trim().toUpperCase(),
+          ownerName: null,
+          makeModel: null,
+          fuelType: null,
+          fboCategory: null,
+          _transient: true,
+        })
+      }
+    }
+  }
+
+  function selectAircraft(ac) {
+    const normalized = {
+      tailNumber: ac.tail_number ?? ac.tailNumber ?? query.trim().toUpperCase(),
+      ownerName: ac.owner_name ?? ac.ownerName ?? null,
+      makeModel: ac.make_model ?? ac.makeModel ?? null,
+      fuelType: ac.fuel_type ?? ac.fuelType ?? null,
+      fboCategory: ac.fbo_category ?? ac.fboCategory ?? null,
+      fuelCapacityGal: ac.fuelCapacityGal ?? null,
+      phone: ac.phone ?? null,
+      _transient: ac._transient ?? false,
+    }
+    setSelectedAircraft(normalized)
+    // Pre-select fuel type if known
+    if (normalized.fuelType) setFuelType(normalized.fuelType)
+    setStep('services')
+  }
+
+  function toggleService(svc) {
+    setSelectedServices((prev) =>
+      prev.includes(svc) ? prev.filter((s) => s !== svc) : [...prev, svc]
+    )
+  }
+
+  async function handleSubmit() {
+    if (selectedServices.length === 0) return
+    setSubmitting(true)
+    try {
+      for (const svc of selectedServices) {
+        const req = {
+          id: crypto.randomUUID(),
+          tailNumber: selectedAircraft.tailNumber,
+          type: svc,
+          description: svc === 'fueling'
+            ? `${fuelTypeLabel(fuelType)} — ${fuelMode === 'full' ? 'Top Off' : fuelMode === 'tabs' ? 'To Tabs' : fuelLeftQty || fuelRightQty ? `L:${fuelLeftQty || '—'} R:${fuelRightQty || '—'} gal` : fuelQty ? `${fuelQty} gal` : ''}`
+            : serviceTypeLabel(svc),
+          priority,
+          status: 'open',
+          requestedBy: 'fbo_desk',
+          metadata: {
+            ownerName: selectedAircraft.ownerName,
+            makeModel: selectedAircraft.makeModel,
+            fboCategory: selectedAircraft.fboCategory,
+            fuelType: svc === 'fueling' ? fuelType : undefined,
+            fuelMode: svc === 'fueling' ? fuelMode : undefined,
+            fuelQuantityGal: svc === 'fueling' && fuelMode === 'gallons' && fuelQty ? Number(fuelQty) : undefined,
+            fuelLeftGal: svc === 'fueling' && fuelMode === 'gallons' && fuelLeftQty ? Number(fuelLeftQty) : undefined,
+            fuelRightGal: svc === 'fueling' && fuelMode === 'gallons' && fuelRightQty ? Number(fuelRightQty) : undefined,
+            notes: notes || undefined,
+            transient: selectedAircraft._transient || undefined,
+          },
+        }
+        addServiceRequest(req)
+      }
+      onClose()
+    } catch (err) {
+      console.error('Service request failed:', err)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (!open) return null
+
+  const hasFueling = selectedServices.includes('fueling')
+  const allowed = selectedAircraft ? allowedFuelTypes(selectedAircraft.fuelType) : []
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 px-4" onClick={onClose}>
+      <div className="fixed inset-0 bg-black/60" />
+      <div
+        className="relative bg-slate-900 border border-slate-700 rounded-lg shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="sticky top-0 bg-slate-900 border-b border-slate-700 px-5 py-3 flex items-center justify-between z-10">
+          <h2 className="text-base font-bold text-slate-100">
+            {step === 'search' ? 'New Service Request' : 'Select Services'}
+          </h2>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-300 text-lg leading-none">&times;</button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* ── Step 1: Search ──────────────────────────────── */}
+          {step === 'search' && (
+            <>
+              <div className="relative">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={handleSearchKeyDown}
+                  placeholder="Search tail number, owner name, phone..."
+                  className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500"
+                  autoFocus
+                />
+                {loading && (
+                  <span className="absolute right-3 top-3 text-xs text-slate-500 animate-pulse">searching...</span>
+                )}
+              </div>
+
+              <p className="text-xs text-slate-500">
+                Type to search aircraft or clients. Press <kbd className="px-1 py-0.5 rounded bg-slate-700 text-slate-300 text-xs">Enter</kbd> to accept as transient.
+              </p>
+
+              {/* Results list */}
+              {results.length > 0 && (
+                <div className="space-y-1 max-h-64 overflow-y-auto">
+                  {results.map((r) => {
+                    const tail = r.tail_number ?? r.tailNumber ?? '?'
+                    const owner = r.owner_name ?? r.ownerName ?? ''
+                    const model = r.make_model ?? r.makeModel ?? ''
+                    const phone = r.phone ?? ''
+                    const fuel = r.fuel_type ?? r.fuelType
+                    return (
+                      <button
+                        key={r.id ?? tail}
+                        onClick={() => selectAircraft(r)}
+                        className="w-full text-left px-3 py-2.5 rounded border border-slate-700/50 bg-slate-800/60 hover:bg-slate-700/80 hover:border-sky-500/40 transition-colors group"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-slate-100 text-sm">{tail}</span>
+                          {model && <span className="text-slate-400 text-xs">{model}</span>}
+                          {fuel && <FuelTypeBadge fuelType={fuel} />}
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5">
+                          {owner && <span>{owner}</span>}
+                          {phone && <span>{phone}</span>}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {query.trim().length > 0 && !loading && results.length === 0 && (
+                <div className="text-center py-4 space-y-2">
+                  <p className="text-sm text-slate-400">No aircraft found for "{query}"</p>
+                  <p className="text-xs text-slate-500">
+                    Press <kbd className="px-1 py-0.5 rounded bg-slate-700 text-slate-300 text-xs">Enter</kbd> to use
+                    <span className="font-mono text-slate-300 ml-1">{query.trim().toUpperCase()}</span> as a transient
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── Step 2: Service selection ───────────────────── */}
+          {step === 'services' && selectedAircraft && (
+            <>
+              {/* Selected aircraft summary */}
+              <div className="rounded border border-sky-500/30 bg-sky-900/20 px-4 py-3 flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-bold text-slate-100">{selectedAircraft.tailNumber}</span>
+                    {selectedAircraft.makeModel && (
+                      <span className="text-sm text-slate-400">{selectedAircraft.makeModel}</span>
+                    )}
+                    {selectedAircraft.fuelType && <FuelTypeBadge fuelType={selectedAircraft.fuelType} />}
+                    {selectedAircraft._transient && (
+                      <span className="px-1.5 py-0.5 rounded text-xs bg-amber-900/40 text-amber-300 border border-amber-400/30">
+                        Transient
+                      </span>
+                    )}
+                  </div>
+                  {selectedAircraft.ownerName && (
+                    <div className="text-xs text-slate-500 mt-0.5">{selectedAircraft.ownerName}</div>
+                  )}
+                </div>
+                <button
+                  onClick={() => { setStep('search'); setSelectedServices([]); setFuelType(selectedAircraft.fuelType); }}
+                  className="text-xs text-sky-400 hover:text-sky-300"
+                >
+                  Change
+                </button>
+              </div>
+
+              {/* Service grid */}
+              <div>
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Select Services</h3>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {ALL_SERVICE_TYPES.map((svc) => {
+                    const active = selectedServices.includes(svc)
+                    const risk = BASE_TASK_RISK[svc]
+                    const riskColor = risk >= 4 ? 'text-red-400' : risk >= 2 ? 'text-amber-400' : 'text-slate-500'
+                    return (
+                      <button
+                        key={svc}
+                        onClick={() => toggleService(svc)}
+                        className={[
+                          'flex items-center justify-between px-3 py-2 rounded border text-sm text-left transition-colors',
+                          active
+                            ? 'bg-sky-500/20 border-sky-500/50 text-sky-200'
+                            : 'bg-slate-800/60 border-slate-700/50 text-slate-300 hover:border-slate-600',
+                        ].join(' ')}
+                      >
+                        <span>{serviceTypeLabel(svc)}</span>
+                        <span className={`text-xs font-mono ${riskColor}`}>R{risk}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Fuel options (shown when fueling is selected) */}
+              {hasFueling && (() => {
+                const totalFromTanks = (fuelLeftQty || fuelRightQty)
+                  ? (Number(fuelLeftQty) || 0) + (Number(fuelRightQty) || 0)
+                  : null
+                const displayTotal = fuelMode === 'gallons'
+                  ? (totalFromTanks != null ? totalFromTanks : (fuelQty ? Number(fuelQty) : null))
+                  : null
+                return (
+                  <div className="rounded border border-orange-500/30 bg-orange-900/10 px-3 py-2.5 space-y-2">
+                    {/* Top row: fuel type + quantity mode */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {['jet_a', 'avgas_100ll', 'mogas'].map((ft) => {
+                        const isAllowed = allowed.includes(ft)
+                        const isSelected = fuelType === ft
+                        if (!isAllowed && selectedAircraft.fuelType) return null
+                        return (
+                          <button
+                            key={ft}
+                            onClick={() => setFuelType(ft)}
+                            disabled={!isAllowed}
+                            className={[
+                              'px-2.5 py-1 rounded border text-xs font-bold transition-colors',
+                              isSelected
+                                ? ft === 'jet_a'
+                                  ? 'bg-orange-900/40 text-orange-300 border-orange-400/50'
+                                  : 'bg-blue-900/40 text-blue-300 border-blue-400/50'
+                                : isAllowed
+                                  ? 'bg-slate-800 text-slate-400 border-slate-600 hover:border-slate-500'
+                                  : 'bg-slate-800/30 text-slate-600 border-slate-700/30 cursor-not-allowed',
+                            ].join(' ')}
+                          >
+                            {fuelTypeLabel(ft)}
+                          </button>
+                        )
+                      })}
+                      <span className="w-px h-5 bg-slate-700" />
+                      {[
+                        { key: 'gallons', label: 'Gallons' },
+                        { key: 'full', label: 'Top Off' },
+                        { key: 'tabs', label: 'Tabs' },
+                      ].map(({ key, label }) => (
+                        <button
+                          key={key}
+                          onClick={() => setFuelMode(key)}
+                          className={[
+                            'px-2.5 py-1 rounded border text-xs font-medium transition-colors',
+                            fuelMode === key
+                              ? 'bg-orange-500/20 border-orange-500/50 text-orange-200'
+                              : 'bg-slate-800 text-slate-400 border-slate-600 hover:border-slate-500',
+                          ].join(' ')}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Gallons row */}
+                    {fuelMode === 'gallons' && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-slate-500 w-10">Total</label>
+                        <input
+                          type="number" min="0" value={totalFromTanks != null ? totalFromTanks : fuelQty}
+                          onChange={(e) => { setFuelQty(e.target.value); setFuelLeftQty(''); setFuelRightQty('') }}
+                          readOnly={totalFromTanks != null}
+                          placeholder="gal"
+                          className={[
+                            'w-20 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-slate-100 focus:outline-none focus:border-orange-500',
+                            totalFromTanks != null ? 'text-orange-300 bg-slate-800/50' : '',
+                          ].join(' ')}
+                        />
+                        <span className="text-xs text-slate-600">|</span>
+                        <label className="text-xs text-slate-500">L</label>
+                        <input
+                          type="number" min="0" value={fuelLeftQty}
+                          onChange={(e) => { setFuelLeftQty(e.target.value); setFuelQty('') }}
+                          placeholder="gal"
+                          className="w-16 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-slate-100 focus:outline-none focus:border-orange-500"
+                        />
+                        <label className="text-xs text-slate-500">R</label>
+                        <input
+                          type="number" min="0" value={fuelRightQty}
+                          onChange={(e) => { setFuelRightQty(e.target.value); setFuelQty('') }}
+                          placeholder="gal"
+                          className="w-16 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-slate-100 focus:outline-none focus:border-orange-500"
+                        />
+                        {selectedAircraft.fuelCapacityGal && displayTotal != null && displayTotal > 0 && (
+                          <span className="text-xs text-slate-500 ml-1">/ {selectedAircraft.fuelCapacityGal}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
+              {/* Priority */}
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-slate-500">Priority:</span>
+                {['low', 'normal', 'urgent'].map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setPriority(p)}
+                    className={[
+                      'px-2 py-1 rounded text-xs transition-colors',
+                      priority === p
+                        ? p === 'urgent' ? 'bg-red-500/20 text-red-300' : 'bg-sky-400/20 text-sky-300'
+                        : 'text-slate-400 hover:text-slate-200',
+                    ].join(' ')}
+                  >
+                    {p.charAt(0).toUpperCase() + p.slice(1)}
+                  </button>
+                ))}
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Notes (optional)</label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={2}
+                  placeholder="Special instructions, handling notes..."
+                  className="w-full bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500 resize-none"
+                />
+              </div>
+
+              {/* Submit */}
+              <div className="flex items-center justify-between pt-2 border-t border-slate-700/50">
+                <span className="text-xs text-slate-500">
+                  {selectedServices.length} service{selectedServices.length !== 1 ? 's' : ''} selected
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={onClose}
+                    className="px-3 py-2 rounded text-sm text-slate-400 hover:text-slate-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSubmit}
+                    disabled={selectedServices.length === 0 || (hasFueling && !fuelType) || submitting}
+                    className="px-4 py-2 rounded text-sm font-semibold bg-sky-600 hover:bg-sky-500 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {submitting ? 'Creating...' : 'Create Request'}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main FBO Component ───────────────────────────────────────────────────────
 
 const TABS = ['overview', 'aircraft_ops', 'services', 'fees', 'staff_safety']
@@ -1517,10 +2018,40 @@ const TAB_LABELS = {
 
 export function FBO() {
   const [tab, setTab] = useState('overview')
+  const [showNewRequest, setShowNewRequest] = useState(false)
 
   const simState       = useSimBroadcast()
   const mockOrders     = useMemo(() => mockServiceOrders.map(enrichOrder), [])
-  const enrichedOrders = simState?.running ? simStateToOrders(simState) : mockOrders
+
+  // Subscribe to live service requests from the API store
+  const [liveRequests, setLiveRequests] = useState(() => getServiceRequests())
+  useEffect(() => subscribeServiceRequests(setLiveRequests), [])
+
+  // Convert API service requests → FBO order shape for enrichOrder
+  const liveOrders = useMemo(() => {
+    return (liveRequests ?? [])
+      .filter((r) => r.type && Object.keys(BASE_TASK_RISK).includes(r.type))
+      .map((r) => {
+        const meta = r.metadata ?? {}
+        return enrichOrder({
+          id: r.id,
+          tailNumber: r.tail_number ?? r.tailNumber ?? meta.tailNumber ?? '—',
+          serviceType: r.type,
+          fuelType: meta.fuelType ?? null,
+          fuelQuantityGal: meta.fuelQuantityGal ?? null,
+          assignedTo: null,
+          weatherCondition: 'clear',
+          status: r.status === 'open' ? 'pending' : r.status === 'closed' ? 'completed' : r.status,
+          priority: r.priority ?? 'normal',
+          requestedAt: r.created_at ?? new Date().toISOString(),
+          notes: meta.notes ?? r.description ?? null,
+        })
+      })
+  }, [liveRequests])
+
+  const enrichedOrders = simState?.running
+    ? [...simStateToOrders(simState), ...liveOrders]
+    : [...mockOrders, ...liveOrders]
   const simNowMs       = simState?.simTimeMs ?? Date.now()
 
   // Always use sim data — empty arrays when no sim is running
@@ -1550,12 +2081,23 @@ export function FBO() {
         </div>
       )}
       {/* Page header */}
-      <div>
-        <h1 className="text-lg font-semibold text-slate-100">FBO Operations</h1>
-        <p className="text-xs text-slate-400 mt-0.5">
-          Ground services · Fueling · Aircraft Ops · Transportation · Ramp management · Safety risk scoring
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-lg font-semibold text-slate-100">FBO Operations</h1>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Ground services · Fueling · Aircraft Ops · Transportation · Ramp management · Safety risk scoring
+          </p>
+        </div>
+        <button
+          onClick={() => setShowNewRequest(true)}
+          className="flex-shrink-0 flex items-center gap-2 px-4 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white text-sm font-semibold shadow-lg shadow-sky-900/30 transition-colors"
+        >
+          <span className="text-lg leading-none">+</span>
+          New Service Request
+        </button>
       </div>
+
+      <NewServiceRequestModal open={showNewRequest} onClose={() => setShowNewRequest(false)} />
 
       {/* Tab bar */}
       <div className="flex gap-1 border-b border-surface-border">

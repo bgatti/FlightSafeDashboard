@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS aircraft (
   tail_number           TEXT NOT NULL UNIQUE,
   make_model            TEXT,
   icao_type             TEXT,
+  icao_hex              TEXT,             -- Mode-S transponder address (e.g. 'a59663')
   passenger_capacity    INTEGER,
   op_cost_per_hour      REAL,
   fuel_capacity_gal     REAL,

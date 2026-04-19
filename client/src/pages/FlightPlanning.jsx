@@ -159,7 +159,7 @@ function DepartureTimePicker({ value, onChange }) {
   )
 }
 
-const WEATHER     = '/weather-api'
+const WEATHER     = import.meta.env.VITE_WEATHER_URL || '/weather-api'
 const AIRSAFE     = '/airsafe-api'
 const KNOWN_RISKS = '/known-risks'
 const PILOT_RISK  = '/pilot-risk'

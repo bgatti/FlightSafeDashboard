@@ -60,12 +60,28 @@ const TRAINING_PROGRAMS = [
 ]
 
 // Map package IDs to appropriate tow heights based on altitude targets
+// Field elevation KBDU ≈ 5,288 ft MSL; heights are AGL release altitude
 const PACKAGE_TOW_HEIGHTS = {
-  'boulder-view':  2000,   //  8,000 ft (field elev 5,288 + ~2,700 AGL)
-  'discovery':     3000,   // 10,600 ft
-  'mountain-top':  3000,   //  9,000 ft
-  'mile-high':     3000,   // 10,600 ft
-  'adventure':     3000,   // custom / highest
+  'boulder-view':  2000,   //  8,000 ft MSL → ~2,700 AGL → 2k scenic tow
+  'discovery':     4000,   // 10,600 ft MSL → ~5,300 AGL → 4k mountain tow
+  'mountain-top':  4000,   //  9,000 ft MSL → ~3,700 AGL → 4k mountain tow
+  'mile-high':     5000,   // 10,600 ft MSL → ~5,300 AGL → 5k mountain tow
+  'adventure':     5000,   // custom / highest
+}
+
+// Lesson plan tow profiles — from trainingUtils.js syllabus
+// Tow cycle = 10 min ground + 5 min per 1000 ft
+// Pattern (1000 ft) = 15 min · Scenic (2000 ft) = 20 min · Mountain (4000 ft) = 30 min
+const LESSON_TOW_PROFILES = {
+  'gpp-1-1': { heights: [2000, 2000] },                   // Intro — 2 scenic tows
+  'gpp-1-2': { heights: [1000, 1000, 1000, 1000] },       // Aerotow & Pattern — 4 pattern tows
+  'gpp-1-3': { heights: [4000, 4000] },                   // Stalls & Spin — 2 mountain tows
+  'gpp-2-1': { heights: [4000] },                         // Soaring Techniques — 1 mountain tow
+  'gpp-2-2': { heights: [1000, 1000, 2000] },             // Pattern & Off-Field — 2 pattern + 1 scenic
+  'gpp-3-1': { heights: [1000, 1000, 1000, 1000] },       // First Solo — 4 pattern tows
+  'gpp-3-2': { heights: [4000] },                         // Solo Soaring — 1 mountain tow
+  'gpp-4-2': { heights: [2000, 2000, 4000] },             // Mock Practical — 2 scenic + 1 mountain
+  'gao-1-1': { heights: [2000, 2000] },                   // Add-On Orientation — 2 scenic
 }
 
 // ---------------------------------------------------------------------------

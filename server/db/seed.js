@@ -23,7 +23,8 @@ const SEED_CLIENTS = [
 
 // Glider pricing (from GliderOps.jsx)
 const GLIDER_PRICING = {
-  towPer1000ft:      20,
+  towHookup:         15,
+  towPer1000ft:      16,
   gliderRentalPerHr: 85,
   instructionPerHr:  65,
   towMinimum:        30,
@@ -51,7 +52,7 @@ export function seed(db) {
     // ── Aircraft ────────────────────────────────────────────────────────────
     const insertAircraft = db.prepare(`
       INSERT INTO aircraft (
-        id, operator, tail_number, make_model, icao_type, passenger_capacity,
+        id, operator, tail_number, make_model, icao_type, icao_hex, passenger_capacity,
         op_cost_per_hour, fuel_capacity_gal, fuel_burn_gal_hr, empty_weight_lbs,
         max_gross_weight_lbs, cruise_speed_kts, service_ceiling, year, serial_number,
         airworthy, inspection_status, total_airframe_hours, last_annual_date,
@@ -60,7 +61,7 @@ export function seed(db) {
         fuel_type, fbo_category, equipment, risk_profile, weight_balance,
         mel_items_open, open_squawks, airworthiness_directives
       ) VALUES (
-        ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?, ?, ?,
         ?, ?, ?, ?,
@@ -73,7 +74,7 @@ export function seed(db) {
 
     for (const a of mockAircraft) {
       insertAircraft.run(
-        a.id, a.operator ?? null, a.tailNumber, a.makeModel, a.icaoType, a.passengerCapacity ?? null,
+        a.id, a.operator ?? null, a.tailNumber, a.makeModel, a.icaoType, a.icaoHex ?? null, a.passengerCapacity ?? null,
         a.opCostPerHour ?? null, a.fuelCapacityGal ?? null, a.fuelBurnGalHr ?? null, a.emptyWeightLbs ?? null,
         a.maxGrossWeightLbs ?? null, a.cruiseSpeedKts ?? null, a.serviceCeiling ?? null, a.year ?? null, a.serialNumber ?? null,
         bool(a.airworthy), a.inspectionStatus ?? 'current', a.totalAirframeHours ?? null, a.lastAnnualDate ?? null,
@@ -402,6 +403,7 @@ export function seed(db) {
     )
 
     const gliderPricingLabels = {
+      towHookup:         'Tow hookup fee',
       towPer1000ft:      'Tow per 1,000 ft',
       gliderRentalPerHr: 'Glider rental per hour',
       instructionPerHr:  'Instruction per hour',

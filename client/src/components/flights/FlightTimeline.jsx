@@ -8,11 +8,13 @@
  */
 import { useMemo } from 'react'
 import { estimateFlightDuration, estimateEta, CRUISE_SPEEDS_KTS } from '../../lib/flightCalc'
+import { getAircraftPhoto } from '../../portal/portalConstants'
+import { mockAircraft } from '../../mocks/aircraft'
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
 
 const SVG_W    = 900   // viewBox width (scales to 100%)
-const LABEL_W  = 82    // px for the tail / type label column
+const LABEL_W  = 104   // px for the tail / type label column (includes photo)
 const TLINE_W  = SVG_W - LABEL_W  // usable timeline width
 const HEADER_H = 22   // px for tick labels
 const ROW_H    = 34   // px per aircraft row
@@ -250,6 +252,22 @@ export function FlightTimeline({ flights, impliedRepos = [], selectedId, onSelec
                   x2={SVG_W} y2={rowY}
                   stroke="#1e293b" strokeWidth="0.5"
                 />
+
+                {/* Aircraft photo thumbnail */}
+                {(() => {
+                  const ac = mockAircraft.find((a) => a.tailNumber === group.tail)
+                  const photo = getAircraftPhoto(ac?.makeModel || group.aircraftType || '')
+                  return photo ? (
+                    <image
+                      href={photo}
+                      x={2} y={rowY + 4}
+                      width={22} height={14}
+                      preserveAspectRatio="xMidYMid slice"
+                      clipPath={`inset(0 round 2px)`}
+                      opacity="0.7"
+                    />
+                  ) : null
+                })()}
 
                 {/* Tail label */}
                 <text
