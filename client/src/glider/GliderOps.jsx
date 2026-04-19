@@ -3583,6 +3583,7 @@ export function GliderOps() {
   const [squawkFormFor, setSquawkFormFor] = useState(null)
   const [adsbTowState, setAdsbTowState] = useState([])      // live tow plane state from ADS-B
   const [adsbLivePositions, setAdsbLivePositions] = useState([])  // all fleet live positions
+  const [adsbStatus, setAdsbStatus] = useState('connecting') // 'connecting' | 'live' | 'unavailable'
 
   useEffect(() => {
     setFlights(getAllFlights())
@@ -3591,9 +3592,14 @@ export function GliderOps() {
     const unsubSqk = subscribeSquawks(setSquawks)
     const unsubInv = subscribeInvoices(setInvoices)
     const unsubCli = subscribeClients(setClients)
-    const stopAdsb = pollAdsbState(({ towPlanes, livePositions }) => {
-      setAdsbTowState(towPlanes)
-      setAdsbLivePositions(livePositions)
+    const stopAdsb = pollAdsbState(({ towPlanes, livePositions, error }) => {
+      if (error) {
+        setAdsbStatus('unavailable')
+      } else {
+        setAdsbStatus('live')
+        setAdsbTowState(towPlanes)
+        setAdsbLivePositions(livePositions)
+      }
     })
     return () => { window.removeEventListener('flightsafe:scheduled', handler); unsubSqk(); unsubInv(); unsubCli(); stopAdsb() }
   }, [])
@@ -3753,53 +3759,58 @@ export function GliderOps() {
         <div className="flex flex-col gap-6">
           <WeatherBar />
 
-          {/* Live ADS-B tow plane status strip */}
-          {adsbTowState.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {adsbTowState.map((tp) => {
-                const phaseLabel = { climbing_on_tow: 'Climbing', descending: 'Descending', on_ground: 'On ground', taxiing: 'Taxiing' }
-                const phaseBg = { climbing_on_tow: 'bg-sky-500/15 border-sky-500/30', descending: 'bg-amber-500/15 border-amber-500/30', on_ground: 'bg-slate-500/15 border-slate-500/30', taxiing: 'bg-slate-500/15 border-slate-500/30' }
-                const phaseText = { climbing_on_tow: 'text-sky-400', descending: 'text-amber-400', on_ground: 'text-slate-400', taxiing: 'text-slate-400' }
-                return (
-                  <div key={tp.icao} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${phaseBg[tp.phase] ?? 'bg-slate-500/15 border-slate-500/30'}`}>
-                    <span className={`inline-block w-1.5 h-1.5 rounded-full ${tp.phase === 'climbing_on_tow' || tp.phase === 'descending' ? 'bg-current animate-pulse' : 'bg-current'} ${phaseText[tp.phase] ?? 'text-slate-400'}`} />
-                    <span className="text-xs font-mono font-bold text-slate-200">{tp.tail}</span>
-                    <span className={`text-[10px] font-semibold ${phaseText[tp.phase] ?? 'text-slate-400'}`}>
-                      {phaseLabel[tp.phase] ?? tp.phase}
-                    </span>
-                    {tp.current_alt_ft != null && (
-                      <span className="text-[10px] text-slate-400">{tp.current_alt_ft.toLocaleString()} ft</span>
-                    )}
-                    {tp.climb_rate_fpm != null && tp.phase === 'climbing_on_tow' && (
-                      <span className="text-[10px] text-sky-400">{tp.climb_rate_fpm} fpm</span>
-                    )}
-                    {tp.est_available_ts && (
-                      <span className="text-[10px] text-green-400">
-                        avail {new Date(tp.est_available_ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    )}
-                  </div>
-                )
-              })}
+          {/* ── ADS-B Live Status ── */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Status indicator — always visible */}
+            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[10px] font-semibold ${
+              adsbStatus === 'live' ? 'border-green-500/30 bg-green-500/10 text-green-400'
+              : adsbStatus === 'connecting' ? 'border-slate-500/30 bg-slate-500/10 text-slate-400'
+              : 'border-red-500/30 bg-red-500/10 text-red-400'
+            }`}>
+              <span className={`inline-block w-1.5 h-1.5 rounded-full bg-current ${adsbStatus === 'connecting' ? 'animate-pulse' : ''}`} />
+              {adsbStatus === 'live' ? 'ADS-B' : adsbStatus === 'connecting' ? 'ADS-B connecting' : 'ADS-B unavailable'}
             </div>
-          )}
 
-          {/* Live ADS-B gliders aloft */}
-          {(() => {
-            const glidersAloft = adsbLivePositions
-              .filter((ac) => ac.is_glider && ac.alt_ft > 5488) // >200 ft AGL
-              .map((ac) => ({ ...ac, ret: estimateGliderReturn(ac) }))
-            if (glidersAloft.length === 0) return null
-            return (
-              <div className="flex flex-wrap gap-2">
-                {glidersAloft.map((ac) => (
+            {/* Tow plane pills */}
+            {adsbTowState.map((tp) => {
+              const phaseLabel = { climbing_on_tow: 'Climbing', descending: 'Descending', on_ground: 'On ground', taxiing: 'Taxiing' }
+              const phaseBg = { climbing_on_tow: 'bg-sky-500/15 border-sky-500/30', descending: 'bg-amber-500/15 border-amber-500/30', on_ground: 'bg-slate-500/15 border-slate-500/30', taxiing: 'bg-slate-500/15 border-slate-500/30' }
+              const phaseText = { climbing_on_tow: 'text-sky-400', descending: 'text-amber-400', on_ground: 'text-slate-400', taxiing: 'text-slate-400' }
+              return (
+                <div key={tp.icao} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${phaseBg[tp.phase] ?? 'bg-slate-500/15 border-slate-500/30'}`}>
+                  <span className={`inline-block w-1.5 h-1.5 rounded-full bg-current ${tp.phase === 'climbing_on_tow' || tp.phase === 'descending' ? 'animate-pulse' : ''} ${phaseText[tp.phase] ?? 'text-slate-400'}`} />
+                  <span className="text-xs font-mono font-bold text-slate-200">{tp.tail}</span>
+                  <span className={`text-[10px] font-semibold ${phaseText[tp.phase] ?? 'text-slate-400'}`}>
+                    {phaseLabel[tp.phase] ?? tp.phase}
+                  </span>
+                  {tp.current_alt_ft != null && (
+                    <span className="text-[10px] text-slate-400">{tp.current_alt_ft.toLocaleString()} ft</span>
+                  )}
+                  {tp.climb_rate_fpm != null && tp.phase === 'climbing_on_tow' && (
+                    <span className="text-[10px] text-sky-400">{tp.climb_rate_fpm} fpm</span>
+                  )}
+                  {tp.est_available_ts && (
+                    <span className="text-[10px] text-green-400">
+                      avail {new Date(tp.est_available_ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+
+            {/* Gliders aloft */}
+            {adsbLivePositions
+              .filter((ac) => ac.is_glider && ac.alt_ft > 5488)
+              .map((ac) => {
+                const ret = estimateGliderReturn(ac)
+                return (
                   <div key={ac.icao} className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-violet-500/15 border-violet-500/30">
                     <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
                     <span className="text-xs font-mono font-bold text-slate-200">{ac.tail}</span>
                     <span className="text-[10px] text-violet-300">{ac.alt_ft.toLocaleString()} ft</span>
-                    {ac.ret && (
+                    {ret && (
                       <span className="text-[10px] text-slate-400">
-                        ~{ac.ret.estMinutes} min · {ac.ret.distNm} nm out
+                        ~{ret.estMinutes} min · {ret.distNm} nm out
                       </span>
                     )}
                     {ac.vs_fpm != null && ac.vs_fpm !== 0 && (
@@ -3808,10 +3819,14 @@ export function GliderOps() {
                       </span>
                     )}
                   </div>
-                ))}
-              </div>
-            )
-          })()}
+                )
+              })}
+
+            {/* No tow planes tracked message */}
+            {adsbStatus === 'live' && adsbTowState.length === 0 && (
+              <span className="text-[10px] text-slate-500">No tow planes reporting</span>
+            )}
+          </div>
 
           <div className="bg-surface-card border border-surface-border rounded-xl p-4">
             <TowViolinChart

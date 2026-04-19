@@ -125,9 +125,10 @@ export function pollAdsbState(onUpdate, interval = POLL_INTERVAL) {
         fetchActiveTow(),
         fetchLivePositions(),
       ])
-      if (active) onUpdate({ towPlanes, livePositions })
+      if (active) onUpdate({ towPlanes, livePositions, error: null })
     } catch (err) {
       console.warn('ADS-B poll failed:', err.message)
+      if (active) onUpdate({ towPlanes: [], livePositions: [], error: err.message })
     }
     if (active) setTimeout(tick, interval)
   }
