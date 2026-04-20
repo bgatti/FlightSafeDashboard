@@ -8,6 +8,7 @@ import { mockAircraft } from '../mocks/aircraft'
 import { mockPersonnel } from '../mocks/personnel'
 import { apiClient } from '../lib/apiClient'
 import { addServiceRequest, getServiceRequests, subscribeServiceRequests } from '../store/serviceRequests'
+import { pollAirportOps } from '../lib/adsbApi'
 import {
   computeRiskScore, defconLevel, defconClasses, defconLabel,
   riskWarnings, riskBreakdown, fuelConfusionRisk,
@@ -2005,6 +2006,127 @@ function NewServiceRequestModal({ open, onClose }) {
   )
 }
 
+// ─── ADS-B Airport Traffic Panel ─────────────────────────────────────────────
+
+const PHASE_STYLE = {
+  inbound:       { label: 'Inbound',       color: 'text-green-400',  bg: 'bg-green-500/10',  border: 'border-green-500/30', dot: 'bg-green-400' },
+  pattern:       { label: 'Pattern',       color: 'text-sky-400',    bg: 'bg-sky-500/10',    border: 'border-sky-500/30',   dot: 'bg-sky-400' },
+  practice_area: { label: 'Practice Area', color: 'text-violet-400', bg: 'bg-violet-500/10', border: 'border-violet-500/30',dot: 'bg-violet-400' },
+  departing:     { label: 'Departing',     color: 'text-amber-400',  bg: 'bg-amber-500/10',  border: 'border-amber-500/30', dot: 'bg-amber-400' },
+  on_ground:     { label: 'On Ground',     color: 'text-slate-400',  bg: 'bg-slate-500/10',  border: 'border-slate-500/30', dot: 'bg-slate-400' },
+  en_route:      { label: 'En Route',      color: 'text-green-300',  bg: 'bg-green-500/10',  border: 'border-green-500/30', dot: 'bg-green-300' },
+}
+
+function AirportTrafficPanel({ airportOps }) {
+  if (!airportOps) return (
+    <div className="rounded-lg border border-slate-700 bg-surface-card px-4 py-3">
+      <div className="flex items-center gap-2 text-xs text-slate-500">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-500 animate-pulse" />
+        ADS-B connecting...
+      </div>
+    </div>
+  )
+
+  if (airportOps.error) return (
+    <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
+      <div className="flex items-center gap-2 text-xs text-red-400">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-red-400" />
+        ADS-B unavailable
+      </div>
+    </div>
+  )
+
+  const { based, inbound, pattern, departing, practice_area, counts } = airportOps
+
+  function AcRow({ ac, showEta = false }) {
+    const style = PHASE_STYLE[ac.phase] ?? PHASE_STYLE.on_ground
+    const ageLbl = ac.data_age_s < 60 ? `${ac.data_age_s}s` : `${Math.round(ac.data_age_s / 60)}m`
+    return (
+      <div className="flex items-center gap-2 text-xs py-0.5">
+        <span className={`inline-block w-1.5 h-1.5 rounded-full ${style.dot} ${ac.phase === 'inbound' || ac.phase === 'pattern' ? 'animate-pulse' : ''}`} />
+        <span className="font-mono font-bold text-slate-200 w-16">{ac.tail ?? ac.icao}</span>
+        {ac.make_model && <span className="text-slate-500 truncate max-w-[120px]">{ac.icao_type ?? ''}</span>}
+        <span className="text-slate-400">{ac.dist_nm} nm {ac.compass}</span>
+        <span className="text-slate-400">{ac.alt_ft?.toLocaleString()} ft</span>
+        {ac.vs_fpm !== 0 && (
+          <span className={ac.vs_fpm > 0 ? 'text-green-400' : 'text-amber-400'}>
+            {ac.vs_fpm > 0 ? '+' : ''}{ac.vs_fpm}
+          </span>
+        )}
+        {showEta && ac.eta_min != null && (
+          <span className="text-green-400 font-semibold">ETA {ac.eta_min} min</span>
+        )}
+        {ac.is_based && (
+          <span className="text-[9px] px-1 py-0 rounded border border-sky-500/40 text-sky-400">{ac.operator}</span>
+        )}
+        <span className="text-slate-600 ml-auto">{ageLbl}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-lg border border-surface-border bg-surface-card px-4 py-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" />
+          <span className="text-xs font-semibold text-slate-200">ADS-B Airport Traffic — KBDU</span>
+        </div>
+        <div className="flex items-center gap-3 text-[10px] text-slate-500">
+          <span>{counts.inbound ?? 0} inbound</span>
+          <span>{counts.pattern ?? 0} pattern</span>
+          <span>{counts.practice_area ?? 0} practice</span>
+          <span>{counts.departing ?? 0} departing</span>
+          <span className="text-slate-600">{counts.total_tracked ?? 0} total tracked</span>
+        </div>
+      </div>
+
+      {/* Inbound — most important */}
+      {inbound.length > 0 && (
+        <div>
+          <div className="text-[10px] text-green-400 font-semibold uppercase tracking-wide mb-1">Inbound ({inbound.length})</div>
+          {inbound.map((ac) => <AcRow key={ac.icao} ac={ac} showEta />)}
+        </div>
+      )}
+
+      {/* Pattern */}
+      {pattern.length > 0 && (
+        <div>
+          <div className="text-[10px] text-sky-400 font-semibold uppercase tracking-wide mb-1">In Pattern ({pattern.length})</div>
+          {pattern.map((ac) => <AcRow key={ac.icao} ac={ac} />)}
+        </div>
+      )}
+
+      {/* Practice area */}
+      {practice_area.length > 0 && (
+        <div>
+          <div className="text-[10px] text-violet-400 font-semibold uppercase tracking-wide mb-1">Practice Area ({practice_area.length})</div>
+          {practice_area.map((ac) => <AcRow key={ac.icao} ac={ac} />)}
+        </div>
+      )}
+
+      {/* Departing */}
+      {departing.length > 0 && (
+        <div>
+          <div className="text-[10px] text-amber-400 font-semibold uppercase tracking-wide mb-1">Departing ({departing.length})</div>
+          {departing.map((ac) => <AcRow key={ac.icao} ac={ac} />)}
+        </div>
+      )}
+
+      {/* Based on ground */}
+      {based.length > 0 && (
+        <div>
+          <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wide mb-1">Fleet on Ground ({based.length})</div>
+          {based.map((ac) => <AcRow key={ac.icao} ac={ac} />)}
+        </div>
+      )}
+
+      {inbound.length === 0 && pattern.length === 0 && based.length === 0 && (
+        <div className="text-xs text-slate-500 italic">No fleet aircraft reporting</div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main FBO Component ───────────────────────────────────────────────────────
 
 const TABS = ['overview', 'aircraft_ops', 'services', 'fees', 'staff_safety']
@@ -2019,6 +2141,7 @@ const TAB_LABELS = {
 export function FBO() {
   const [tab, setTab] = useState('overview')
   const [showNewRequest, setShowNewRequest] = useState(false)
+  const [airportOps, setAirportOps] = useState(null)
 
   const simState       = useSimBroadcast()
   const mockOrders     = useMemo(() => mockServiceOrders.map(enrichOrder), [])
@@ -2026,6 +2149,9 @@ export function FBO() {
   // Subscribe to live service requests from the API store
   const [liveRequests, setLiveRequests] = useState(() => getServiceRequests())
   useEffect(() => subscribeServiceRequests(setLiveRequests), [])
+
+  // Poll ADS-B airport ops
+  useEffect(() => pollAirportOps(setAirportOps), [])
 
   // Convert API service requests → FBO order shape for enrichOrder
   const liveOrders = useMemo(() => {
@@ -2120,16 +2246,22 @@ export function FBO() {
       {/* Tab content */}
       <div>
         {tab === 'overview' && (
-          <OverviewTab
-            enrichedOrders={enrichedOrders}
-            enrichedArrivals={enrichedArrivals}
-            enrichedDepartures={enrichedDepartures}
-            pendingCrossModule={pendingCrossModule}
-            simState={simState}
-          />
+          <div className="space-y-4">
+            <AirportTrafficPanel airportOps={airportOps} />
+            <OverviewTab
+              enrichedOrders={enrichedOrders}
+              enrichedArrivals={enrichedArrivals}
+              enrichedDepartures={enrichedDepartures}
+              pendingCrossModule={pendingCrossModule}
+              simState={simState}
+            />
+          </div>
         )}
         {tab === 'aircraft_ops' && (
-          <AircraftOpsTab enrichedArrivals={enrichedArrivals} enrichedDepartures={enrichedDepartures} />
+          <div className="space-y-4">
+            <AirportTrafficPanel airportOps={airportOps} />
+            <AircraftOpsTab enrichedArrivals={enrichedArrivals} enrichedDepartures={enrichedDepartures} />
+          </div>
         )}
         {tab === 'services' && <ServicesTab enrichedOrders={enrichedOrders} />}
         {tab === 'fees' && <FeesTab />}

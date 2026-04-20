@@ -13,6 +13,34 @@ export async function fetchActiveTow() {
   return data.tow_planes || []
 }
 
+/** Airport operations: based aircraft, inbound, pattern, departing, practice area */
+export async function fetchAirportOps() {
+  const { data } = await apiClient.get('/adsb/airport-ops')
+  return data
+}
+
+/**
+ * Poll airport ops. Returns cleanup function.
+ * @param {(ops: object) => void} onUpdate
+ * @param {number} [interval]
+ */
+export function pollAirportOps(onUpdate, interval = 5_000) {
+  let active = true
+  async function tick() {
+    if (!active) return
+    try {
+      const ops = await fetchAirportOps()
+      if (active) onUpdate({ ...ops, error: null })
+    } catch (err) {
+      console.warn('ADS-B airport-ops poll failed:', err.message)
+      if (active) onUpdate({ based: [], inbound: [], pattern: [], departing: [], practice_area: [], counts: {}, error: err.message })
+    }
+    if (active) setTimeout(tick, interval)
+  }
+  tick()
+  return () => { active = false }
+}
+
 /** Full track + phases for one aircraft */
 export async function fetchTrack(icao, since) {
   const params = since ? { since } : {}
