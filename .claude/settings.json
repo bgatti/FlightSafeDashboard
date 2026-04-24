@@ -45,7 +45,9 @@
       "Bash(MSYS_NO_PATHCONV=1 railway up --detach)",
       "Bash(curl -s \"https://flightsafe-production.up.railway.app/assets/index-DiQluDws.js\")",
       "Bash(grep -oE '.{0,20}ADS-B.{0,20}')",
-      "Bash(curl -s \"https://flightsafe-production.up.railway.app/api/adsb/fleet\")"
+      "Bash(curl -s \"https://flightsafe-production.up.railway.app/api/adsb/fleet\")",
+      "Bash(node -e \"const d=require\\('fs'\\).readFileSync\\(0,'utf8'\\); JSON.parse\\(d\\).aircraft.forEach\\(a => console.log\\(a.id, a.tail, a.icao, a.is_tow?'TOW':'', a.is_glider?'GLIDER':''\\)\\)\")",
+      "Bash(curl -s \"https://web-app-production-fedf.up.railway.app/api/aircraft-ops?base=KBDU\")"
     ]
   }
 }

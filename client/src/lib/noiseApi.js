@@ -41,12 +41,12 @@ export async function fetchMissions({ signal } = {}) {
 export async function fetchActiveExcursions({ hours = 48, include, signal } = {}) {
   const params = new URLSearchParams({ hours: String(hours) })
   if (include) params.set('include', Array.isArray(include) ? include.join(',') : include)
-  const res = await fetch(`${BASE}/api/offenses/active?${params}`, { signal })
+  const res = await fetch(`${BASE}/api/excursions/active?${params}`, { signal })
   if (!res.ok) throw new Error(`active ${res.status}`)
   return res.json()
 }
 
-export async function fetchOffenseSegments({ tail, hours = 24, lat, lng, limit, signal } = {}) {
+export async function fetchExcursionSegments({ tail, hours = 24, lat, lng, limit, signal } = {}) {
   const params = new URLSearchParams({ hours: String(hours) })
   if (tail) params.set('tail', tail)
   if (lat != null && lng != null) {
@@ -54,14 +54,14 @@ export async function fetchOffenseSegments({ tail, hours = 24, lat, lng, limit, 
     params.set('lon', String(lng))
   }
   if (limit) params.set('limit', String(limit))
-  const res = await fetch(`${BASE}/api/offenses/segments?${params}`, { signal })
+  const res = await fetch(`${BASE}/api/excursions/segments?${params}`, { signal })
   if (!res.ok) throw new Error(`segments ${res.status}`)
   return res.json()
 }
 
-/** Fetch ALL tracks near a point (offenses + clean overflights). */
+/** Fetch ALL tracks near a point (excursions + clean overflights). */
 export async function fetchNearbyTracks({ lat, lng, hours = 2, limit = 50, signal } = {}) {
-  return fetchOffenseSegments({ lat, lng, hours, limit, signal })
+  return fetchExcursionSegments({ lat, lng, hours, limit, signal })
 }
 
 /** Single combined boot call — active excursions + tracks in one request. */
@@ -69,7 +69,7 @@ export async function fetchBoot({ hours = 1, limit = 100, include, signal } = {}
   const params = new URLSearchParams({ hours: String(hours) })
   if (limit) params.set('limit', String(limit))
   if (include) params.set('include', Array.isArray(include) ? include.join(',') : include)
-  const res = await fetch(`${BASE}/api/offenses/boot?${params}`, { signal })
+  const res = await fetch(`${BASE}/api/excursions/boot?${params}`, { signal })
   if (!res.ok) throw new Error(`boot ${res.status}`)
   return res.json()
 }

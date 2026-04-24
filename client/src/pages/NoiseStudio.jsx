@@ -326,7 +326,7 @@ export function NoiseStudio() {
   const [hoverCard, setHoverCard] = useState(null) // { tail, x, y, lastSeenMs }
   const hoverHideRef = useRef(null)
 
-  // Nearby tracks (all overflights, not just offenses)
+  // Nearby tracks (all overflights, not just excursions)
   const [nearbyTracks, setNearbyTracks] = useState([])
 
   // Segments the user selected for the report (multiple allowed).
@@ -558,7 +558,7 @@ export function NoiseStudio() {
 
   /* ── segmentsByTail: derived from nearbyTracks (no extra fetches) ─ */
   useEffect(() => {
-    // Build segmentsByTail from nearbyTracks so the offense draw effect
+    // Build segmentsByTail from nearbyTracks so the excursion list
     // can highlight tails that are in the active list. No per-tail API
     // calls — the nearby endpoint already returns everything we need.
     const map = {}
@@ -569,7 +569,7 @@ export function NoiseStudio() {
     setSegmentsByTail(map)
   }, [nearbyTracks, activeList])
 
-  /* ── Shared hover handler factory (used by offense + nearby draws) ─ */
+  /* ── Shared hover handler factory ──────────────────────────────── */
   const crosshairRef = useRef(null)
   const makeHoverHandlers = (tail, lastSeenMs, segInfo) => {
     // segInfo: { klass, zone, points, type }
@@ -649,7 +649,7 @@ export function NoiseStudio() {
     })
   }
 
-  /* ── (offense draw removed — nearby draw handles everything) ────── */
+  /* ── (single draw effect handles all tracks) ─────────────────────── */
 
   /* ── Auto-request location after a delay so the map renders first ── */
   useEffect(() => {
@@ -851,7 +851,7 @@ export function NoiseStudio() {
     return reportedSegKeys.has(`${tail}:${nearestPt[0]},${nearestPt[1]}`)
   }
 
-  /* ── Draw nearby tracks (clean + offense) with time-based opacity ── */
+  /* ── Draw all tracks with time-based opacity ──────────────────────── */
   useEffect(() => {
     console.log('[noise-report] draw nearby effect, tracks:', nearbyTracks.length)
     try {
@@ -870,11 +870,18 @@ export function NoiseStudio() {
       const lastPt = lastSeg?.points?.[lastSeg.points.length - 1]
       for (const seg of track.segments || []) {
         if (!seg.points || seg.points.length < 2) continue
-        const latlngs = seg.points.map((p) => [p[0], p[1]])
+        // Ensure points are chronological (old → new = direction of travel)
+        const pts = [...seg.points]
+        const firstTs = pts[0]?.[3]
+        const lastTs = pts[pts.length - 1]?.[3]
+        if (typeof firstTs === 'number' && typeof lastTs === 'number' && firstTs > lastTs) {
+          pts.reverse()
+        }
+        const latlngs = pts.map((p) => [p[0], p[1]])
 
         // Most recent timestamp in this segment → drives opacity
         let segLastMs = 0
-        for (const p of seg.points) {
+        for (const p of pts) {
           if (typeof p[3] === 'number' && p[3] > segLastMs) segLastMs = p[3]
         }
         const age = segLastMs ? (now - segLastMs) / WINDOW_MS : 0.5
@@ -884,10 +891,10 @@ export function NoiseStudio() {
         const midPt = seg.points[Math.floor(seg.points.length / 2)]
         const reported = isSegReported(track.tail, midPt)
 
-        const isOffense = !!seg.klass
-        const color = reported ? '#38bdf8' : isOffense ? (KLASS_COLORS[seg.klass] || '#aaa') : 'rgba(200,200,200,0.8)'
-        const weight = isOffense ? 5 : 3.5
-        const opacity = reported ? 0.9 : isOffense ? Math.max(0.3, timeOpacity) : timeOpacity
+        const isExcursion = !!seg.klass
+        const color = reported ? '#38bdf8' : isExcursion ? (KLASS_COLORS[seg.klass] || '#aaa') : 'rgba(200,200,200,0.8)'
+        const weight = isExcursion ? 5 : 3.5
+        const opacity = reported ? 0.9 : isExcursion ? Math.max(0.3, timeOpacity) : timeOpacity
 
         const line = L.polyline(latlngs, {
           color, weight, opacity,
@@ -906,7 +913,7 @@ export function NoiseStudio() {
         }
 
         const { showHover, hideHover, clickSelect } = makeHoverHandlers(track.tail, segLastMs || null, {
-          klass: seg.klass, zone: seg.zone, points: seg.points, type: track.type || '',
+          klass: seg.klass, zone: seg.zone, points: pts, type: track.type || '',
         })
         const hit = L.polyline(latlngs, {
           color: '#ffffff',
@@ -919,17 +926,31 @@ export function NoiseStudio() {
         hit.on('mouseout', hideHover)
         hit.on('click', clickSelect)
 
+        // Tag with first + last timestamps for time-scheduled animation
+        const segFirstMs = pts.find((p) => typeof p[3] === 'number')?.[3] || 0
+        line._segFirstMs = segFirstMs
         line._segLastMs = segLastMs || 0
         nearbyTracesRef.current.push(line, hit)
       }
 
       // Aircraft icons now managed by the live-positions poll effect.
     }
-    // Snake-draw animation for nearby tracks
-    const nearbyQueue = nearbyTracesRef.current.filter((p) => p._segLastMs != null)
-    nearbyQueue.sort((a, b) => (b._segLastMs || 0) - (a._segLastMs || 0))
-    for (let i = 0; i < nearbyQueue.length; i++) {
-      snakeDraw(nearbyQueue[i], 900, i * 150)
+    // Snake-draw animation: schedule each segment to appear based on its
+    // actual start time, compressed into a ~5 second animation window.
+    const nearbyQueue = nearbyTracesRef.current.filter((p) => p._segFirstMs != null)
+    if (nearbyQueue.length) {
+      const minTs = Math.min(...nearbyQueue.map((p) => p._segFirstMs))
+      const maxTs = Math.max(...nearbyQueue.map((p) => p._segLastMs || p._segFirstMs))
+      const span = maxTs - minTs || 1
+      const ANIM_WINDOW = 5000 // compress the 30-min span into 5 seconds
+      for (const line of nearbyQueue) {
+        // Delay = where this segment starts relative to the oldest, scaled to 5s
+        const delay = Math.round(((line._segFirstMs - minTs) / span) * ANIM_WINDOW)
+        // Duration proportional to segment length in time (min 300ms, max 2s)
+        const segSpan = (line._segLastMs || line._segFirstMs) - line._segFirstMs
+        const duration = Math.max(300, Math.min(2000, (segSpan / span) * ANIM_WINDOW))
+        snakeDraw(line, duration, delay)
+      }
     }
     if (areaRef.current) areaRef.current.bringToFront()
     } catch (err) {
@@ -1541,7 +1562,12 @@ export function NoiseStudio() {
           >
             <IconAlertTriangle size={14} />
             {reportSegments.length > 0
-              ? <>Report {reportSegments.length} Selected Segment{reportSegments.length > 1 ? 's' : ''}</>
+              ? (() => {
+                  const uniqueTails = new Set(reportSegments.map((s) => s.tail))
+                  const n = reportSegments.length
+                  const a = uniqueTails.size
+                  return <>Report {n} Segment{n > 1 ? 's' : ''} · {a} Aircraft</>
+                })()
               : 'Report Flight Noise'
             }
             <IconArrowRight size={14} />
@@ -2140,11 +2166,14 @@ function ReviewStep({ score, tier, tierColor, displayedLocation, audioUrl, video
   return (
     <>
       {/* Mini-map showing reported segments */}
-      {reportSegments?.length > 0 && (
+      {reportSegments?.length > 0 && (() => {
+        const uniqueTails = new Set(reportSegments.map((s) => s.tail))
+        return (
         <Card
-          title={`Reported Segment${reportSegments.length > 1 ? 's' : ''}`}
-          subtitle={`${reportSegments.length} flight segment${reportSegments.length > 1 ? 's' : ''} selected — tap × to remove`}
+          title={`${reportSegments.length} Segment${reportSegments.length > 1 ? 's' : ''} · ${uniqueTails.size} Aircraft`}
+          subtitle="Tap × to remove individual segments"
         >
+
           <SegmentsMiniMap segments={reportSegments} />
           <ul className="mt-2 space-y-1">
             {reportSegments.map((seg, i) => {
@@ -2171,7 +2200,8 @@ function ReviewStep({ score, tier, tierColor, displayedLocation, audioUrl, video
             })}
           </ul>
         </Card>
-      )}
+        )
+      })()}
       <Card title="Report Score" subtitle="Higher scores are prioritised for follow-up.">
         <div className="flex items-center gap-4">
           <div className="relative w-24 h-24 flex-shrink-0">
@@ -2205,7 +2235,7 @@ function ReviewStep({ score, tier, tierColor, displayedLocation, audioUrl, video
       </Card>
       <Card title="Summary">
         <dl className="space-y-2 text-xs">
-          <Row label="Segments" value={`${reportSegments?.length || 0} flight segment${(reportSegments?.length || 0) === 1 ? '' : 's'} selected`} />
+          <Row label="Segments" value={`${reportSegments?.length || 0} segments · ${new Set(reportSegments?.map((s) => s.tail)).size || 0} aircraft`} />
           <Row label="Audio" value={audioUrl ? '5-second clip captured' : 'None'} />
           <Row label="Video" value={videoUrl ? 'Clip captured' : 'None'} />
           <Row
